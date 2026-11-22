@@ -458,9 +458,8 @@ private struct CompactIslandView: View {
 
     private var standardContent: some View {
         HStack(spacing: 9) {
-            PixelAvatar(
+            ClaudeCodeMark(
                 mood: model.activeMood,
-                seed: model.sessions.first?.id.hashValue ?? 0,
                 size: 31,
                 reduceMotion: model.accessibility.reduceMotion
             )
@@ -505,11 +504,9 @@ private struct CompactIslandView: View {
     @ViewBuilder
     private var leadingWing: some View {
         if model.layoutSpec.showsAvatar {
-            PixelAvatar(
+            ClaudeCodeMark(
                 mood: model.activeMood,
-                seed: model.sessions.first?.id.hashValue ?? 0,
                 size: 17,
-                pixelUnit: 1.4,
                 reduceMotion: model.reducesMotion
             )
             .offset(x: 1.5)
@@ -1038,9 +1035,8 @@ private struct LiveDecisionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .center, spacing: 10) {
-                PixelAvatar(
+                ClaudeCodeMark(
                     mood: .waiting,
-                    seed: decision.id.hashValue,
                     size: 38,
                     reduceMotion: model.accessibility.reduceMotion
                 )
@@ -1180,12 +1176,10 @@ struct SessionRow: View {
 
     private var rowContent: some View {
         HStack(spacing: 8) {
-            PixelAvatar(
+            ClaudeCodeMark(
                 mood: session.mood,
-                seed: seed,
                 size: 34,
-                reduceMotion: reduceMotion,
-                palette: isClaudeSession ? .claudeOrange : .stateDriven
+                reduceMotion: reduceMotion
             )
 
             VStack(alignment: .leading, spacing: 3) {
@@ -1891,7 +1885,7 @@ private struct EmptySessionView: View {
 
     var body: some View {
         HStack(spacing: 11) {
-            PixelAvatar(mood: .idle, size: 34, reduceMotion: model.accessibility.reduceMotion)
+            ClaudeCodeMark(mood: .idle, size: 34, reduceMotion: model.accessibility.reduceMotion)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.system(size: 12, weight: .semibold))

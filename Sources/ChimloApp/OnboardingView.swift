@@ -214,9 +214,8 @@ private struct OnboardingStatusBand: View {
 
     private var status: some View {
         HStack(spacing: 5) {
-            PixelAvatar(
+            ClaudeCodeMark(
                 mood: statusMood,
-                seed: 7,
                 size: 20,
                 reduceMotion: model.accessibility.reduceMotion
             )
