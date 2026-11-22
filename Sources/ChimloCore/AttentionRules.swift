@@ -86,6 +86,7 @@ extension GitHubEvent {
         case .ciFailed: .githubCIFailed
         case .ciPassed: .githubCIPassed
         case .merged: .githubMerged
+        case .mergeConflict: .githubMergeConflict
         case .closed: nil
         }
     }

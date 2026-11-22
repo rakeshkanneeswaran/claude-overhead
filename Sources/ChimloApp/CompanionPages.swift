@@ -130,7 +130,7 @@ private struct OverviewPage: View {
     }
 
     private var failingPRs: Int {
-        github.repositories.flatMap(\.pullRequests).filter { $0.ciState == .failure }.count
+        github.snapshots.flatMap(\.pullRequests).filter { $0.ciState == .failure }.count
     }
 }
 
@@ -905,71 +905,6 @@ private struct CacheRow: View {
 
 // MARK: - GitHub
 
-private struct GitHubPage: View {
-    @EnvironmentObject private var github: GitHubModel
-    @EnvironmentObject private var settings: SettingsModel
-    @Environment(\.overheadPalette) private var palette
-    @State private var onlyMine = false
-
-    var body: some View {
-        PageScaffold(title: "GitHub", subtitle: "Pull requests and Actions for the repositories Claude works in.") {
-            GitHubConnectionCard()
-            if github.connection.isConnected {
-                if !github.reviewRequests.isEmpty {
-                    Card("Review requested from you") {
-                        ForEach(github.reviewRequests) { pr in PullRequestLine(pr: pr) }
-                    }
-                }
-                if !github.foldersAwaitingAccess.isEmpty {
-                    Card("Projects in protected folders") {
-                        Text("\(github.foldersAwaitingAccess.count) project folders are in Documents, Desktop, Downloads or iCloud Drive. Overhead reads their git remotes only when you ask, because macOS will ask you first.")
-                            .font(.system(size: 12)).foregroundStyle(palette.textSecondary)
-                        Button("Look for repositories there") { github.readProtectedFolders() }
-                    }
-                }
-                Toggle("Only my pull requests", isOn: $onlyMine).toggleStyle(.checkbox)
-                if github.repositories.isEmpty {
-                    EmptyStateView(symbol: "arrow.triangle.pull", title: "No GitHub repositories found",
-                                   message: "Repositories are discovered from the folders Claude Code works in. Only github.com remotes are supported.")
-                }
-                ForEach(github.repositories) { repository in
-                    Card(repository.remote.fullName, trailing: AnyView(Button("Open") {
-                        if let url = repository.remote.webURL?.absoluteString { GitHubModel.openWebPage(url) }
-                    }.controlSize(.small))) {
-                        if let problem = repository.problem {
-                            Text(problem).font(.system(size: 11)).foregroundStyle(palette.warning)
-                        }
-                        let prs = repository.pullRequests.filter { !onlyMine || $0.author == github.viewerLogin }
-                        if settings.settings.github.trackPullRequests {
-                            Text("Open pull requests").font(.system(size: 11, weight: .semibold)).foregroundStyle(palette.textTertiary)
-                            if prs.isEmpty {
-                                Text("None").font(.system(size: 12)).foregroundStyle(palette.textSecondary)
-                            }
-                            ForEach(prs.prefix(15)) { pr in PullRequestLine(pr: pr) }
-                        }
-                        if settings.settings.github.monitorActions, !repository.runs.isEmpty {
-                            Text("Recent Actions runs").font(.system(size: 11, weight: .semibold)).foregroundStyle(palette.textTertiary)
-                            ForEach(repository.runs.prefix(8)) { run in RunLine(run: run) }
-                        }
-                    }
-                }
-                HStack {
-                    if let refreshed = github.lastRefresh {
-                        Text("Updated \(CompanionFormat.relative(refreshed))")
-                    }
-                    if let remaining = github.rateLimit?.remaining {
-                        Text("· \(remaining) API requests left this hour")
-                    }
-                    Spacer()
-                    Button("Refresh now") { github.refreshNow() }.disabled(github.isRefreshing)
-                }
-                .font(.system(size: 11))
-                .foregroundStyle(palette.textTertiary)
-            }
-        }
-    }
-}
-
 struct GitHubConnectionCard: View {
     @EnvironmentObject private var github: GitHubModel
     @EnvironmentObject private var settings: SettingsModel
@@ -1032,7 +967,7 @@ struct GitHubConnectionCard: View {
     }
 }
 
-private struct PullRequestLine: View {
+struct PullRequestLine: View {
     let pr: GitHubPullRequest
     @Environment(\.overheadPalette) private var palette
 
@@ -1054,7 +989,7 @@ private struct PullRequestLine: View {
     }
 }
 
-private struct RunLine: View {
+struct RunLine: View {
     let run: GitHubWorkflowRun
     @Environment(\.overheadPalette) private var palette
 
@@ -1076,7 +1011,7 @@ private struct RunLine: View {
     }
 }
 
-private struct CIBadge: View {
+struct CIBadge: View {
     let state: CIState
     @Environment(\.overheadPalette) private var palette
 
@@ -1093,7 +1028,7 @@ private struct CIBadge: View {
     }
 }
 
-private struct ReviewBadge: View {
+struct ReviewBadge: View {
     let state: GitHubReviewState
     @Environment(\.overheadPalette) private var palette
 

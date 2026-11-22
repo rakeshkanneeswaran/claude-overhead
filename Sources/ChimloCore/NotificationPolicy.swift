@@ -39,18 +39,25 @@ public enum OverheadEventKind: String, Codable, Sendable, CaseIterable {
     case githubApproved
     case githubMerged
     case githubNewComments
+    case githubWorkflowFailed
+    case githubWorkflowSucceeded
+    case githubWorkflowStarted
+    case githubMergeConflict
 
-    /// GitHub events never outrank informational: they matter, but none of
-    /// them blocks the Claude session in front of the user.
+    /// GitHub failures, requested changes and merge conflicts are critical:
+    /// they need the owner. They still never force the notch open or take the
+    /// place of Claude's own permission requests and questions (see
+    /// `NotificationPolicy`), because none of them blocks the Claude session.
     public var priority: NotificationPriority {
         switch self {
-        case .permissionRequested, .questionAsked, .sessionFailed, .integrationError:
+        case .permissionRequested, .questionAsked, .sessionFailed, .integrationError,
+             .githubWorkflowFailed, .githubCIFailed, .githubChangesRequested, .githubMergeConflict:
             .critical
         case .sessionCompleted, .agentCompleted, .contextWarning, .usageWarning,
-             .githubCIFailed, .githubReviewRequested, .githubChangesRequested,
-             .githubApproved, .githubMerged:
+             .githubReviewRequested, .githubApproved, .githubMerged, .githubWorkflowSucceeded,
+             .githubCIPassed, .githubNewComments:
             .informational
-        case .sessionStarted, .activity, .githubCIPassed, .githubNewComments:
+        case .sessionStarted, .activity, .githubWorkflowStarted:
             .ambient
         }
     }
@@ -67,20 +74,25 @@ public enum OverheadEventKind: String, Codable, Sendable, CaseIterable {
         case .usageWarning: "Usage limit approaching"
         case .sessionStarted: "Session started"
         case .activity: "Activity"
-        case .githubCIFailed: "CI failed"
-        case .githubCIPassed: "CI passed"
+        case .githubCIFailed: "Pull request checks failed"
+        case .githubCIPassed: "Pull request checks passed"
         case .githubReviewRequested: "Review requested"
         case .githubChangesRequested: "Changes requested"
         case .githubApproved: "Pull request approved"
         case .githubMerged: "Pull request merged"
         case .githubNewComments: "New comments"
+        case .githubWorkflowFailed: "Workflow failed"
+        case .githubWorkflowSucceeded: "Workflow succeeded"
+        case .githubWorkflowStarted: "Workflow started"
+        case .githubMergeConflict: "Merge conflict"
         }
     }
 
     public var isGitHub: Bool {
         switch self {
         case .githubCIFailed, .githubCIPassed, .githubReviewRequested, .githubChangesRequested,
-             .githubApproved, .githubMerged, .githubNewComments:
+             .githubApproved, .githubMerged, .githubNewComments, .githubWorkflowFailed,
+             .githubWorkflowSucceeded, .githubWorkflowStarted, .githubMergeConflict:
             true
         default:
             false
@@ -98,7 +110,10 @@ public enum OverheadEventKind: String, Codable, Sendable, CaseIterable {
     }
 
     var isGitHubActions: Bool {
-        self == .githubCIFailed || self == .githubCIPassed
+        switch self {
+        case .githubCIFailed, .githubCIPassed, .githubWorkflowFailed, .githubWorkflowSucceeded, .githubWorkflowStarted: true
+        default: false
+        }
     }
 
     var isGitHubReview: Bool {
@@ -126,10 +141,14 @@ public struct EventPreference: Codable, Equatable, Sendable {
     /// Defaults per kind: critical events are on with sound; informational
     /// ones are on, but only a finished session makes a sound; ambient ones
     /// stay in the notch. GitHub starts with only the events that ask
-    /// something of the user (failed CI, review requested, changes requested).
+    /// something of the user (failed workflows and checks, review requested,
+    /// changes requested, merge conflicts).
     public static func defaultPreference(for kind: OverheadEventKind) -> EventPreference {
         if kind.isGitHub {
-            let wanted: Set<OverheadEventKind> = [.githubCIFailed, .githubReviewRequested, .githubChangesRequested]
+            let wanted: Set<OverheadEventKind> = [
+                .githubCIFailed, .githubReviewRequested, .githubChangesRequested,
+                .githubWorkflowFailed, .githubMergeConflict,
+            ]
             return EventPreference(enabled: wanted.contains(kind), sound: false, systemBanner: false)
         }
         switch kind.priority {
@@ -324,6 +343,10 @@ public struct DeliveryLedger: Sendable, Equatable {
 /// 5. Informational: shown, never expands; sound needs both its preference and
 ///    the global sound switch; banner follows its preference.
 /// 6. Critical: shown and expanded; sound as in 5; banner per its preference.
+///    GitHub's critical kinds are shown but never expand the notch: only
+///    Claude's own requests may open it, so a failed workflow can never cover
+///    a pending permission prompt. They use the 10-minute duplicate window,
+///    since their keys already name one run or pull request.
 /// 7. With `groupCompletions`, session and agent completions carry the group
 ///    key "completions".
 /// 8. GitHub kinds are suppressed entirely while GitHub is disabled, and when
@@ -361,7 +384,7 @@ public enum NotificationPolicy {
         // cannot swallow its own permission request.
         let ledgerKey = "\(kind.rawValue)|\(key)"
         if !key.isEmpty, let last = ledger.lastDelivery(of: ledgerKey) {
-            let window = kind.priority == .critical ? criticalDuplicateWindow : duplicateWindow
+            let window = kind.priority == .critical && !kind.isGitHub ? criticalDuplicateWindow : duplicateWindow
             let elapsed = context.now.timeIntervalSince(last)
             if elapsed >= 0, elapsed < window {
                 return .suppressed
@@ -397,7 +420,7 @@ public enum NotificationPolicy {
             let mutedByFocus = inFocus && settings.focus.muteSounds
             decision = NotificationDecision(
                 showInNotch: true,
-                expandNotch: true,
+                expandNotch: !kind.isGitHub,
                 playSound: soundAllowed && !mutedByFocus && !quietHours,
                 postSystemBanner: preference.systemBanner
             )

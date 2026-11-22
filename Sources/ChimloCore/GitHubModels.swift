@@ -210,6 +210,15 @@ public struct GitHubWorkflowRun: Codable, Equatable, Sendable, Identifiable {
     /// Wall time for completed runs (last update minus start). `nil` while the
     /// run is still going, since a stored value would immediately go stale.
     public var duration: TimeInterval?
+    /// The head commit's first line, when the run payload carries it.
+    public var commitMessage: String?
+    /// Who triggered the run.
+    public var actor: String?
+    /// The run's number within its workflow, as GitHub shows it ("#412").
+    public var runNumber: Int?
+    /// 1 for the first attempt; a re-run is a new attempt of the same run id.
+    public var runAttempt: Int?
+    public var workflowID: Int?
 
     public init(
         id: Int,
@@ -225,8 +234,18 @@ public struct GitHubWorkflowRun: Codable, Equatable, Sendable, Identifiable {
         updatedAt: Date?,
         url: String,
         ciState: CIState? = nil,
-        duration: TimeInterval? = nil
+        duration: TimeInterval? = nil,
+        commitMessage: String? = nil,
+        actor: String? = nil,
+        runNumber: Int? = nil,
+        runAttempt: Int? = nil,
+        workflowID: Int? = nil
     ) {
+        self.commitMessage = commitMessage
+        self.actor = actor
+        self.runNumber = runNumber
+        self.runAttempt = runAttempt
+        self.workflowID = workflowID
         self.id = id
         self.repository = repository
         self.name = name

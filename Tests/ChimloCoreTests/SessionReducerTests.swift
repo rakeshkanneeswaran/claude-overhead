@@ -139,6 +139,37 @@ struct SessionReducerTests {
         #expect(reducer.sessions["s1"]?.model == "claude-sonnet-5-5")
     }
 
+    @Test("Claude Code's own title survives hook events, which only know the folder")
+    func claudeTitleWins() {
+        var reducer = SessionReducer()
+        reducer.apply(event(sequence: 1, kind: .sessionStarted))
+        #expect(reducer.sessions["s1"]?.title == "A session", "a hook names a session that has no title yet")
+        reducer.merge(SessionCandidate(
+            id: "s1", agent: .claude, title: "MacBook app ideas", titleKind: .task,
+            detail: "Working", projectPath: "/Users/me/claude-overhead",
+            phase: .working, updatedAt: start.addingTimeInterval(2), evidence: .claudeTranscript
+        ))
+        #expect(reducer.sessions["s1"]?.title == "MacBook app ideas")
+        // Every later hook event carries the folder name as its title.
+        reducer.apply(event(sequence: 3, kind: .activity, detail: "Running a command"))
+        #expect(reducer.sessions["s1"]?.title == "MacBook app ideas")
+        #expect(reducer.sessions["s1"]?.titleKind == .task)
+        // Claude Code retitling the session is followed.
+        reducer.merge(SessionCandidate(
+            id: "s1", agent: .claude, title: "Claude Overhead notch app", titleKind: .task,
+            detail: "Working", phase: .working, updatedAt: start.addingTimeInterval(4), evidence: .claudeTranscript
+        ))
+        #expect(reducer.sessions["s1"]?.title == "Claude Overhead notch app")
+    }
+
+    @Test("A session titled by Claude Code shows that title exactly; a folder stand-in keeps its context")
+    func displayTitle() {
+        #expect(SessionTitle.display(title: "MacBook app ideas", kind: .task, projectPath: "/Users/me/claude-overhead") == "MacBook app ideas")
+        #expect(SessionTitle.display(title: "claude-overhead", kind: .workspace, projectPath: "/Users/me/claude-overhead") == "claude-overhead")
+        #expect(SessionTitle.display(title: "Claude session", kind: .workspace, projectPath: "/Users/me/api") == "api · Claude session")
+        #expect(SessionTitle.display(title: "Untitled session", kind: .workspace, projectPath: nil) == "Untitled session")
+    }
+
     @Test("The onboarding script is deterministic")
     func demoScriptIsDeterministic() {
         let first = DemoScript.make()

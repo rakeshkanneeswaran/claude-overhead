@@ -212,6 +212,7 @@ struct ShortcutTests {
         let expected: [ShortcutAction: UInt16] = [
             .togglePanel: 31, .showSessions: 1, .nextSession: 30, .previousSession: 33,
             .focusTerminal: 17, .openHistory: 4, .toggleFocusMode: 3, .openSettings: 43,
+            .toggleGitHubMode: 5,
         ]
         #expect(ShortcutDefaults.bindings.count == ShortcutAction.allCases.count)
         for action in ShortcutAction.allCases {

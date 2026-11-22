@@ -149,6 +149,39 @@ public struct GitHubPreferences: Codable, Equatable, Sendable {
     /// at most 60 so status never goes stale for longer than an hour.
     public var refreshMinutes: Int
 
+    /// Which repositories are monitored, and which one is focused.
+    public var selection: GitHubRepositorySelection
+
+    // GitHub Mode in the notch.
+    /// The GitHub button in the open notch.
+    public var showNotchButton: Bool
+    /// GitHub Mode itself: the button and the ⌃⌥G shortcut open it. Off hides
+    /// both and keeps GitHub to the companion window and notifications.
+    public var notchModeEnabled: Bool
+    public var showAccount: Bool
+    /// The repository name on rows and in the panel header.
+    public var showRepositoryInfo: Bool
+    /// Running workflows tint the GitHub button.
+    public var showRunningIndicator: Bool
+    /// Review requests, requested changes and conflicts tint the GitHub button.
+    public var showPullRequestIndicator: Bool
+    /// Failures and things waiting on you also show in the closed notch.
+    public var showInClosedNotch: Bool
+    public var defaultView: GitHubDefaultView
+    /// The tab open last time, for "Where I left off".
+    public var lastView: GitHubView
+    public var density: GitHubPanelDensity
+    /// Branch, commit, event and author lines on rows.
+    public var showDetailedMetadata: Bool
+
+    // Notifications and refresh.
+    /// Several notices of one kind from one repository arrive as one.
+    public var groupNotifications: Bool
+    /// Look again every 45 seconds while a workflow is running.
+    public var fastRefreshWhileRunning: Bool
+    /// Per repository, keyed by GitHub repository id. A missing entry is `.all`.
+    public var repositoryAlerts: [String: GitHubAlertLevel]
+
     public static let refreshRange: ClosedRange<Int> = 2...60
 
     public init(
@@ -156,17 +189,61 @@ public struct GitHubPreferences: Codable, Equatable, Sendable {
         trackPullRequests: Bool = true,
         monitorActions: Bool = true,
         reviewNotifications: Bool = true,
-        refreshMinutes: Int = 5
+        refreshMinutes: Int = 5,
+        selection: GitHubRepositorySelection = GitHubRepositorySelection(),
+        showNotchButton: Bool = true,
+        notchModeEnabled: Bool = true,
+        showAccount: Bool = true,
+        showRepositoryInfo: Bool = true,
+        showRunningIndicator: Bool = true,
+        showPullRequestIndicator: Bool = true,
+        showInClosedNotch: Bool = true,
+        defaultView: GitHubDefaultView = .overview,
+        lastView: GitHubView = .overview,
+        density: GitHubPanelDensity = .compact,
+        showDetailedMetadata: Bool = true,
+        groupNotifications: Bool = true,
+        fastRefreshWhileRunning: Bool = true,
+        repositoryAlerts: [String: GitHubAlertLevel] = [:]
     ) {
         self.enabled = enabled
         self.trackPullRequests = trackPullRequests
         self.monitorActions = monitorActions
         self.reviewNotifications = reviewNotifications
         self.refreshMinutes = refreshMinutes
+        self.selection = selection
+        self.showNotchButton = showNotchButton
+        self.notchModeEnabled = notchModeEnabled
+        self.showAccount = showAccount
+        self.showRepositoryInfo = showRepositoryInfo
+        self.showRunningIndicator = showRunningIndicator
+        self.showPullRequestIndicator = showPullRequestIndicator
+        self.showInClosedNotch = showInClosedNotch
+        self.defaultView = defaultView
+        self.lastView = lastView
+        self.density = density
+        self.showDetailedMetadata = showDetailedMetadata
+        self.groupNotifications = groupNotifications
+        self.fastRefreshWhileRunning = fastRefreshWhileRunning
+        self.repositoryAlerts = repositoryAlerts
     }
+
+    public func alertLevel(for repositoryID: Int64) -> GitHubAlertLevel {
+        repositoryAlerts[String(repositoryID)] ?? .all
+    }
+
+    public mutating func setAlertLevel(_ level: GitHubAlertLevel, for repositoryID: Int64) {
+        repositoryAlerts[String(repositoryID)] = level == .all ? nil : level
+    }
+
+    /// Whether the GitHub button belongs in the open notch.
+    public var showsNotchButton: Bool { enabled && notchModeEnabled && showNotchButton }
 
     private enum CodingKeys: String, CodingKey {
         case enabled, trackPullRequests, monitorActions, reviewNotifications, refreshMinutes
+        case selection, showNotchButton, notchModeEnabled, showAccount, showRepositoryInfo
+        case showRunningIndicator, showPullRequestIndicator, showInClosedNotch, defaultView, lastView
+        case density, showDetailedMetadata, groupNotifications, fastRefreshWhileRunning, repositoryAlerts
     }
 
     public init(from decoder: any Decoder) throws {
@@ -177,6 +254,23 @@ public struct GitHubPreferences: Codable, Equatable, Sendable {
         monitorActions = container.lenient(Bool.self, .monitorActions) ?? fallback.monitorActions
         reviewNotifications = container.lenient(Bool.self, .reviewNotifications) ?? fallback.reviewNotifications
         refreshMinutes = container.lenient(Int.self, .refreshMinutes) ?? fallback.refreshMinutes
+        selection = container.lenient(GitHubRepositorySelection.self, .selection) ?? fallback.selection
+        showNotchButton = container.lenient(Bool.self, .showNotchButton) ?? fallback.showNotchButton
+        notchModeEnabled = container.lenient(Bool.self, .notchModeEnabled) ?? fallback.notchModeEnabled
+        showAccount = container.lenient(Bool.self, .showAccount) ?? fallback.showAccount
+        showRepositoryInfo = container.lenient(Bool.self, .showRepositoryInfo) ?? fallback.showRepositoryInfo
+        showRunningIndicator = container.lenient(Bool.self, .showRunningIndicator) ?? fallback.showRunningIndicator
+        showPullRequestIndicator = container.lenient(Bool.self, .showPullRequestIndicator) ?? fallback.showPullRequestIndicator
+        showInClosedNotch = container.lenient(Bool.self, .showInClosedNotch) ?? fallback.showInClosedNotch
+        defaultView = container.lenient(GitHubDefaultView.self, .defaultView) ?? fallback.defaultView
+        lastView = container.lenient(GitHubView.self, .lastView) ?? fallback.lastView
+        density = container.lenient(GitHubPanelDensity.self, .density) ?? fallback.density
+        showDetailedMetadata = container.lenient(Bool.self, .showDetailedMetadata) ?? fallback.showDetailedMetadata
+        groupNotifications = container.lenient(Bool.self, .groupNotifications) ?? fallback.groupNotifications
+        fastRefreshWhileRunning = container.lenient(Bool.self, .fastRefreshWhileRunning) ?? fallback.fastRefreshWhileRunning
+        // Lenient per entry: an unknown level drops that entry, not the map.
+        let rawAlerts = container.lenient([String: String].self, .repositoryAlerts) ?? [:]
+        repositoryAlerts = rawAlerts.compactMapValues(GitHubAlertLevel.init(rawValue:))
     }
 }
 

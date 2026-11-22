@@ -10,6 +10,7 @@ public enum ShortcutAction: String, Codable, Sendable, CaseIterable, Identifiabl
     case openHistory
     case toggleFocusMode
     case openSettings
+    case toggleGitHubMode
 
     public var id: String { rawValue }
 
@@ -23,6 +24,7 @@ public enum ShortcutAction: String, Codable, Sendable, CaseIterable, Identifiabl
         case .openHistory: "Open history"
         case .toggleFocusMode: "Toggle Focus mode"
         case .openSettings: "Open settings"
+        case .toggleGitHubMode: "Toggle GitHub Mode"
         }
     }
 }
@@ -72,6 +74,7 @@ public enum VirtualKey {
     public static let h: UInt16 = 4
     public static let m: UInt16 = 46
     public static let o: UInt16 = 31
+    public static let g: UInt16 = 5
     public static let q: UInt16 = 12
     public static let t: UInt16 = 17
     public static let w: UInt16 = 13
@@ -140,6 +143,7 @@ public enum ShortcutDefaults {
         .openHistory: KeyCombo(keyCode: VirtualKey.h, modifiers: base),
         .toggleFocusMode: KeyCombo(keyCode: VirtualKey.f, modifiers: base),
         .openSettings: KeyCombo(keyCode: VirtualKey.comma, modifiers: base),
+        .toggleGitHubMode: KeyCombo(keyCode: VirtualKey.g, modifiers: base),
     ]
 
     private static let base: KeyModifiers = [.control, .option]

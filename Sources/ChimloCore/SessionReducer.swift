@@ -126,7 +126,11 @@ public struct SessionReducer: Sendable {
         }
 
         session.agent = event.agent
-        session.title = event.title ?? session.title
+        // A hook only knows the project folder. It may name a session that
+        // has no better title yet, but never replaces Claude Code's own title.
+        if let title = event.title, !title.isEmpty, session.titleKind == .workspace {
+            session.title = title
+        }
         session.detail = event.detail ?? session.detail
         session.model = event.model ?? session.model
         session.terminal = event.terminal ?? session.terminal

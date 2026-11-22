@@ -9,6 +9,8 @@ struct SessionDisplayModel: Identifiable, Equatable, Sendable {
     let id: String
     var agentName: String
     var title: String
+    /// `.task` once Claude Code has titled the session.
+    var titleKind: SessionTitleKind = .workspace
     var detail: String
     var mood: AvatarMood
     var isDemo: Bool
@@ -32,15 +34,9 @@ struct SessionDisplayModel: Identifiable, Equatable, Sendable {
         permission != nil || question != nil
     }
 
+    /// Claude Code's own session title, exactly, once it has one.
     var displayTitle: String {
-        guard let projectPath else { return title }
-        let workspace = URL(fileURLWithPath: projectPath).lastPathComponent
-        guard !workspace.isEmpty,
-              title.localizedCaseInsensitiveCompare(workspace) != .orderedSame,
-              !title.localizedCaseInsensitiveContains("\(workspace) ·") else {
-            return title
-        }
-        return "\(workspace) · \(title)"
+        SessionTitle.display(title: title, kind: titleKind, projectPath: projectPath)
     }
 
     var showsCompletedConversation: Bool {
@@ -177,6 +173,21 @@ enum PanelMode: Equatable, Sendable {
     case onboarding
 }
 
+/// What GitHub Mode needs from the services, pushed whenever GitHub data or
+/// GitHub settings change. The notch never talks to the network itself.
+struct GitHubNotchPresentation: Equatable {
+    /// GitHub is on and GitHub Mode is enabled.
+    var modeAvailable = false
+    var showsButton = false
+    var indicator: GitHubIndicator = .unavailable
+    var showsInClosedNotch = false
+    var density: GitHubPanelDensity = .compact
+    var defaultView: GitHubDefaultView = .overview
+    var showsAccount = true
+    var showsRepositoryInfo = true
+    var showsDetailedMetadata = true
+}
+
 enum OnboardingStep: Equatable, Sendable {
     case working
     case permission
@@ -187,7 +198,21 @@ enum OnboardingStep: Equatable, Sendable {
 @MainActor
 final class ApplicationModel: ObservableObject {
     @Published private(set) var sessions: [SessionDisplayModel] = []
-    @Published var panelMode: PanelMode = .compact
+    @Published var panelMode: PanelMode = .compact {
+        // A closed notch reopens on Claude. GitHub Mode keeps its tab and
+        // detail for the next time the owner enters it.
+        didSet { if panelMode == .compact, githubNavigation.content == .github { githubNavigation.returnToClaude() } }
+    }
+    /// GitHub Mode's place: tab, detail and filter. Separate from every
+    /// Claude property, so moving between the modes changes neither.
+    @Published var githubNavigation = GitHubNavigation()
+    @Published private(set) var github = GitHubNotchPresentation()
+    /// Called when the owner enters GitHub Mode, to mark activity as seen.
+    var onGitHubModeOpened: (() -> Void)?
+    /// Opens Settings on the GitHub pane; set by the services.
+    var openGitHubSettings: (() -> Void)?
+    /// Opens the companion window's GitHub page, optionally on one detail.
+    var openGitHubInCompanion: ((GitHubDetail?) -> Void)?
     @Published private(set) var onboardingStep: OnboardingStep = .working
     @Published private(set) var accessibility = AccessibilityEnvironment.current
     @Published private(set) var serverState: LocalServerState = .stopped
@@ -289,6 +314,11 @@ final class ApplicationModel: ObservableObject {
         switch panelMode {
         case .compact:
             return CGSize(width: islandLayout.compactWidth, height: islandLayout.compactHeight)
+        case .sessions where notchContent == .github:
+            return CGSize(
+                width: islandLayout.expandedWidth,
+                height: islandLayout.expandedContentTopInset + CGFloat(github.density.contentHeight)
+            )
         case .sessions:
             let responseTextWidth = max(1, islandLayout.expandedWidth - 56)
             let displayedRowHeights = displayedSessions.map { session in
@@ -524,6 +554,50 @@ final class ApplicationModel: ObservableObject {
     func openPanel() {
         cancelCollapse()
         panelMode = .sessions
+    }
+
+    /// What the open notch shows. Claude wins while it is blocked on the
+    /// owner, so a permission request or question is never hidden behind
+    /// GitHub; GitHub Mode's place is kept and comes back afterwards.
+    var notchContent: NotchContent {
+        githubNavigation.effectiveContent(
+            claudeNeedsOwner: hasActiveOwnerInteraction,
+            gitHubAvailable: github.modeAvailable
+        )
+    }
+
+    func updateGitHub(_ presentation: GitHubNotchPresentation) {
+        guard presentation != github else { return }
+        github = presentation
+        if !presentation.modeAvailable, githubNavigation.content == .github {
+            githubNavigation.returnToClaude()
+        }
+    }
+
+    /// The GitHub button and ⌃⌥G: open the notch on GitHub Mode, or go back
+    /// to Claude when GitHub Mode is already showing.
+    func toggleGitHubMode() {
+        guard github.modeAvailable else { return }
+        if panelMode != .sessions {
+            cancelCollapse()
+            panelMode = .sessions
+            githubNavigation.openGitHub(defaultView: github.defaultView)
+        } else {
+            githubNavigation.toggle(defaultView: github.defaultView)
+        }
+        if githubNavigation.content == .github { onGitHubModeOpened?() }
+    }
+
+    func showGitHub(_ view: GitHubView) {
+        githubNavigation.show(view)
+    }
+
+    func openGitHubDetail(_ detail: GitHubDetail) {
+        githubNavigation.open(detail)
+    }
+
+    func closeGitHubDetail() {
+        githubNavigation.closeDetail()
     }
 
     func collapsePanelFromOutsideClick() {
@@ -1306,6 +1380,7 @@ final class ApplicationModel: ObservableObject {
                 id: session.id,
                 agentName: Self.agentName(session.agent),
                 title: session.title,
+                titleKind: session.titleKind,
                 detail: session.detail,
                 mood: mood(for: session),
                 isDemo: isDemo,

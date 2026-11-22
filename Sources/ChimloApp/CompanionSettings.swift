@@ -574,36 +574,6 @@ private struct ContextUsagePane: View {
     }
 }
 
-// MARK: - GitHub
-
-private struct GitHubPane: View {
-    @EnvironmentObject private var settings: SettingsModel
-
-    var body: some View {
-        Form {
-            Section {
-                GitHubConnectionCard()
-                    .listRowInsets(EdgeInsets())
-            }
-            Section("Track") {
-                Toggle("Pull requests", isOn: settings.binding(\.github.trackPullRequests))
-                Toggle("GitHub Actions runs", isOn: settings.binding(\.github.monitorActions))
-                Toggle("Review requests and review changes", isOn: settings.binding(\.github.reviewNotifications))
-                Stepper(
-                    "Refresh every \(settings.settings.github.refreshMinutes) minutes",
-                    value: settings.binding(\.github.refreshMinutes),
-                    in: GitHubPreferences.refreshRange
-                )
-            }
-            .disabled(!settings.settings.github.enabled)
-            Section("Privacy") {
-                Text("Overhead signs in with the GitHub CLI (`gh auth token`) when it is installed, or with a token you save to the Keychain. It reads pull requests, reviews, checks and Actions runs for repositories found in your Claude project folders. It never writes to GitHub.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }
-    }
-}
-
 // MARK: - Focus
 
 private struct FocusPane: View {

@@ -44,6 +44,7 @@ final class ChimloAppDelegate: NSObject, NSApplicationDelegate {
         }
         let islandCoordinator = IslandWindowCoordinator(
             model: model,
+            github: services.github,
             openSettings: { [weak companion] in companion?.show(.settings) }
         )
         self.islandCoordinator = islandCoordinator

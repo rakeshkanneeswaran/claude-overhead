@@ -32,6 +32,27 @@ history and GitHub in one companion window.
 - **Works without a notch.** On external displays it shows as a small pill
   below the menu bar.
 
+### GitHub Mode
+
+Click the GitHub mark in the open notch (or press ⌃⌥G) and the notch shows
+what is happening to your code after it reaches GitHub. Click it again, or
+**‹ Claude**, to go back; neither mode loses its place.
+
+- **Overview:** open pull requests, running and failed workflows, reviews
+  waiting on you, and a short "needs you" list (failed workflows, merge
+  conflicts and requested changes on your PRs, review requests).
+- **Actions:** recent runs for the focused repository with branch, commit,
+  event, duration or live elapsed time. Open a run for its jobs, failed
+  steps, and a link to the log on github.com.
+- **Pull requests:** filter by open, draft, review requested, changes
+  requested, approved, CI failing, ready to merge or merged. Open one for its
+  description, size, reviews, checks and merge state.
+- **Repository switcher:** monitor as many repositories as you like, across
+  organizations, and switch the focused one from the notch.
+- The GitHub button carries a quiet dot: red for a failed workflow, amber when
+  something waits on you, blue while workflows run. A Claude permission
+  request or question always takes the notch first.
+
 ### In the companion window
 
 Open it from the gear button in the open notch, with the Open settings
@@ -53,8 +74,9 @@ shortcut (⌃⌥ and comma), or by opening the app again.
 - **Usage:** context per session against your thresholds, the 5-hour and
   weekly limits with reset countdowns, and prompt-cache hit rates with a
   warm/cold estimate.
-- **GitHub:** open PRs with CI and review state, Actions runs, and review
-  requests for the repositories Claude works in.
+- **GitHub:** the deeper version of GitHub Mode on the same data: overview,
+  repositories, Actions with jobs and steps, pull requests with full
+  descriptions, reviews and checks, and your review queue.
 - **Settings:** General, Personalization, Notch Layouts, Themes (Midnight,
   Graphite, Obsidian, Warm Amber, Arctic, Match System), Sessions,
   Notifications, Agents, Context & Usage, GitHub, Focus Mode, Shortcuts,
@@ -72,8 +94,8 @@ on.
 ### Global shortcuts
 
 Toggle the panel (⌃⌥O), show sessions (⌃⌥S), next and previous session (⌃⌥]
-and ⌃⌥[), focus the terminal (⌃⌥T), history (⌃⌥H), Focus mode (⌃⌥F) and
-settings (⌃⌥,). Every one can be changed. Conflicts with other actions and
+and ⌃⌥[), focus the terminal (⌃⌥T), history (⌃⌥H), Focus mode (⌃⌥F),
+settings (⌃⌥,) and GitHub Mode (⌃⌥G). Every one can be changed. Conflicts with other actions and
 with macOS shortcuts are detected, and shortcuts need no Accessibility
 permission.
 
@@ -84,6 +106,9 @@ permission.
   GitHub turned on, plus Claude Code's own usage check.
 - GitHub sign-in reuses the GitHub CLI (`gh auth token`). If you would rather
   paste a personal access token, it is stored only in the macOS Keychain.
+  Overhead only reads, and only the repositories you select in
+  **Settings → GitHub** (each stored by GitHub's numeric id). Workflow logs
+  are never downloaded; they open on github.com.
 - Session history is a summary per session in
   `~/Library/Application Support/Overhead/history/sessions.json`, readable
   only by you (mode 0600). By default it keeps your last prompt and Claude's
@@ -152,6 +177,9 @@ Claude Overhead is a fork of [Chimlo](https://github.com/kraten/chimlo) by
 Kartike Bansal, licensed under GPL-3.0. Chimlo built the notch island, the
 authenticated hook protocol, and the question and permission bridges this app
 is built on.
+
+The GitHub mark is GitHub's `mark-github` from Primer Octicons (MIT), used to
+link to GitHub as GitHub's logo guidelines allow.
 
 The Claude usage probe adapts code from CodexBar (MIT); see
 [Vendor/CodexBar/LICENSE](Vendor/CodexBar/LICENSE).

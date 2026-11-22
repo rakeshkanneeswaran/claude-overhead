@@ -120,9 +120,19 @@ struct OverheadSettingsTests {
             let preference = prefs.preference(for: kind)
             #expect(!preference.systemBanner, "\(kind) banner must be opt-in")
             if kind.isGitHub {
-                let wanted = kind == .githubCIFailed || kind == .githubReviewRequested || kind == .githubChangesRequested
-                #expect(preference.enabled == wanted, "\(kind)")
-                #expect(kind.priority < .critical)
+                let wanted: Set<OverheadEventKind> = [
+                    .githubCIFailed, .githubReviewRequested, .githubChangesRequested,
+                    .githubWorkflowFailed, .githubMergeConflict,
+                ]
+                #expect(preference.enabled == wanted.contains(kind), "\(kind)")
+                #expect(!preference.sound, "\(kind) starts silent")
+                // Failures, requested changes and conflicts need the owner;
+                // nothing else from GitHub is critical.
+                let critical: Set<OverheadEventKind> = [
+                    .githubWorkflowFailed, .githubCIFailed, .githubChangesRequested, .githubMergeConflict,
+                ]
+                #expect((kind.priority == .critical) == critical.contains(kind), "\(kind)")
+                #expect(!kind.blocksClaude, "\(kind)")
                 continue
             }
             #expect(preference.enabled, "\(kind)")

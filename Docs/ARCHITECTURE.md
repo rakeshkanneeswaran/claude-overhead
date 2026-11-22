@@ -36,8 +36,14 @@ without AppKit:
 - **Git and GitHub**: `GitRepositoryReader` runs `/usr/bin/git` with
   `--no-optional-locks` and fixed arguments (never a shell); `GitRemote`
   parses remotes; `GitHubClient` is a read-only REST client with ETag caching
-  and an injected transport; `GitHubEventDiff` turns snapshots into events.
-  Core does no networking itself.
+  and an injected transport; `GitHubEventDiff` and `GitHubRunEventDiff` turn
+  snapshots into events. Core does no networking itself.
+- **GitHub Mode** (`GitHubRepositories.swift`, `GitHubActivity.swift`,
+  `GitHubMode.swift`): `GitHubRepositorySelection` (a collection of GitHub
+  repository ids plus a focused id and an exclusion set), `GitHubOverview`,
+  `GitHubIndicator`, pull request filters, run status, per-repository alert
+  levels, notice grouping, the polling budget, and `GitHubNavigation`, which
+  keeps GitHub Mode's tab and detail apart from every Claude property.
 
 ## ChimloProtocol
 
@@ -61,6 +67,17 @@ focus.
   them: `SettingsModel` (the single owner of preferences), `AttentionRouter`
   (applies the notification policy, posts banners through `SystemNotifier`),
   `HistoryModel`, `GitHubModel`, Carbon global hot keys, and the login item.
+- `GitHubModel` is the single source of GitHub data for the notch, the
+  companion window and notifications. It polls only the selected
+  repositories: a parallel quick look (runs and the PR list) for anything new,
+  then a full pass with reviews and checks, every few minutes, and every 45
+  seconds for repositories with running workflows. A refresh is never
+  cancelled halfway; a change during one queues another pass. Jobs and pull
+  request details load only when opened.
+- GitHub Mode lives in the open notch (`IslandGitHubViews`,
+  `IslandGitHubDetails`). `ApplicationModel.notchContent` resolves to Claude
+  whenever Claude waits on the owner, so a permission request or question is
+  never hidden; GitHub's place is kept for afterwards.
 - `CompanionWindowCoordinator` hosts the companion window: Overview, Sessions,
   Projects, Agents, History, Usage, GitHub and Settings, styled by the active
   theme palette.
@@ -135,6 +152,9 @@ session remains open.
   Neither is logged, and `GitHubCredential` redacts itself in descriptions.
 - GitHub URLs from the API are opened only when they are `https` on
   github.com; repository metadata never runs as code or reaches a shell.
+- GitHub's critical events (failed workflow, failed checks, requested changes,
+  merge conflicts) show and may sound, but never expand the notch: only
+  Claude's own requests may open it. Workflow logs are never downloaded.
 - Git never runs in a macOS-protected folder (Documents, Desktop, Downloads,
   iCloud Drive, other volumes) until the owner asks (`FolderAccess`,
   `FolderAccessModel`). macOS's folder prompt blocks the git process until it

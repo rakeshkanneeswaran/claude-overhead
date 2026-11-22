@@ -7,6 +7,7 @@ private let expandedHorizontalGutter: CGFloat = 16
 
 struct IslandRootView: View {
     @ObservedObject var model: ApplicationModel
+    @ObservedObject var github: GitHubModel
     let openSettings: () -> Void
 
     var body: some View {
@@ -20,6 +21,18 @@ struct IslandRootView: View {
                         CompactIslandView(model: model)
                             .padding(.horizontal, model.islandLayout.hasCameraHousing ? 0 : 13)
                             .padding(.vertical, model.islandLayout.hasCameraHousing ? 0 : 5)
+                    case .sessions where model.notchContent == .github:
+                        if model.islandLayout.hasCameraHousing {
+                            ExpandedStatusBand(model: model, openSettings: openSettings)
+                        }
+                        GitHubNotchPanel(model: model, github: github)
+                            .padding(.horizontal, expandedHorizontalGutter)
+                            .padding(.top, model.islandLayout.hasCameraHousing ? model.islandLayout.expandedContentTopInset + 2 : 10)
+                            .padding(.bottom, 10)
+                            .frame(width: model.panelSize.width, height: model.panelSize.height, alignment: .top)
+                            .frame(width: islandGeometry.size.width, alignment: .center)
+                            .overlay(alignment: .topTrailing) { standaloneGitHubButton }
+                            .transition(.opacity)
                     case .sessions:
                         if model.islandLayout.hasCameraHousing {
                             ExpandedStatusBand(model: model, openSettings: openSettings)
@@ -40,6 +53,8 @@ struct IslandRootView: View {
                             .padding(.bottom, 10)
                             .frame(width: model.panelSize.width)
                             .frame(width: islandGeometry.size.width, alignment: .center)
+                            .overlay(alignment: .topTrailing) { standaloneGitHubButton }
+                            .transition(.opacity)
                     case .update:
                         if let presentation = model.updatePresentation {
                             UpdateReminderView(model: model, presentation: presentation)
@@ -74,6 +89,15 @@ struct IslandRootView: View {
         .ignoresSafeArea()
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Claude Overhead activity island")
+    }
+
+    /// Displays without a notch have no status band, so the GitHub button
+    /// sits in the panel's corner instead.
+    @ViewBuilder
+    private var standaloneGitHubButton: some View {
+        if !model.islandLayout.hasCameraHousing, model.github.showsButton {
+            GitHubNotchButton(model: model).padding(.trailing, 6).padding(.top, 2)
+        }
     }
 
     private var islandResizeAnimation: Animation? {
@@ -326,7 +350,9 @@ private struct ExpandedStatusBand: View {
 
                 HStack(spacing: 0) {
                     Group {
-                        if model.layoutSpec.expandedShowsUsage {
+                        if model.notchContent == .github {
+                            GitHubModeWing(model: model)
+                        } else if model.layoutSpec.expandedShowsUsage {
                             InlineCapacityView(model: model)
                         } else {
                             Color.clear
@@ -341,6 +367,9 @@ private struct ExpandedStatusBand: View {
                         .accessibilityHidden(true)
 
                     HStack(spacing: 0) {
+                        if model.github.showsButton {
+                            GitHubNotchButton(model: model)
+                        }
                         if let toggleFocusMode = model.toggleFocusMode {
                             Button(action: toggleFocusMode) {
                                 Image(systemName: model.isFocusModeActive ? "moon.fill" : "moon")

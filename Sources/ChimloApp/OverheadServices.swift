@@ -62,6 +62,7 @@ final class OverheadServices: ObservableObject {
         model.toggleFocusMode = { [weak self] in
             self?.settings.settings.focus.isOn.toggle()
         }
+        wireGitHub()
         settings.onChange = { [weak self] old, new in
             self?.apply(new, previous: old)
         }
@@ -104,12 +105,67 @@ final class OverheadServices: ObservableObject {
         history.stop()
     }
 
+    // MARK: GitHub
+
+    /// GitHub data flows one way: GitHubModel → this presentation → the
+    /// notch. The selection's single home is the settings; GitHubModel and
+    /// the settings pane both write it there.
+    private func wireGitHub() {
+        github.saveSelection = { [weak self] selection in
+            guard let self, settings.settings.github.selection != selection else { return }
+            settings.settings.github.selection = selection
+        }
+        model.githubNavigation.restore(view: settings.settings.github.lastView)
+        model.onGitHubModeOpened = { [weak self] in self?.github.markViewed() }
+        model.openGitHubSettings = { [weak self] in self?.openCompanion?(.settings, .github) }
+        model.openGitHubInCompanion = { [weak self] detail in
+            guard let self else { return }
+            github.companionRequest = detail
+            openCompanion?(.github, nil)
+        }
+        Publishers.MergeMany(
+            github.$snapshots.map { _ in () }.eraseToAnyPublisher(),
+            github.$connection.map { _ in () }.eraseToAnyPublisher(),
+            github.$reviewRequests.map { _ in () }.eraseToAnyPublisher(),
+            github.$lastViewed.map { _ in () }.eraseToAnyPublisher()
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] in self?.refreshGitHubPresentation() }
+        .store(in: &cancellables)
+        // Remember the tab for "Where I left off", across restarts.
+        model.$githubNavigation
+            .map(\.view)
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] view in
+                guard let self, settings.settings.github.lastView != view else { return }
+                settings.settings.github.lastView = view
+            }
+            .store(in: &cancellables)
+    }
+
+    private func refreshGitHubPresentation() {
+        let preferences = settings.settings.github
+        model.updateGitHub(GitHubNotchPresentation(
+            modeAvailable: preferences.enabled && preferences.notchModeEnabled,
+            showsButton: preferences.showsNotchButton,
+            indicator: github.indicator,
+            showsInClosedNotch: preferences.enabled && preferences.showInClosedNotch,
+            density: preferences.density,
+            defaultView: preferences.defaultView,
+            showsAccount: preferences.showAccount,
+            showsRepositoryInfo: preferences.showRepositoryInfo,
+            showsDetailedMetadata: preferences.showDetailedMetadata
+        ))
+    }
+
     // MARK: Settings
 
     private func apply(_ new: OverheadSettings, previous: OverheadSettings?) {
         model.applySettings(new)
         history.applySettings(new, previous: previous)
         github.apply(new.github)
+        refreshGitHubPresentation()
 
         if previous?.shortcuts != new.shortcuts || previous?.shortcutsEnabled != new.shortcutsEnabled {
             registerShortcuts(new)
@@ -188,6 +244,8 @@ final class OverheadServices: ObservableObject {
             openCompanion?(.history, nil)
         case .toggleFocusMode:
             settings.settings.focus.isOn.toggle()
+        case .toggleGitHubMode:
+            model.toggleGitHubMode()
         case .openSettings:
             openCompanion?(.settings, nil)
         }

@@ -65,12 +65,14 @@ public enum GitHubEvent: Equatable, Sendable, Hashable {
     case ciPassed(prID: String)
     case merged(prID: String)
     case closed(prID: String)
+    /// GitHub reports the pull request can no longer merge cleanly.
+    case mergeConflict(prID: String)
 
     public var prID: String {
         switch self {
         case .reviewRequested(let id), .changesRequested(let id), .approved(let id),
              .newComments(let id, _), .ciFailed(let id), .ciPassed(let id),
-             .merged(let id), .closed(let id):
+             .merged(let id), .closed(let id), .mergeConflict(let id):
             id
         }
     }
@@ -91,6 +93,7 @@ public enum GitHubEvent: Equatable, Sendable, Hashable {
         case .ciPassed: "ciPassed"
         case .merged: "merged"
         case .closed: "closed"
+        case .mergeConflict: "mergeConflict"
         }
     }
 }
@@ -139,6 +142,10 @@ public enum GitHubEventDiff {
                 } else if current.ciState == .success, ciPassSources.contains(before.ciState) {
                     events.append(.ciPassed(prID: id))
                 }
+            }
+
+            if current.mergeability == .conflicts, before.mergeability != .conflicts {
+                events.append(.mergeConflict(prID: id))
             }
 
             if let count = current.commentCount, let earlier = before.commentCount, count > earlier {

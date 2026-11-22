@@ -543,3 +543,137 @@ struct GitHubClientTests {
         #expect(!dumped.contains("ghp_test_token_value"))
     }
 }
+
+@Suite("GitHub client: repositories and details")
+struct GitHubClientDetailTests {
+    private let credential = GitHubCredential(token: "ghp_test_token_value", source: .personalAccessToken)
+    private let remote = GitRemote(host: "github.com", owner: "acme", name: "api")
+
+    private func client(_ fake: FakeGitHubTransport) -> GitHubClient {
+        GitHubClient(credential: credential, transport: fake.transport)
+    }
+
+    private func repositoryJSON(_ id: Int, owner: String = "acme", name: String) -> String {
+        #"{"id": \#(id), "name": "\#(name)", "full_name": "\#(owner)/\#(name)", "owner": {"login": "\#(owner)"}, "private": \#(id % 2 == 0), "default_branch": "main"}"#
+    }
+
+    @Test("The viewer's repositories decode with ids, owners and visibility, across pages")
+    func viewerRepositories() async throws {
+        let fake = FakeGitHubTransport()
+        let firstPage = (1...100).map { repositoryJSON($0, owner: $0 % 3 == 0 ? "globex" : "acme", name: "repo\($0)") }.joined(separator: ",")
+        fake.on("/user/repos", body: "[\(firstPage)]")
+        fake.on("/user/repos", body: "[\(repositoryJSON(101, name: "api")), {\"name\": \"no-id\"}]")
+        let repositories = try await client(fake).viewerRepositories()
+        #expect(repositories.count == 101, "an entry without an id is skipped")
+        #expect(repositories.last?.ref == GitHubRepoRef(id: 101, owner: "acme", name: "api", isPrivate: false))
+        #expect(repositories[2].ref.owner == "globex")
+        let pages = fake.requests(to: "/user/repos").compactMap { URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "page" }?.value }
+        #expect(pages == ["1", "2"])
+        let affiliation = fake.requests(to: "/user/repos").first?.url?.query ?? ""
+        #expect(affiliation.contains("organization_member"))
+    }
+
+    @Test("A repository can be fetched by its stable id")
+    func repositoryByID() async throws {
+        let fake = FakeGitHubTransport()
+        fake.on("/repositories/42", body: repositoryJSON(42, owner: "acme-inc", name: "renamed"))
+        let info = try await client(fake).repository(id: 42)
+        #expect(info.ref.fullName == "acme-inc/renamed")
+        #expect(info.defaultBranch == "main")
+        await #expect(throws: GitHubError.notFound) { try await client(fake).repository(id: 7) }
+    }
+
+    @Test("Jobs decode with their steps, and failed steps are picked out")
+    func jobs() async throws {
+        let fake = FakeGitHubTransport()
+        fake.on("/repos/acme/api/actions/runs/9/jobs", body: """
+        {"total_count": 2, "jobs": [
+          {"id": 1, "name": "build", "status": "completed", "conclusion": "success",
+           "started_at": "2027-01-15T08:00:00Z", "completed_at": "2027-01-15T08:02:30Z",
+           "html_url": "https://github.com/acme/api/actions/runs/9/job/1", "steps": []},
+          {"id": 2, "name": "test", "status": "completed", "conclusion": "failure",
+           "html_url": "https://github.com/acme/api/actions/runs/9/job/2",
+           "steps": [{"number": 1, "name": "Checkout", "status": "completed", "conclusion": "success"},
+                     {"number": 2, "name": "Run tests", "status": "completed", "conclusion": "failure"}]}
+        ]}
+        """)
+        let jobs = try await client(fake).workflowJobs(remote, runID: 9)
+        #expect(jobs.map(\.name) == ["build", "test"])
+        #expect(jobs[0].duration == 150)
+        #expect(jobs[1].runStatus == .failure)
+        #expect(jobs[1].failedSteps.map(\.name) == ["Run tests"])
+    }
+
+    @Test("Pull request detail carries size, description, reviews newest first, and checks")
+    func pullRequestDetail() async throws {
+        let fake = FakeGitHubTransport()
+        fake.on("/repos/acme/api/pulls/5", body: """
+        {"number": 5, "title": "Add limits", "html_url": "https://github.com/acme/api/pull/5",
+         "user": {"login": "alice"}, "state": "open", "draft": false, "merged": false,
+         "head": {"ref": "feature", "sha": "abc123", "repo": {"full_name": "acme/api"}},
+         "base": {"ref": "main", "repo": {"full_name": "acme/api"}},
+         "body": "Adds per-key limits.", "additions": 120, "deletions": 8, "changed_files": 4, "commits": 3,
+         "created_at": "2027-01-14T10:00:00Z", "mergeable_state": "clean", "comments": 1, "review_comments": 2}
+        """)
+        fake.on("/repos/acme/api/pulls/5/reviews", body: """
+        [{"user": {"login": "bob"}, "state": "COMMENTED", "submitted_at": "2027-01-14T11:00:00Z"},
+         {"user": {"login": "carol"}, "state": "APPROVED", "submitted_at": "2027-01-14T12:00:00Z"},
+         {"user": {"login": "dave"}, "state": "PENDING"}]
+        """)
+        fake.on("/repos/acme/api/commits/abc123/check-runs", body: """
+        {"total_count": 2, "check_runs": [
+          {"id": 1, "name": "lint", "status": "completed", "conclusion": "success", "html_url": "https://github.com/acme/api/runs/1"},
+          {"id": 2, "name": "test", "status": "in_progress", "conclusion": null}]}
+        """)
+        let detail = try await client(fake).pullRequestDetail(remote, number: 5)
+        #expect(detail.body == "Adds per-key limits.")
+        #expect(detail.additions == 120 && detail.deletions == 8 && detail.changedFiles == 4 && detail.commits == 3)
+        #expect(detail.reviews.map(\.author) == ["carol", "bob"], "pending reviews are not shown")
+        #expect(detail.pullRequest.reviewState == .approved)
+        #expect(detail.checks.map(\.name) == ["lint", "test"])
+        #expect(detail.pullRequest.ciState == .inProgress)
+        #expect(detail.pullRequest.mergeability == .ready)
+        #expect(detail.pullRequest.commentCount == 3)
+    }
+
+    @Test("Recently closed pull requests are asked for with state=closed and no extra lookups")
+    func recentlyClosed() async throws {
+        let fake = FakeGitHubTransport()
+        fake.on("/repos/acme/api/pulls", body: """
+        [{"number": 3, "title": "Old", "html_url": "https://github.com/acme/api/pull/3", "state": "closed",
+          "merged_at": "2027-01-10T10:00:00Z", "head": {"ref": "x"}, "base": {"ref": "main"}}]
+        """)
+        let closed = try await client(fake).recentlyClosedPullRequests(remote)
+        #expect(closed.first?.merged == true)
+        #expect(fake.requests.count == 1)
+        #expect(fake.requests.first?.url?.query?.contains("state=closed") == true)
+    }
+
+    @Test("A detail limit of zero skips every review and check lookup")
+    func detailLimitZero() async throws {
+        let fake = FakeGitHubTransport()
+        fake.on("/repos/acme/api/pulls", body: """
+        [{"number": 1, "title": "A", "html_url": "https://github.com/acme/api/pull/1", "state": "open",
+          "head": {"ref": "a", "sha": "s1"}, "base": {"ref": "main"}}]
+        """)
+        _ = try await client(fake).openPullRequests(remote, detailLimit: 0)
+        #expect(fake.requests.count == 1)
+    }
+
+    @Test("Workflow runs carry the commit's first line, the actor and the attempt")
+    func runExtras() async throws {
+        let fake = FakeGitHubTransport()
+        fake.on("/repos/acme/api/actions/runs", body: """
+        {"workflow_runs": [{"id": 11, "name": "CI", "status": "completed", "conclusion": "failure",
+          "head_branch": "main", "head_sha": "abcdef1234", "event": "push", "run_number": 412, "run_attempt": 2,
+          "workflow_id": 77, "html_url": "https://github.com/acme/api/actions/runs/11",
+          "head_commit": {"message": "Fix the limiter\\n\\nLonger body"}, "actor": {"login": "alice"}}]}
+        """)
+        let run = try #require(try await client(fake).workflowRuns(remote).first)
+        #expect(run.commitMessage == "Fix the limiter")
+        #expect(run.actor == "alice")
+        #expect(run.runNumber == 412 && run.runAttempt == 2 && run.workflowID == 77)
+        #expect(run.shortSha == "abcdef1")
+        #expect(run.runStatus == .failure)
+    }
+}

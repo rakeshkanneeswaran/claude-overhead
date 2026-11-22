@@ -15,6 +15,25 @@ public enum SessionTitleKind: Int, Codable, Comparable, Sendable {
     }
 }
 
+/// The name a session goes by in the notch and the companion window.
+public enum SessionTitle {
+    /// Once Claude Code has titled a session (its `ai-title`, the name the
+    /// editor's session list and `/resume` show), that title is used exactly,
+    /// with nothing added. Until then the project folder stands in, joined to
+    /// any other placeholder so two such sessions stay distinguishable.
+    public static func display(title: String, kind: SessionTitleKind, projectPath: String?) -> String {
+        if kind == .task { return title }
+        guard let projectPath else { return title }
+        let workspace = URL(fileURLWithPath: projectPath).lastPathComponent
+        guard !workspace.isEmpty,
+              title.localizedCaseInsensitiveCompare(workspace) != .orderedSame,
+              !title.localizedCaseInsensitiveContains("\(workspace) ·") else {
+            return title
+        }
+        return "\(workspace) · \(title)"
+    }
+}
+
 /// The local-session vocabulary shared by transcript discovery, process
 /// reconciliation, and persistence. Prompt and
 /// response previews are transient: Claude Overhead's registry deliberately omits them.

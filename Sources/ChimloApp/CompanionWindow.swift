@@ -46,6 +46,11 @@ final class CompanionNavigation: ObservableObject {
     @Published var selectedSessionID: String?
     @Published var selectedHistoryID: String?
     @Published var selectedProjectKey: String?
+
+    func show(_ section: CompanionSection, settingsPane: SettingsPane? = nil) {
+        if let settingsPane { self.settingsPane = settingsPane }
+        self.section = section
+    }
 }
 
 @MainActor

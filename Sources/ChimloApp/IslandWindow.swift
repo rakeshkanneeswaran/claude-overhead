@@ -90,6 +90,7 @@ private final class FullBleedHostingView<Content: View>: NSHostingView<Content> 
 @MainActor
 final class IslandWindowCoordinator {
     private let model: ApplicationModel
+    private let github: GitHubModel
     private let openSettings: () -> Void
     private let panel: IslandPanel
     private var cancellables: Set<AnyCancellable> = []
@@ -97,8 +98,9 @@ final class IslandWindowCoordinator {
     private var localPointerMonitor: Any?
     private var pointerInsideIntendedFrame = false
 
-    init(model: ApplicationModel, openSettings: @escaping () -> Void) {
+    init(model: ApplicationModel, github: GitHubModel, openSettings: @escaping () -> Void) {
         self.model = model
+        self.github = github
         self.openSettings = openSettings
         panel = IslandPanel(
             contentRect: .zero,
@@ -151,7 +153,7 @@ final class IslandWindowCoordinator {
         panel.animationBehavior = .none
         panel.ignoresMouseEvents = true
         let hostingView = FullBleedHostingView(
-            rootView: IslandRootView(model: model, openSettings: openSettings)
+            rootView: IslandRootView(model: model, github: github, openSettings: openSettings)
         )
         // AppKit owns one stable host window while SwiftUI animates the visible
         // island inside it. A Space switch can no longer capture a partially

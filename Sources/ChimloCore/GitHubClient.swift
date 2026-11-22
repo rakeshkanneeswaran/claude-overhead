@@ -60,7 +60,7 @@ public struct GitHubClient: Sendable {
 
     /// Open pull requests, most recently updated first (up to 30). The first
     /// `detailLimit` also get review and CI state.
-    public func openPullRequests(_ repo: GitRemote) async throws -> [GitHubPullRequest] {
+    public func openPullRequests(_ repo: GitRemote, detailLimit: Int = GitHubClient.detailLimit) async throws -> [GitHubPullRequest] {
         let pulls = try await get(
             ["repos", repo.owner, repo.name, "pulls"],
             query: [("state", "open"), ("sort", "updated"), ("direction", "desc"), ("per_page", "30")],
@@ -69,7 +69,7 @@ public struct GitHubClient: Sendable {
         var pullRequests = pulls.map { $0.pullRequest(fallbackRepository: repo.fullName) }
         // Sequential on purpose: GitHub's secondary rate limits penalize bursts
         // of concurrent requests from one token.
-        for index in pullRequests.indices.prefix(Self.detailLimit) {
+        for index in pullRequests.indices.prefix(max(0, detailLimit)) {
             pullRequests[index] = try await withReviewsAndChecks(pullRequests[index], in: repo)
         }
         return pullRequests
@@ -121,6 +121,105 @@ public struct GitHubClient: Sendable {
             as: SearchDTO.self
         )
         return response.items.compactMap { $0.model() }
+    }
+
+    // MARK: - Repositories
+
+    /// Repositories the viewer can read: their own, ones they collaborate on,
+    /// and their organizations', most recently pushed first. Pages of 100, at
+    /// most `maxPages` of them, so a huge organization cannot stall a refresh.
+    public func viewerRepositories(maxPages: Int = 5) async throws -> [GitHubRepositoryInfo] {
+        var results: [GitHubRepositoryInfo] = []
+        for page in 1...max(1, maxPages) {
+            let batch = try await get(
+                ["user", "repos"],
+                query: [
+                    ("per_page", "100"), ("page", String(page)), ("sort", "pushed"),
+                    ("affiliation", "owner,collaborator,organization_member"),
+                ],
+                as: [RepositoryDTO].self
+            )
+            results += batch.compactMap(\.info)
+            if batch.count < 100 { break }
+        }
+        return results
+    }
+
+    /// One repository by owner and name. GitHub follows renames here too.
+    public func repository(_ repo: GitRemote) async throws -> GitHubRepositoryInfo {
+        let dto = try await get(["repos", repo.owner, repo.name], as: RepositoryDTO.self)
+        guard let info = dto.info else { throw GitHubError.decoding("missing repository id") }
+        return info
+    }
+
+    /// One repository by its numeric id, which survives renames and transfers.
+    public func repository(id: Int64) async throws -> GitHubRepositoryInfo {
+        let dto = try await get(["repositories", String(id)], as: RepositoryDTO.self)
+        guard let info = dto.info else { throw GitHubError.decoding("missing repository id") }
+        return info
+    }
+
+    /// Recently merged or closed pull requests (no review or check lookups).
+    public func recentlyClosedPullRequests(_ repo: GitRemote, limit: Int = 10) async throws -> [GitHubPullRequest] {
+        let pulls = try await get(
+            ["repos", repo.owner, repo.name, "pulls"],
+            query: [("state", "closed"), ("sort", "updated"), ("direction", "desc"), ("per_page", String(min(max(limit, 1), 30)))],
+            as: [PullRequestDTO].self
+        )
+        return pulls.map { $0.pullRequest(fallbackRepository: repo.fullName) }
+    }
+
+    // MARK: - On-demand detail
+
+    /// The jobs of one run, with their steps. Fetched when the owner opens a
+    /// run; logs are not downloaded (GitHub serves them from another host and
+    /// they can be very large), so each job links to its page instead.
+    public func workflowJobs(_ repo: GitRemote, runID: Int) async throws -> [GitHubWorkflowJob] {
+        let response = try await get(
+            ["repos", repo.owner, repo.name, "actions", "runs", String(runID), "jobs"],
+            query: [("per_page", "100")],
+            as: JobsDTO.self
+        )
+        return response.jobs.map(\.job)
+    }
+
+    /// One pull request with its description, size, reviews and checks.
+    public func pullRequestDetail(_ repo: GitRemote, number: Int) async throws -> GitHubPullRequestDetail {
+        let pull = try await get(
+            ["repos", repo.owner, repo.name, "pulls", String(number)],
+            as: PullRequestDTO.self
+        )
+        var pullRequest = pull.pullRequest(fallbackRepository: repo.fullName)
+        let hasPendingRequests = pullRequest.reviewState == .reviewRequired
+        let records = try await tolerant { try await self.reviewRecords(repo, number: number) } ?? []
+        pullRequest.reviewState = GitHubReviewState.resolve(reviews: records, hasPendingRequests: hasPendingRequests)
+        var checks: [GitHubCheckRun] = []
+        if let sha = pullRequest.headSha, !sha.isEmpty,
+           let response = try await tolerant({
+               try await self.get(["repos", repo.owner, repo.name, "commits", sha, "check-runs"], query: [("per_page", "100")], as: CheckRunsDTO.self)
+           }) {
+            checks = response.checkRuns.map {
+                GitHubCheckRun(id: $0.id ?? 0, name: $0.name ?? "Check", status: $0.status, conclusion: $0.conclusion, url: $0.htmlUrl)
+            }
+            pullRequest.ciState = CIState.combine(response.checkRuns.map { CIState.from(status: $0.status, conclusion: $0.conclusion) })
+        }
+        let reviews = records
+            .filter { $0.state.uppercased() != "PENDING" }
+            .map { GitHubReview(author: $0.login, state: $0.state, submittedAt: $0.submittedAt) }
+            .sorted { ($0.submittedAt ?? .distantPast) > ($1.submittedAt ?? .distantPast) }
+        return GitHubPullRequestDetail(
+            pullRequest: pullRequest,
+            body: pull.body,
+            additions: pull.additions,
+            deletions: pull.deletions,
+            changedFiles: pull.changedFiles,
+            commits: pull.commits,
+            createdAt: pull.createdAt,
+            mergedAt: pull.mergedAt,
+            closedAt: pull.closedAt,
+            reviews: reviews,
+            checks: checks
+        )
     }
 
     // MARK: - Details
@@ -449,7 +548,26 @@ private struct MessageDTO: Decodable {
 }
 
 private struct RepositoryDTO: Decodable {
+    let id: Int64?
+    let name: String?
     let fullName: String?
+    let owner: UserDTO?
+    let `private`: Bool?
+    let defaultBranch: String?
+    let archived: Bool?
+    let pushedAt: Date?
+
+    var info: GitHubRepositoryInfo? {
+        guard let id else { return nil }
+        let parts = fullName?.split(separator: "/").map(String.init) ?? []
+        guard let owner = owner?.login ?? parts.first, let name = name ?? parts.last else { return nil }
+        return GitHubRepositoryInfo(
+            ref: GitHubRepoRef(id: id, owner: owner, name: name, isPrivate: self.private),
+            defaultBranch: defaultBranch,
+            archived: archived ?? false,
+            pushedAt: pushedAt
+        )
+    }
 }
 
 private struct TeamDTO: Decodable {
@@ -480,6 +598,14 @@ private struct PullRequestDTO: Decodable {
     let mergeableState: String?
     let comments: Int?
     let reviewComments: Int?
+    /// The rest are present only on the single pull request endpoint.
+    let body: String?
+    let additions: Int?
+    let deletions: Int?
+    let changedFiles: Int?
+    let commits: Int?
+    let createdAt: Date?
+    let closedAt: Date?
 
     func pullRequest(fallbackRepository: String) -> GitHubPullRequest {
         let reviewers = (requestedReviewers ?? []).compactMap(\.login)
@@ -515,8 +641,11 @@ private struct ReviewDTO: Decodable {
 
 private struct CheckRunsDTO: Decodable {
     struct CheckRun: Decodable {
+        let id: Int?
+        let name: String?
         let status: String?
         let conclusion: String?
+        let htmlUrl: String?
     }
 
     let checkRuns: [CheckRun]
@@ -537,6 +666,15 @@ private struct WorkflowRunsDTO: Decodable {
         let updatedAt: Date?
         let htmlUrl: String
         let repository: RepositoryDTO?
+        let headCommit: HeadCommit?
+        let actor: UserDTO?
+        let runNumber: Int?
+        let runAttempt: Int?
+        let workflowId: Int?
+
+        struct HeadCommit: Decodable {
+            let message: String?
+        }
 
         func workflowRun(fallbackRepository: String) -> GitHubWorkflowRun {
             let state = CIState.from(status: status, conclusion: conclusion)
@@ -559,12 +697,55 @@ private struct WorkflowRunsDTO: Decodable {
                 updatedAt: updatedAt,
                 url: htmlUrl,
                 ciState: state,
-                duration: duration
+                duration: duration,
+                commitMessage: headCommit?.message?
+                    .split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init),
+                actor: actor?.login,
+                runNumber: runNumber,
+                runAttempt: runAttempt,
+                workflowID: workflowId
             )
         }
     }
 
     let workflowRuns: [Run]
+}
+
+private struct JobsDTO: Decodable {
+    struct Job: Decodable {
+        struct Step: Decodable {
+            let number: Int?
+            let name: String?
+            let status: String?
+            let conclusion: String?
+        }
+
+        let id: Int
+        let name: String?
+        let status: String?
+        let conclusion: String?
+        let startedAt: Date?
+        let completedAt: Date?
+        let htmlUrl: String?
+        let steps: [Step]?
+
+        var job: GitHubWorkflowJob {
+            GitHubWorkflowJob(
+                id: id,
+                name: name ?? "Job",
+                status: status,
+                conclusion: conclusion,
+                startedAt: startedAt,
+                completedAt: completedAt,
+                url: htmlUrl,
+                steps: (steps ?? []).enumerated().map { index, step in
+                    GitHubJobStep(number: step.number ?? index + 1, name: step.name ?? "Step", status: step.status, conclusion: step.conclusion)
+                }
+            )
+        }
+    }
+
+    let jobs: [Job]
 }
 
 private struct SearchDTO: Decodable {
@@ -616,4 +797,19 @@ private struct SearchDTO: Decodable {
     }
 
     let items: [Item]
+}
+
+/// A repository as GitHub describes it.
+public struct GitHubRepositoryInfo: Equatable, Sendable {
+    public let ref: GitHubRepoRef
+    public let defaultBranch: String?
+    public let archived: Bool
+    public let pushedAt: Date?
+
+    public init(ref: GitHubRepoRef, defaultBranch: String? = nil, archived: Bool = false, pushedAt: Date? = nil) {
+        self.ref = ref
+        self.defaultBranch = defaultBranch
+        self.archived = archived
+        self.pushedAt = pushedAt
+    }
 }
