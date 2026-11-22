@@ -186,9 +186,9 @@ is built on.
 The GitHub mark is GitHub's `mark-github` from Primer Octicons (MIT), used to
 link to GitHub as GitHub's logo guidelines allow.
 
-The Claude logo marks Claude Code sessions in the notch. It is Anthropic's
-trademark; the vector is Simple Icons' `claude` (CC0 path data). Claude
-Overhead is not affiliated with Anthropic.
+Claude Code's pixel mascot marks Claude Code sessions in the notch. Claude
+and Claude Code are Anthropic's; Claude Overhead is not affiliated with
+Anthropic.
 
 The Claude usage probe adapts code from CodexBar (MIT); see
 [Vendor/CodexBar/LICENSE](Vendor/CodexBar/LICENSE).
