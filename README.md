@@ -42,13 +42,13 @@ Overhead, and move it to the Trash.
   closed notch for a moment. The notch does not pop open.
 - **Five notch layouts.** Minimal, Classic, Expanded (activity, context ring
   and agent dots), Focus (still, opens only on click) and Agent View.
-- **Live activity.** The closed notch shows what Claude is doing right now in
-  its own words, such as `Bash · Run tests and commit the logo change`. The
-  open notch lists every session (needs-you first, then running, waiting for
-  you, recently finished), and clicking one opens its live feed: every tool
-  call with its description, the command or file, the time, and whether it
-  finished, failed, or never reported back. Nothing is summarized by a model,
-  and commands have tokens and assignment values redacted.
+- **Live activity.** The open notch lists every session (needs-you first,
+  then running, waiting for you, recently finished) with what Claude is doing
+  right now in its own words, such as `Bash · Run tests and commit the logo
+  change`. Click one to open its live feed: every tool call with its
+  description, the command or file, the time, and whether it finished,
+  failed, or never reported back. Nothing is summarized by a model, and
+  commands have tokens and assignment values redacted.
 - **Session rows** show the latest tool call, the project, running subagents
   and the linked pull request, wherever that data really exists.
 - **Works without a notch.** On external displays it shows as a small pill
@@ -78,8 +78,9 @@ what is happening to your code after it reaches GitHub. Click it again, or
   shows in the closed notch only while an alert is outstanding. Dismiss an
   alert with its ×, or **Clear all**; dismissals are remembered across
   restarts, a genuinely new failure alerts again, and nothing is ever changed
-  on GitHub. The mark turns blue while workflows run. A Claude permission
-  request or question always takes the notch first.
+  on GitHub. The mark turns green while workflows run, and a running workflow
+  shows a turning green ring. A Claude permission request or question always
+  takes the notch first.
 
 ### In the companion window
 

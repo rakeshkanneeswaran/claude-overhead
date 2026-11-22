@@ -224,9 +224,7 @@ struct CompactWingIndicators: View {
         let insights = session?.insights
         let running = insights?.runningAgents.count ?? 0
         HStack(spacing: 3) {
-            // The strip under the notch already names the tool; the wing
-            // keeps the glyph only when there is no strip.
-            if spec.showsActivityLabel, model.compactActivity == nil, let session, session.isRunning {
+            if spec.showsActivityLabel, let session, session.isRunning {
                 Image(systemName: session.currentActivity.map { ActivitySymbol.name(for: $0.kind) }
                     ?? ActivitySymbol.name(for: session.detail))
                     .font(.system(size: 9, weight: .semibold))

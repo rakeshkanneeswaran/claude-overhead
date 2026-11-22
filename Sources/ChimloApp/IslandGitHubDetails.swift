@@ -578,7 +578,15 @@ struct GitHubRepositorySwitcher: View {
                             model.closeGitHubDetail()
                         } label: {
                             HStack(spacing: 9) {
-                                Circle().fill(dot(snapshot)).frame(width: 6, height: 6)
+                                Group {
+                                    // Busy repositories spin like their running workflows.
+                                    if !snapshot.availability.isUnavailable, snapshot.failingRuns.isEmpty, !snapshot.activeRuns.isEmpty {
+                                        GitHubRunningSpinner(size: 7, reduceMotion: model.reducesMotion)
+                                    } else {
+                                        Circle().fill(dot(snapshot)).frame(width: 6, height: 6)
+                                    }
+                                }
+                                .frame(width: 9, height: 9)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(snapshot.ref.name).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(ChimloTheme.paper)
                                     Text(caption(snapshot)).font(.system(size: 10.5)).foregroundStyle(ChimloTheme.mutedPaper).lineLimit(1)
@@ -610,7 +618,7 @@ struct GitHubRepositorySwitcher: View {
     private func dot(_ snapshot: GitHubRepoSnapshot) -> Color {
         if snapshot.availability.isUnavailable { return ChimloTheme.attention }
         if !snapshot.failingRuns.isEmpty { return ChimloTheme.clayText }
-        if !snapshot.activeRuns.isEmpty { return ChimloTheme.providerBlue }
+        if !snapshot.activeRuns.isEmpty { return ChimloTheme.liveGreen }
         return ChimloTheme.liveGreen.opacity(0.8)
     }
 

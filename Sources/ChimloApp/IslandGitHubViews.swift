@@ -37,7 +37,9 @@ enum GitHubNotchStyle {
         switch status {
         case .success: ChimloTheme.liveGreen
         case .failure: ChimloTheme.clayText
-        case .inProgress, .queued: ChimloTheme.providerBlue
+        // Running reads green, like a live process; queued has not started.
+        case .inProgress: ChimloTheme.liveGreen
+        case .queued: ChimloTheme.providerBlue
         case .waiting: ChimloTheme.attention
         case .cancelled, .skipped, .neutral, .unknown: ChimloTheme.mutedPaper
         }
@@ -115,25 +117,59 @@ enum GitHubFormat {
     }
 }
 
-/// A run or check status: a symbol in its colour. Running spins slowly unless
-/// the owner asked for less motion.
+/// A run or check status: a symbol in its colour. A running one is a green
+/// spinner instead, turning unless the owner asked for less motion.
 struct GitHubStatusGlyph: View {
     let status: GitHubRunStatus
     var size: CGFloat = 11
     var reduceMotion = false
-    @State private var turning = false
 
     var body: some View {
-        Image(systemName: GitHubNotchStyle.symbol(status))
-            .font(.system(size: size, weight: .semibold))
-            .foregroundStyle(GitHubNotchStyle.color(status))
-            .rotationEffect(.degrees(status == .inProgress && turning ? 360 : 0))
-            .animation(status == .inProgress && !reduceMotion
-                ? .linear(duration: 2.4).repeatForever(autoreverses: false)
-                : nil, value: turning)
-            .onAppear { turning = status == .inProgress && !reduceMotion }
-            .onChange(of: status) { _, new in turning = new == .inProgress && !reduceMotion }
-            .accessibilityLabel(status.label)
+        Group {
+            if status == .inProgress {
+                GitHubRunningSpinner(size: size, reduceMotion: reduceMotion)
+            } else {
+                Image(systemName: GitHubNotchStyle.symbol(status))
+                    .font(.system(size: size, weight: .semibold))
+                    .foregroundStyle(GitHubNotchStyle.color(status))
+            }
+        }
+        .accessibilityLabel(status.label)
+    }
+}
+
+/// Running: a faint green ring with a bright arc going round it once a
+/// second. It is drawn on a timeline rather than a repeating animation, so
+/// rows moving around never leave it stuck mid-turn. With Reduce Motion the
+/// arc holds still.
+struct GitHubRunningSpinner: View {
+    var size: CGFloat = 11
+    var reduceMotion = false
+
+    var body: some View {
+        let lineWidth = max(1.6, size * 0.17)
+        let diameter = size * 1.02
+        ZStack {
+            Circle()
+                .stroke(ChimloTheme.liveGreen.opacity(0.22), lineWidth: lineWidth)
+            if reduceMotion {
+                arc(lineWidth: lineWidth)
+            } else {
+                TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
+                    let turn = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1)
+                    arc(lineWidth: lineWidth).rotationEffect(.degrees(turn * 360))
+                }
+            }
+        }
+        .padding(lineWidth / 2)
+        .frame(width: diameter + lineWidth, height: diameter + lineWidth)
+        .accessibilityHidden(true)
+    }
+
+    private func arc(lineWidth: CGFloat) -> some View {
+        Circle()
+            .trim(from: 0, to: 0.3)
+            .stroke(ChimloTheme.liveGreen, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
     }
 }
 
@@ -142,7 +178,7 @@ struct GitHubStatusGlyph: View {
 /// The GitHub control in the open notch's status band. Its badge is the one
 /// GitHub status mark: red for a failed workflow, amber when something waits
 /// on the owner, none once every alert is dismissed or cleared. Running
-/// workflows tint the mark blue instead, which is not an alert.
+/// workflows tint the mark green instead, which is not an alert.
 struct GitHubNotchButton: View {
     @ObservedObject var model: ApplicationModel
 
@@ -175,7 +211,7 @@ struct GitHubNotchButton: View {
         if isActive { return ChimloTheme.paper }
         switch indicator {
         case .unavailable: return ChimloTheme.mutedPaper
-        case .running: return ChimloTheme.providerBlue
+        case .running: return ChimloTheme.liveGreen
         default: return ChimloTheme.quietPaper
         }
     }
@@ -366,7 +402,7 @@ private struct GitHubPanelHeader: View {
         case .actions:
             guard let snapshot = github.focusedSnapshot else { return nil }
             if !snapshot.failingRuns.isEmpty { return ChimloTheme.clayText }
-            if !snapshot.activeRuns.isEmpty { return ChimloTheme.providerBlue }
+            if !snapshot.activeRuns.isEmpty { return ChimloTheme.liveGreen }
             return nil
         case .pullRequests:
             guard let snapshot = github.focusedSnapshot else { return nil }
@@ -493,7 +529,7 @@ private struct GitHubOverviewView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 6) {
                     stat("Open PRs", overview.openPullRequests, ChimloTheme.paper)
-                    stat("Running", overview.runningRuns, ChimloTheme.providerBlue)
+                    stat("Running", overview.runningRuns, ChimloTheme.liveGreen)
                     stat("Failed", overview.failedWorkflows, ChimloTheme.clayText)
                     stat("Reviews", overview.reviewsWaiting, ChimloTheme.attention)
                 }
