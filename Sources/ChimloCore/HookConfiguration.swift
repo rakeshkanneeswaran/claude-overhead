@@ -48,7 +48,7 @@ public enum ClaudeHookConfiguration {
     }
 
     private static let eventSpecs = [
-        EventSpec(name: "SessionStart", matcher: "startup|resume|clear|compact", asynchronous: true),
+        EventSpec(name: "SessionStart", matcher: "startup|resume|clear|compact|fork", asynchronous: true),
         EventSpec(name: "UserPromptSubmit", matcher: nil, asynchronous: true),
         EventSpec(name: "PreToolUse", matcher: "*", asynchronous: true),
         EventSpec(name: "PostToolUse", matcher: "*", asynchronous: true),
