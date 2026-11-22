@@ -70,6 +70,11 @@ struct ClaudePermissionHookTests {
     func invalidResponsesFallBackAndBypassIsIgnored() throws {
         let hook = try ClaudePermissionHook(data: payload)
         #expect(hook.output(for: .unavailable(for: hook.request.id)) == ClaudePermissionHook.fallbackOutput)
+        // The notch's ×: handed back to Claude Code's own prompt, granting nothing.
+        #expect(hook.output(for: ProviderPermissionResponse(
+            requestID: hook.request.id,
+            outcome: .cancelled
+        )) == ClaudePermissionHook.fallbackOutput)
         #expect(hook.output(for: ProviderPermissionResponse(
             requestID: UUID(),
             outcome: .allowedOnce

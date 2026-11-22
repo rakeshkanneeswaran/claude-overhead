@@ -1088,6 +1088,7 @@ private struct SessionListView: View {
                                         outcome: outcome
                                     )
                                 },
+                                onPermissionHandBack: { model.handSessionPermissionBackToClaude(sessionID: session.id) },
                                 onQuestionOption: { label in
                                     model.selectQuestionOption(sessionID: session.id, label: label)
                                 },
@@ -1209,6 +1210,7 @@ struct SessionRow: View {
     /// Closes the prompt-and-reply preview only (nil hides the ×).
     var onDismissPreview: (() -> Void)? = nil
     var onPermissionDecision: ((ProviderPermissionOutcome) -> Void)? = nil
+    var onPermissionHandBack: (() -> Void)? = nil
     var onQuestionOption: ((String) -> Void)? = nil
     var onSubmitQuestion: (() -> Void)? = nil
     var onAnswerInClaude: (() -> Void)? = nil
@@ -1222,7 +1224,8 @@ struct SessionRow: View {
             if let permission = session.permission {
                 SessionPermissionView(
                     presentation: permission,
-                    decide: { onPermissionDecision?($0) }
+                    decide: { onPermissionDecision?($0) },
+                    handBack: onPermissionHandBack
                 )
             }
 
@@ -1616,6 +1619,8 @@ struct SessionRow: View {
 private struct SessionPermissionView: View {
     let presentation: SessionPermissionPresentation
     let decide: (ProviderPermissionOutcome) -> Void
+    /// The ×: hands the request back to Claude Code's own prompt.
+    var handBack: (() -> Void)? = nil
 
     private var request: ProviderPermissionRequest { presentation.request }
 
@@ -1638,6 +1643,14 @@ private struct SessionPermissionView: View {
                 Text("Claude permission")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(ChimloTheme.mutedPaper)
+
+                if let handBack {
+                    HandBackButton(
+                        help: "Decide in Claude Code instead",
+                        hint: "Closes this here and shows Claude Code's own prompt in the terminal. Nothing is approved.",
+                        action: handBack
+                    )
+                }
             }
 
             Text(request.prompt)
@@ -1825,6 +1838,10 @@ private struct SessionQuestionView: View {
                         .foregroundStyle(ChimloTheme.mutedPaper)
                         .monospacedDigit()
                 }
+                HandBackButton(
+                    help: "Answer in Claude Code instead",
+                    hint: "Closes this here and shows the question in the terminal. Nothing is answered."
+                ) { answerInClaude() }
             }
 
             Text(question.prompt)
@@ -2091,3 +2108,27 @@ private struct EmptySessionView: View {
         }
     }
 }
+
+/// The × on a question or permission card. Closing a request in the notch
+/// hands it back to Claude Code's own prompt in the terminal: it is never
+/// approved, answered or dropped, so Claude is never left waiting unseen.
+private struct HandBackButton: View {
+    let help: String
+    let hint: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(ChimloTheme.mutedPaper)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+        .accessibilityHint(hint)
+    }
+}
+

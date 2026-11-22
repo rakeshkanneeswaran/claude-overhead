@@ -1298,6 +1298,14 @@ final class ApplicationModel: ObservableObject {
         finishPendingDecision(outcome: approved ? .approved : .denied, note: nil)
     }
 
+    /// The × on a permission card: Claude Code shows its own prompt in the
+    /// terminal instead. Finishing as cancelled makes the hook return no
+    /// decision, which never grants anything.
+    func handSessionPermissionBackToClaude(sessionID: String) {
+        guard let request = sessionPermissions[sessionID]?.request else { return }
+        finishPermission(requestID: request.id, outcome: .cancelled, note: "Handed back to Claude Code")
+    }
+
     func respondToSessionPermission(
         sessionID: String,
         outcome: ProviderPermissionOutcome

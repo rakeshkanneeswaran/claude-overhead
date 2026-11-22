@@ -9,6 +9,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+- Questions and permission requests in the notch have a × too. It hands the
+  request back to Claude Code's own prompt in the terminal: nothing is
+  answered, approved or dropped, so Claude is never left waiting unseen.
+
 - Close a session's prompt-and-reply preview in the notch with its ×. Only the
   preview goes: the session, its conversation and history, and any pending
   request stay, and the notch stays open. A hairline shows the time left on
