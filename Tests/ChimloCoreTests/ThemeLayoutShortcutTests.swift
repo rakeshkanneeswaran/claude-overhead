@@ -77,11 +77,22 @@ struct ThemeTests {
         }
         #expect(!ThemeLibrary.palette(for: .arctic, systemIsDark: true).isDark)
         #expect(ThemeLibrary.palette(for: .obsidian, systemIsDark: false).background == RGBA(0x000000))
-        // The appearance override only changes the adaptive theme.
-        #expect(!ThemeLibrary.palette(for: .systemAdaptive, appearance: .light, systemIsDark: true).isDark)
-        #expect(ThemeLibrary.palette(for: .systemAdaptive, appearance: .dark, systemIsDark: false).isDark)
-        #expect(ThemeLibrary.palette(for: .systemAdaptive, appearance: .system, systemIsDark: true).isDark)
-        #expect(ThemeLibrary.palette(for: .midnight, appearance: .light, systemIsDark: false).isDark)
+    }
+
+    @Test("The window's light or dark always matches the theme's backgrounds, in either macOS mode")
+    func windowAppearanceMatchesPalette() {
+        // Native controls draw text for the window's appearance; if it ever
+        // disagreed with the palette, text would vanish into the background.
+        for theme in ThemeID.allCases {
+            for systemIsDark in [true, false] {
+                let palette = ThemeLibrary.palette(for: theme, systemIsDark: systemIsDark)
+                let windowIsDark = ThemeLibrary.windowAppearanceIsDark(for: theme) ?? systemIsDark
+                #expect(windowIsDark == palette.isDark, "\(theme) with macOS \(systemIsDark ? "dark" : "light")")
+            }
+        }
+        #expect(ThemeLibrary.windowAppearanceIsDark(for: .arctic) == false)
+        #expect(ThemeLibrary.windowAppearanceIsDark(for: .midnight) == true)
+        #expect(ThemeLibrary.windowAppearanceIsDark(for: .systemAdaptive) == nil, "Match System follows macOS")
     }
 
     @Test("Themes are genuinely different palettes")

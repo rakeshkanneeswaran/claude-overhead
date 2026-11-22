@@ -248,13 +248,15 @@ public enum ThemeLibrary {
         }
     }
 
-    /// Resolves a theme with the user's appearance override applied.
-    public static func palette(
-        for theme: ThemeID,
-        appearance: AppearancePreference,
-        systemIsDark: Bool
-    ) -> ThemePalette {
-        palette(for: theme, systemIsDark: appearance.resolvesToDark(systemIsDark: systemIsDark))
+    /// The macOS appearance the companion window takes for a theme: the
+    /// theme's own for a fixed theme, nil (follow macOS) for Match System.
+    /// Native controls (labels, pickers, section headers, footers, menus)
+    /// take their text colour from the window's appearance, so it must come
+    /// from the same place as the palette's backgrounds; deciding it
+    /// separately is what put light-mode-white text on Arctic's light
+    /// background. Every theme's palette agrees with this (tests enforce it).
+    public static func windowAppearanceIsDark(for theme: ThemeID) -> Bool? {
+        theme == .systemAdaptive ? nil : palette(for: theme, systemIsDark: false).isDark
     }
 
     /// Deep blue-black: the default, calm beside the black notch.

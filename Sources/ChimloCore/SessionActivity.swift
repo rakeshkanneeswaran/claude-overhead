@@ -467,3 +467,41 @@ public struct CompactActivityLine: Equatable, Sendable {
         )
     }
 }
+
+// MARK: - Conversation preview
+
+/// The prompt-and-reply preview a finished session shows in the notch. It
+/// leaves on its own `IslandCollapsePolicy.completionDetailLifetimeSeconds`
+/// after the reply arrived, or at once when the owner closes it. Closing it
+/// changes only what the notch shows: the session, its conversation and its
+/// history are untouched, and a pending request is never part of it.
+public struct ConversationPreviewDismissals: Equatable, Sendable {
+    /// Session id to the reply whose preview the owner closed.
+    private var dismissed: [String: String] = [:]
+
+    public init() {}
+
+    public mutating func dismiss(sessionID: String, response: String) {
+        dismissed[sessionID] = response
+    }
+
+    /// True for the reply that was closed. A different (new) reply shows
+    /// again; a repeated or delayed event for the same reply does not.
+    public func isDismissed(sessionID: String, response: String?) -> Bool {
+        guard let response else { return false }
+        return dismissed[sessionID] == response
+    }
+
+    public mutating func forget(_ sessionID: String) {
+        dismissed[sessionID] = nil
+    }
+
+    /// How much of the preview's time is left, 1 when it arrives and 0 when
+    /// it leaves, for the countdown hairline.
+    public static func remainingFraction(receivedAt: Date, now: Date) -> Double {
+        let lifetime = IslandCollapsePolicy.completionDetailLifetimeSeconds
+        guard lifetime > 0 else { return 0 }
+        let remaining = receivedAt.addingTimeInterval(lifetime).timeIntervalSince(now)
+        return min(1, max(0, remaining / lifetime))
+    }
+}

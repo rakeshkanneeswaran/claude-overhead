@@ -558,3 +558,36 @@ struct OwnerInteractionLifetimeTests {
         }
     }
 }
+
+@Suite("Conversation preview dismissal")
+struct ConversationPreviewTests {
+    @Test("Closing one session's preview hides that reply only")
+    func dismissOne() {
+        var dismissals = ConversationPreviewDismissals()
+        dismissals.dismiss(sessionID: "s1", response: "Done: tests pass.")
+        #expect(dismissals.isDismissed(sessionID: "s1", response: "Done: tests pass."))
+        #expect(!dismissals.isDismissed(sessionID: "s2", response: "Done: tests pass."), "other sessions unaffected")
+        #expect(!dismissals.isDismissed(sessionID: "s1", response: nil))
+    }
+
+    @Test("A new reply shows again; a duplicate or delayed event for the closed one does not")
+    func newReplyReturns() {
+        var dismissals = ConversationPreviewDismissals()
+        dismissals.dismiss(sessionID: "s1", response: "First reply")
+        #expect(dismissals.isDismissed(sessionID: "s1", response: "First reply"))
+        #expect(!dismissals.isDismissed(sessionID: "s1", response: "Second reply"))
+        dismissals.forget("s1")
+        #expect(!dismissals.isDismissed(sessionID: "s1", response: "First reply"))
+    }
+
+    @Test("The countdown tracks the real expiry")
+    func countdown() {
+        let received = Date(timeIntervalSince1970: 2_000_000_000)
+        let lifetime = IslandCollapsePolicy.completionDetailLifetimeSeconds
+        #expect(ConversationPreviewDismissals.remainingFraction(receivedAt: received, now: received) == 1)
+        #expect(abs(ConversationPreviewDismissals.remainingFraction(receivedAt: received, now: received + lifetime / 2) - 0.5) < 0.0001)
+        #expect(ConversationPreviewDismissals.remainingFraction(receivedAt: received, now: received + lifetime) == 0)
+        #expect(ConversationPreviewDismissals.remainingFraction(receivedAt: received, now: received + lifetime * 3) == 0)
+        #expect(ConversationPreviewDismissals.remainingFraction(receivedAt: received, now: received - 10) == 1, "clock skew")
+    }
+}

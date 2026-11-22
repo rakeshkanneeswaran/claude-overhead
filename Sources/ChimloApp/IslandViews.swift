@@ -1081,6 +1081,7 @@ private struct SessionListView: View {
                                     : { model.archiveSession(session) },
                                 soundEnabled: model.isSoundEnabled(for: session.id),
                                 onToggleSound: session.isDemo ? nil : { model.toggleSound(for: session.id) },
+                                onDismissPreview: { model.dismissConversationPreview(sessionID: session.id) },
                                 onPermissionDecision: { outcome in
                                     model.respondToSessionPermission(
                                         sessionID: session.id,
@@ -1205,6 +1206,8 @@ struct SessionRow: View {
     /// This session's own sound toggle (nil hides the bell, as for demos).
     var soundEnabled = false
     var onToggleSound: (() -> Void)? = nil
+    /// Closes the prompt-and-reply preview only (nil hides the ×).
+    var onDismissPreview: (() -> Void)? = nil
     var onPermissionDecision: ((ProviderPermissionOutcome) -> Void)? = nil
     var onQuestionOption: ((String) -> Void)? = nil
     var onSubmitQuestion: (() -> Void)? = nil
@@ -1512,7 +1515,8 @@ struct SessionRow: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.horizontal, 12)
+            .padding(.leading, 12)
+            .padding(.trailing, onDismissPreview == nil ? 12 : 28)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(ChimloTheme.selectedInk)
@@ -1528,6 +1532,7 @@ struct SessionRow: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .background(ChimloTheme.raisedInk)
         }
+        .overlay(alignment: .bottomLeading) { previewCountdown }
         .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -1535,6 +1540,47 @@ struct SessionRow: View {
                     increasedContrast ? ChimloTheme.quietPaper : ChimloTheme.selectedInk,
                     lineWidth: 1
                 )
+        }
+        .overlay(alignment: .topTrailing) {
+            if let onDismissPreview {
+                Button(action: onDismissPreview) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(ChimloTheme.mutedPaper)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Dismiss message")
+                .accessibilityLabel("Dismiss message")
+                .accessibilityHint("Hides this preview. The session and its conversation stay.")
+                .padding(.top, 4)
+                .padding(.trailing, 4)
+            }
+        }
+    }
+
+    /// A hairline that shrinks as the preview's own expiry timer runs, so its
+    /// leaving is never a surprise; it is the real timer, not an estimate.
+    @ViewBuilder
+    private var previewCountdown: some View {
+        if let receivedAt = session.latestResponseReceivedAt, !reduceMotion {
+            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                GeometryReader { geometry in
+                    Rectangle()
+                        .fill(ChimloTheme.mutedPaper.opacity(0.35))
+                        .frame(
+                            width: geometry.size.width * ConversationPreviewDismissals.remainingFraction(
+                                receivedAt: receivedAt,
+                                now: timeline.date
+                            ),
+                            height: 1.5
+                        )
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
     }
 

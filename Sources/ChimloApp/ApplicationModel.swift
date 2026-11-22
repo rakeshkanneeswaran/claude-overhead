@@ -321,6 +321,8 @@ final class ApplicationModel: ObservableObject {
     /// session's bell on in the notch. Kept for the session's lifetime.
     @Published private(set) var soundPreferences = SessionSoundPreferences()
     private var soundGate = SessionSoundGate()
+    /// Previews closed with ×, by reply (presentation only).
+    private var previewDismissals = ConversationPreviewDismissals()
     private var soundChoice: NotificationSoundChoice = .chime
     private var soundVolume = NotificationSoundVolume.defaultValue
 
@@ -1404,6 +1406,7 @@ final class ApplicationModel: ObservableObject {
             cancelOwnerInteractions(forEndedSession: event.sessionID)
         }
         if event.kind == .sessionEnded {
+            previewDismissals.forget(event.sessionID)
             soundGate.forget(event.sessionID)
             if soundPreferences.isEnabled(event.sessionID) {
                 soundPreferences.forget(event.sessionID)
@@ -1528,7 +1531,23 @@ final class ApplicationModel: ObservableObject {
         }
     }
 
+    /// The × on a session's prompt-and-reply preview. Hides that preview now
+    /// and cancels its timer; the session, its conversation, its history and
+    /// any pending request stay exactly as they are, and the notch stays open.
+    func dismissConversationPreview(sessionID: String) {
+        if let response = reducer.sessions[sessionID]?.latestAgentResponse {
+            previewDismissals.dismiss(sessionID: sessionID, response: response)
+        }
+        completionDetailExpiryTasks.removeValue(forKey: sessionID)?.cancel()
+        latestResponseReceivedAt.removeValue(forKey: sessionID)
+        syncSessionProjections()
+    }
+
     private func recordLatestResponse(for sessionID: String, receivedAt: Date) {
+        // A closed preview stays closed for that reply, whatever repeats.
+        let response = reducer.sessions[sessionID]?.latestAgentResponse
+        if previewDismissals.isDismissed(sessionID: sessionID, response: response) { return }
+        previewDismissals.forget(sessionID)
         let observedAt = min(receivedAt, .now)
         let lifetime = IslandCollapsePolicy.completionDetailLifetimeSeconds
         guard observedAt >= Date.now.addingTimeInterval(-lifetime) else { return }

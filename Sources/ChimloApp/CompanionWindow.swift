@@ -93,15 +93,16 @@ final class CompanionWindowCoordinator: NSObject, NSWindowDelegate {
             )
             window.center()
             self.window = window
+            // The window's appearance follows the theme, so system-drawn text
+            // and controls always suit the theme's backgrounds; Match System
+            // follows macOS, live, without a restart.
             appearanceObserver = services.settings.$settings
-                .map(\.appearance)
+                .map(\.theme)
                 .removeDuplicates()
-                .sink { [weak window] appearance in
-                    window?.appearance = switch appearance {
-                    case .system: nil
-                    case .dark: NSAppearance(named: .darkAqua)
-                    case .light: NSAppearance(named: .aqua)
-                    }
+                .sink { [weak window] theme in
+                    window?.appearance = ThemeLibrary.windowAppearanceIsDark(for: theme).map { isDark in
+                        NSAppearance(named: isDark ? .darkAqua : .aqua)
+                    } ?? nil
                 }
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -135,5 +136,8 @@ struct CompanionRootView: View {
         }
         .tint(palette.accentColor)
         .environment(\.overheadPalette, palette)
+        // SwiftUI's own colours (.primary, .secondary, form styles) follow
+        // the same light or dark as the palette.
+        .environment(\.colorScheme, palette.isDark ? .dark : .light)
     }
 }

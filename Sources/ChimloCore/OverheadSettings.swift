@@ -494,6 +494,8 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         preferredDisplay = c.lenient(DisplayPreference.self, .preferredDisplay) ?? d.preferredDisplay
         theme = c.lenient(ThemeID.self, .theme) ?? d.theme
         accent = c.lenient(AccentChoice.self, .accent) ?? d.accent
+        // Kept so older settings files decode; the theme now decides light or
+        // dark (ThemeLibrary.windowAppearanceIsDark), so it no longer applies.
         appearance = c.lenient(AppearancePreference.self, .appearance) ?? d.appearance
         animationIntensity = c.lenient(AnimationIntensity.self, .animationIntensity) ?? d.animationIntensity
         glowIntensity = c.lenient(Double.self, .glowIntensity) ?? d.glowIntensity

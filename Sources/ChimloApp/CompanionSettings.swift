@@ -243,11 +243,6 @@ private struct AppearancePane: View {
                     }
                 }
                 .padding(.vertical, 4)
-                Picker("Light or dark", selection: settings.binding(\.appearance)) {
-                    Text("Match macOS").tag(AppearancePreference.system)
-                    Text("Dark").tag(AppearancePreference.dark)
-                    Text("Light").tag(AppearancePreference.light)
-                }
                 Picker("Accent colour", selection: settings.binding(\.accent)) {
                     ForEach(AccentChoice.allCases) { accent in
                         HStack {
@@ -260,7 +255,7 @@ private struct AppearancePane: View {
             } header: {
                 Text("Companion window")
             } footer: {
-                Text("Themes colour this window and keep text at WCAG AA contrast. The notch stays dark so it blends with the camera housing.")
+                Text("Each theme sets this window's light or dark look and keeps text at WCAG AA contrast; Match System follows macOS as it switches. The notch stays dark so it blends with the camera housing.")
             }
             Section("Sessions and Overview") {
                 Picker("Sort sessions by", selection: settings.binding(\.sessionSort)) {

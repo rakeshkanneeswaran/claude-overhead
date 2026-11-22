@@ -73,20 +73,9 @@ final class SettingsModel: ObservableObject {
     }
 
     func palette(systemIsDark: Bool) -> OverheadPalette {
-        let theme = ThemeLibrary.palette(
-            for: settings.theme,
-            appearance: settings.appearance,
-            systemIsDark: systemIsDark
-        )
+        // The theme alone decides light or dark (see windowAppearanceIsDark).
+        let theme = ThemeLibrary.palette(for: settings.theme, systemIsDark: systemIsDark)
         return OverheadPalette(theme: theme, accent: settings.accent.color(isDark: theme.isDark))
-    }
-
-    var preferredColorScheme: ColorScheme? {
-        switch settings.appearance {
-        case .system: nil
-        case .dark: .dark
-        case .light: .light
-        }
     }
 
     /// The layout as it applies right now, with Focus and animation

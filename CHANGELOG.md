@@ -9,6 +9,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+- Close a session's prompt-and-reply preview in the notch with its ×. Only the
+  preview goes: the session, its conversation and history, and any pending
+  request stay, and the notch stays open. A hairline shows the time left on
+  the preview's own two-minute timer; a new reply shows again.
+- Text is readable in every theme. The companion window took light or dark
+  from macOS while the theme painted its background, so on a Mac in dark mode
+  Arctic drew dark-mode white text on its light background. The theme now
+  decides the window's appearance (Match System follows macOS, live), and the
+  separate "Light or dark" choice is gone.
+
 - Claude Overhead updates itself. The in-app updater never worked in any
   Claude Overhead release: the update feed and signing key were removed when
   it was forked from Chimlo and never replaced, so every attempt failed before
