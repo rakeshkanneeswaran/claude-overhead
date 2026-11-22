@@ -85,6 +85,10 @@ final class CompanionWindowCoordinator: NSObject, NSWindowDelegate {
             window.delegate = self
             window.contentView = NSHostingView(
                 rootView: CompanionRootView(navigation: navigation)
+                    // Every @EnvironmentObject a companion page declares must
+                    // be handed over here: SwiftUI crashes the app the moment
+                    // a page touches one that is missing. A test checks this.
+                    .environmentObject(navigation)
                     .environmentObject(services)
                     .environmentObject(services.model)
                     .environmentObject(services.settings)

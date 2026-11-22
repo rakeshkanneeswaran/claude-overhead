@@ -9,6 +9,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+- Fixed a crash: clicking **Connect GitHub**, **Choose repositories**,
+  **Settings** or **Change monitored repositories** on the GitHub page quit
+  the app (1.0.4 and 1.0.5). They now open Settings → GitHub as intended.
+
 ## [1.0.5] - 2026-11-23
 
 - A session you rename (in VS Code, or with `/rename`) shows its new name in
