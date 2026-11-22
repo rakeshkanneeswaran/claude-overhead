@@ -975,7 +975,11 @@ final class ApplicationModel: ObservableObject {
     private func rebuildIslandLayout() {
         updateIslandLayout(IslandLayout.make(
             for: displayMetrics,
-            wingWidthScale: CGFloat(layoutSpec.compactWingWidthScale)
+            // The trailing wing always carries the Lock Mode glyph beside its
+            // other signals (GitHub badge, context, agents), so both wings
+            // grow by its width: nothing slides under the camera housing or
+            // past the notch's edge.
+            wingWidthScale: CGFloat(layoutSpec.compactWingWidthScale) + Self.lockGlyphWingAllowance
         ))
     }
 
@@ -1916,6 +1920,10 @@ final class ApplicationModel: ObservableObject {
         }
         receiveCapacity(snapshot, persist: false)
     }
+
+    /// Room for the lock glyph and its spacing in the closed notch's trailing
+    /// wing, as a fraction of the 32-point base wing (about 14 points).
+    private static let lockGlyphWingAllowance: CGFloat = 0.45
 
     /// Usage cards in the companion window that are on screen.
     private var usageViewers = 0
