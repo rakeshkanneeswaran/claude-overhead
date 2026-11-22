@@ -58,6 +58,10 @@ final class GitHubModel: ObservableObject {
     @Published private(set) var pullRequestDetails: [String: Load<GitHubPullRequestDetail>] = [:]
     /// When the owner last looked at GitHub Mode, for the "new activity" dot.
     @Published private(set) var lastViewed: Date?
+    /// Alerts the owner dismissed, by stable id, kept across restarts. They
+    /// only quiet the badge: the runs and pull requests stay as GitHub
+    /// reports them, and nothing is ever sent to GitHub.
+    @Published private(set) var dismissals: GitHubAlertDismissals
     /// What the notch or another page asked the GitHub page to show.
     @Published var companionRequest: GitHubPageRequest?
     /// What GitHub says about each monitored repository: merge methods, push access.
@@ -103,8 +107,15 @@ final class GitHubModel: ObservableObject {
     private var repositorySettingsLoadedAt: [Int64: Date] = [:]
     private var pendingFullRefresh = false
 
-    init(folderAccess: FolderAccessModel) {
+    private let defaults: UserDefaults
+    private static let dismissalsKey = "overhead.github.dismissedAlerts"
+
+    init(folderAccess: FolderAccessModel, defaults: UserDefaults = .standard) {
         self.folderAccess = folderAccess
+        self.defaults = defaults
+        dismissals = defaults.data(forKey: Self.dismissalsKey)
+            .flatMap { try? JSONDecoder().decode(GitHubAlertDismissals.self, from: $0) }
+            ?? GitHubAlertDismissals()
     }
 
     var viewerLogin: String? {
@@ -133,8 +144,56 @@ final class GitHubModel: ObservableObject {
             overview: overview,
             lastViewed: lastViewed,
             showRunning: preferences.showRunningIndicator,
-            showPullRequests: preferences.showPullRequestIndicator
+            showPullRequests: preferences.showPullRequestIndicator,
+            dismissals: dismissals
         )
+    }
+
+    // MARK: Alerts
+
+    func isDismissed(_ item: GitHubAttention) -> Bool {
+        dismissals.isDismissed(item.alertID)
+    }
+
+    /// Hides one alert from the badge. Local only: GitHub is not told.
+    func dismiss(_ item: GitHubAttention) {
+        dismissals.dismiss(item.alertID)
+        saveDismissals()
+    }
+
+    /// Hides every alert shown now. Later failures still alert.
+    func dismissAll() {
+        dismissals.dismiss(all: overview.attention.map(\.alertID))
+        saveDismissals()
+    }
+
+    /// After a refresh: an alert that cleared is marked resolved (so if it
+    /// recurs it alerts again), but only where the data could have shown it.
+    /// A repository that failed to load, or a kind that is not tracked,
+    /// never clears a dismissal.
+    private func reconcileDismissals() {
+        guard !dismissals.isEmpty else { return }
+        let present = Set(overview.attention.map(\.alertID))
+        let loaded = Set(snapshots
+            .filter { $0.availability == .available && $0.lastUpdated != nil }
+            .map { $0.ref.fullName.lowercased() })
+        let preferences = self.preferences
+        let reviewsTracked = hasReviewBaseline
+        let changed = dismissals.reconcile(present: present, isObservable: { id in
+            guard let repository = GitHubAlertID.repository(of: id), loaded.contains(repository) else { return false }
+            switch GitHubAlertID.kind(of: id) {
+            case "run": return preferences.monitorActions
+            case "ci", "conflict", "changes": return preferences.trackPullRequests
+            case "review": return preferences.trackPullRequests && preferences.reviewNotifications && reviewsTracked
+            default: return false
+            }
+        })
+        if changed { saveDismissals() }
+    }
+
+    private func saveDismissals() {
+        guard let data = try? JSONEncoder().encode(dismissals) else { return }
+        defaults.set(data, forKey: Self.dismissalsKey)
     }
 
     // MARK: Preferences
@@ -496,6 +555,7 @@ final class GitHubModel: ObservableObject {
         deliver(notices)
         rateLimit = client.lastRateLimit
         lastRefresh = .now
+        reconcileDismissals()
         if full { nextFullRefresh = Date.now.addingTimeInterval(fullInterval) }
         // What was already there at launch is not "new activity"; only what
         // changes after the first look is.

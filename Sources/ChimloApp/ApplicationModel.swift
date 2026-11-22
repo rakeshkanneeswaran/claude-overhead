@@ -634,6 +634,24 @@ final class ApplicationModel: ObservableObject {
         } else {
             githubNavigation.toggle(defaultView: github.defaultView)
         }
+        // With a badge on the icon, the click is about that badge: land on
+        // the overview, which lists the alerts behind it.
+        if githubNavigation.content == .github, GitHubBadge.from(github.indicator) != nil {
+            githubNavigation.closeDetail()
+            githubNavigation.show(.overview)
+        }
+        if githubNavigation.content == .github { onGitHubModeOpened?() }
+    }
+
+    /// Opens the notch in GitHub Mode on the overview, from the closed
+    /// notch's badge.
+    func showGitHubAlerts() {
+        guard github.modeAvailable else { return }
+        cancelCollapse()
+        panelMode = .sessions
+        if githubNavigation.content != .github { githubNavigation.openGitHub(defaultView: github.defaultView) }
+        githubNavigation.closeDetail()
+        githubNavigation.show(.overview)
         if githubNavigation.content == .github { onGitHubModeOpened?() }
     }
 

@@ -139,9 +139,10 @@ struct GitHubStatusGlyph: View {
 
 // MARK: - The GitHub button
 
-/// The GitHub control in the open notch's status band. Its state is a quiet
-/// dot, never a count: red for a failed workflow, amber when something waits
-/// on the owner, blue while workflows run, white for new activity.
+/// The GitHub control in the open notch's status band. Its badge is the one
+/// GitHub status mark: red for a failed workflow, amber when something waits
+/// on the owner, none once every alert is dismissed or cleared. Running
+/// workflows tint the mark blue instead, which is not an alert.
 struct GitHubNotchButton: View {
     @ObservedObject var model: ApplicationModel
 
@@ -152,13 +153,9 @@ struct GitHubNotchButton: View {
             GitHubMark(size: 11.5)
                 .foregroundStyle(markColor(isActive: isActive, indicator: indicator))
                 .overlay(alignment: .topTrailing) {
-                    if let dot = dotColor(indicator) {
-                        Circle()
-                            .fill(dot)
-                            .frame(width: 5, height: 5)
-                            .overlay(Circle().stroke(Color.black, lineWidth: 1))
+                    if let badge = GitHubBadge.from(indicator) {
+                        GitHubBadgeDot(badge: badge, size: 5)
                             .offset(x: 3, y: -2.5)
-                            .opacity(indicator == .running && !model.reducesMotion ? 0.85 : 1)
                     }
                 }
                 .padding(.horizontal, 2)
@@ -176,16 +173,10 @@ struct GitHubNotchButton: View {
 
     private func markColor(isActive: Bool, indicator: GitHubIndicator) -> Color {
         if isActive { return ChimloTheme.paper }
-        return indicator == .unavailable ? ChimloTheme.mutedPaper : ChimloTheme.quietPaper
-    }
-
-    private func dotColor(_ indicator: GitHubIndicator) -> Color? {
         switch indicator {
-        case .failed: ChimloTheme.clayText
-        case .attention: ChimloTheme.attention
-        case .running: ChimloTheme.providerBlue
-        case .activity: ChimloTheme.paper
-        case .idle, .unavailable: nil
+        case .unavailable: return ChimloTheme.mutedPaper
+        case .running: return ChimloTheme.providerBlue
+        default: return ChimloTheme.quietPaper
         }
     }
 
@@ -241,15 +232,43 @@ struct GitHubModeWing: View {
     }
 }
 
-/// The closed notch's GitHub signal: a dot, only for things that need the owner.
-struct GitHubClosedNotchDot: View {
-    let indicator: GitHubIndicator
+/// The badge itself: one small dot, red or amber, ringed in black so it
+/// reads against the mark.
+struct GitHubBadgeDot: View {
+    let badge: GitHubBadge
+    var size: CGFloat = 5
 
     var body: some View {
         Circle()
-            .fill(indicator == .failed ? ChimloTheme.clayText : ChimloTheme.attention)
-            .frame(width: 5, height: 5)
-            .accessibilityLabel(indicator == .failed ? "GitHub workflow failed" : "GitHub needs you")
+            .fill(badge == .failure ? ChimloTheme.clayText : ChimloTheme.attention)
+            .frame(width: size, height: size)
+            .overlay(Circle().stroke(Color.black, lineWidth: 1))
+            .accessibilityHidden(true)
+    }
+}
+
+/// The closed notch's GitHub signal: the GitHub mark wearing the same badge,
+/// shown only while an alert is outstanding. A click opens GitHub Mode on the
+/// alerts.
+struct GitHubClosedNotchBadge: View {
+    @ObservedObject var model: ApplicationModel
+    let badge: GitHubBadge
+
+    var body: some View {
+        Button(action: model.showGitHubAlerts) {
+            GitHubMark(size: 10)
+                .foregroundStyle(ChimloTheme.quietPaper)
+                .overlay(alignment: .topTrailing) {
+                    GitHubBadgeDot(badge: badge, size: 4.5)
+                        .offset(x: 2.5, y: -2)
+                }
+                .padding(3)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(badge == .failure ? "GitHub: a workflow failed" : "GitHub: something needs you")
+        .accessibilityLabel(badge == .failure ? "GitHub workflow failed" : "GitHub needs you")
+        .accessibilityHint("Opens GitHub Mode")
     }
 }
 
@@ -451,6 +470,7 @@ struct GitHubPillButtonStyle: ButtonStyle {
 private struct GitHubOverviewView: View {
     @ObservedObject var model: ApplicationModel
     @ObservedObject var github: GitHubModel
+    @State private var showsDismissed = false
 
     var body: some View {
         if github.isAwaitingFirstData {
@@ -481,34 +501,77 @@ private struct GitHubOverviewView: View {
                     Text("Still loading \(pending) of \(github.snapshots.count) repositories.")
                         .font(.system(size: 10.5)).foregroundStyle(ChimloTheme.mutedPaper)
                 }
-                Text(overview.attention.isEmpty ? (pending > 0 ? "NOTHING YET" : "ALL CLEAR") : "NEEDS YOU")
-                    .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
-                    .tracking(0.6)
-                    .foregroundStyle(ChimloTheme.mutedPaper)
-                if overview.attention.isEmpty {
+                let outstanding = github.dismissals.outstanding(overview.attention)
+                let dismissed = github.dismissals.dismissed(overview.attention)
+                HStack(spacing: 6) {
+                    Text(outstanding.isEmpty
+                        ? (pending > 0 ? "NOTHING YET" : "ALL CLEAR")
+                        : "NEEDS YOU")
+                        .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                        .tracking(0.6)
+                        .foregroundStyle(ChimloTheme.mutedPaper)
+                    Spacer(minLength: 4)
+                    if !outstanding.isEmpty {
+                        Button("Clear all") { github.dismissAll() }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(ChimloTheme.quietPaper)
+                            .help("Dismiss every alert. Nothing changes on GitHub.")
+                            .accessibilityHint("Dismisses every alert here. Nothing changes on GitHub.")
+                    }
+                }
+                if outstanding.isEmpty {
                     HStack(spacing: 7) {
                         Image(systemName: "checkmark.circle").foregroundStyle(ChimloTheme.liveGreen)
-                        Text(pending > 0 ? "Nothing needs you in the repositories loaded so far." : "Nothing in your repositories needs you.")
+                        Text(allClearText(pending: pending, dismissed: dismissed.count))
                             .foregroundStyle(ChimloTheme.quietPaper)
                     }
                     .font(.system(size: 11.5))
                 } else {
                     VStack(spacing: 2) {
-                        ForEach(Array(overview.attention.prefix(limit).enumerated()), id: \.offset) { _, item in
+                        ForEach(Array(outstanding.prefix(limit).enumerated()), id: \.offset) { _, item in
                             GitHubAttentionRow(model: model, github: github, item: item)
                         }
                     }
-                    if overview.attention.count > limit {
-                        Button("Show all \(overview.attention.count) in the GitHub window") { model.openGitHubInCompanion?(nil) }
+                    if outstanding.count > limit {
+                        Button("Show all \(outstanding.count) in the GitHub window") { model.openGitHubInCompanion?(nil) }
                             .buttonStyle(.plain)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(ChimloTheme.mutedPaper)
+                    }
+                }
+                if !dismissed.isEmpty {
+                    Button { showsDismissed.toggle() } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: showsDismissed ? "chevron.down" : "chevron.right")
+                                .font(.system(size: 8, weight: .bold))
+                            Text(dismissed.count == 1 ? "1 dismissed" : "\(dismissed.count) dismissed")
+                        }
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(ChimloTheme.mutedPaper)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(showsDismissed ? "Hide dismissed alerts" : "Show \(dismissed.count) dismissed alerts")
+                    if showsDismissed {
+                        VStack(spacing: 2) {
+                            ForEach(Array(dismissed.prefix(limit).enumerated()), id: \.offset) { _, item in
+                                GitHubAttentionRow(model: model, github: github, item: item, isDismissed: true)
+                            }
+                        }
                     }
                 }
                 footer(overview)
             }
         }
         .scrollIndicators(.hidden)
+    }
+
+    private func allClearText(pending: Int, dismissed: Int) -> String {
+        if pending > 0 { return "Nothing needs you in the repositories loaded so far." }
+        return dismissed > 0
+            ? "Nothing new needs you."
+            : "Nothing in your repositories needs you."
     }
 
     private func stat(_ label: String, _ value: Int, _ color: Color) -> some View {
@@ -558,28 +621,50 @@ private struct GitHubOverviewView: View {
     }
 }
 
+/// One alert. The row opens the run or pull request behind it; the × beside
+/// it dismisses the alert in Overhead only, never on GitHub. A dismissed
+/// alert still shows (dimmed) while GitHub reports it, so the data stays true.
 private struct GitHubAttentionRow: View {
     @ObservedObject var model: ApplicationModel
     @ObservedObject var github: GitHubModel
     let item: GitHubAttention
+    var isDismissed = false
 
     var body: some View {
-        Button(action: open) {
-            HStack(spacing: 8) {
-                Image(systemName: symbol).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(color).frame(width: 14)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(ChimloTheme.paper).lineLimit(1)
-                    Text(subtitle).font(.system(size: 10.5)).foregroundStyle(ChimloTheme.mutedPaper).lineLimit(1)
+        HStack(spacing: 0) {
+            Button(action: open) {
+                HStack(spacing: 8) {
+                    Image(systemName: symbol).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(color).frame(width: 14)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(title).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(ChimloTheme.paper).lineLimit(1)
+                        Text(subtitle).font(.system(size: 10.5)).foregroundStyle(ChimloTheme.mutedPaper).lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right").font(.system(size: 8.5, weight: .bold)).foregroundStyle(ChimloTheme.mutedPaper)
                 }
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.right").font(.system(size: 8.5, weight: .bold)).foregroundStyle(ChimloTheme.mutedPaper)
+                .padding(.leading, 8)
+                .padding(.trailing, isDismissed ? 8 : 4)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(ChimloTheme.raisedInk))
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            if !isDismissed {
+                Button { github.dismiss(item) } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8.5, weight: .bold))
+                        .foregroundStyle(ChimloTheme.mutedPaper)
+                        .frame(width: 26, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Dismiss. Nothing changes on GitHub.")
+                .accessibilityLabel("Dismiss \(title)")
+                .accessibilityHint("Hides this alert in Claude Overhead. Nothing changes on GitHub.")
+            }
         }
-        .buttonStyle(.plain)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(ChimloTheme.raisedInk))
+        .opacity(isDismissed ? 0.55 : 1)
     }
 
     private var repositoryLabel: String? {

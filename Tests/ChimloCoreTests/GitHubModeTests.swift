@@ -816,3 +816,177 @@ struct GitHubDestinationTests {
         #expect(reloaded.github.selection.repositories.map(\.fullName) == ["acme/api", "octo/tools"])
     }
 }
+
+// MARK: - Alerts and dismissal
+
+private func headPR(_ number: Int, sha: String, ci: CIState = .failure, author: String = "me") -> GitHubPullRequest {
+    GitHubPullRequest(
+        repository: "acme/api", number: number, title: "PR \(number)",
+        url: "https://github.com/acme/api/pull/\(number)", author: author,
+        headRef: "feature/\(number)", headRepository: "acme/api", headSha: sha, baseRef: "main",
+        isDraft: false, state: "open", merged: false, updatedAt: base,
+        reviewState: .none, ciState: ci
+    )
+}
+
+@Suite("GitHub alerts")
+struct GitHubAlertTests {
+    private func overview(runs: [GitHubWorkflowRun] = [], prs: [GitHubPullRequest] = [], reviews: [GitHubPullRequest] = []) -> GitHubOverview {
+        GitHubOverview.make([GitHubRepoSnapshot(ref: api, pullRequests: prs, runs: runs)], reviewRequests: reviews, viewer: "me")
+    }
+
+    private func indicator(_ overview: GitHubOverview, _ dismissals: GitHubAlertDismissals) -> GitHubIndicator {
+        GitHubIndicator.resolve(
+            enabled: true, connected: true, overview: overview, lastViewed: .distantFuture,
+            showRunning: true, showPullRequests: true, dismissals: dismissals
+        )
+    }
+
+    @Test("Alert ids are stable across refreshes and change for genuinely new events")
+    func stableIDs() {
+        let first = GitHubAttention.failedRun(run(10, conclusion: "failure"))
+        #expect(first.alertID == GitHubAttention.failedRun(run(10, conclusion: "failure")).alertID)
+        #expect(first.alertID == "run|acme/api|10.1")
+        // A re-run that fails again, or a new run, is a new alert.
+        #expect(GitHubAttention.failedRun(run(10, conclusion: "failure", attempt: 2)).alertID != first.alertID)
+        #expect(GitHubAttention.failedRun(run(11, conclusion: "failure")).alertID != first.alertID)
+        // Failing checks on a new commit are new; requested changes are not tied to a commit.
+        #expect(GitHubAttention.ciFailing(headPR(4, sha: "aaa")).alertID != GitHubAttention.ciFailing(headPR(4, sha: "bbb")).alertID)
+        #expect(GitHubAttention.changesRequested(pr(4)).alertID == "changes|acme/api|4")
+        #expect(GitHubAlertID.repository(of: first.alertID) == "acme/api")
+        #expect(GitHubAlertID.kind(of: first.alertID) == "run")
+        #expect(GitHubAlertID.repository(of: "garbage") == nil)
+    }
+
+    @Test("Dismissing one alert hides only that alert from the badge")
+    func dismissOne() {
+        let data = overview(runs: [run(10, conclusion: "failure")], reviews: [pr(3, author: "bob")])
+        var dismissals = GitHubAlertDismissals()
+        #expect(indicator(data, dismissals) == .failed)
+
+        dismissals.dismiss(data.attention[0].alertID, at: base)
+        // Red gone; the review still raises amber.
+        #expect(indicator(data, dismissals) == .attention)
+        #expect(dismissals.outstanding(data.attention).count == 1)
+        #expect(dismissals.dismissed(data.attention).count == 1)
+        // The data is untouched: the failed workflow is still counted.
+        #expect(data.failedWorkflows == 1)
+        #expect(data.attention.count == 2)
+    }
+
+    @Test("Clear all removes the badge, and stays cleared while nothing changes")
+    func clearAll() {
+        let data = overview(runs: [run(10, conclusion: "failure")], prs: [headPR(4, sha: "aaa")], reviews: [pr(3, author: "bob")])
+        var dismissals = GitHubAlertDismissals()
+        dismissals.dismiss(all: data.attention.map(\.alertID), at: base)
+        #expect(indicator(data, dismissals) == .idle)
+        #expect(GitHubBadge.from(indicator(data, dismissals)) == nil)
+        #expect(!indicator(data, dismissals).showsInClosedNotch)
+
+        // A refresh with the same data changes nothing.
+        let changed = dismissals.reconcile(present: Set(data.attention.map(\.alertID)), isObservable: { _ in true }, now: base.addingTimeInterval(60))
+        #expect(!changed)
+        #expect(indicator(data, dismissals) == .idle)
+    }
+
+    @Test("Dismissals survive a restart through Codable, and damaged entries are dropped")
+    func persistence() throws {
+        var dismissals = GitHubAlertDismissals()
+        dismissals.dismiss("run|acme/api|10.1", at: base)
+        dismissals.dismiss("review|acme/api|3", at: base)
+        let data = try JSONEncoder().encode(dismissals)
+        let restored = try JSONDecoder().decode(GitHubAlertDismissals.self, from: data)
+        #expect(restored == dismissals)
+        #expect(restored.isDismissed("run|acme/api|10.1"))
+
+        let damaged = Data(#"{"entries":{"ok":{"dismissedAt":0},"bad":{"dismissedAt":"yesterday"}}}"#.utf8)
+        let lenient = try JSONDecoder().decode(GitHubAlertDismissals.self, from: damaged)
+        #expect(lenient.isDismissed("ok"))
+        #expect(!lenient.isDismissed("bad"))
+        #expect((try? JSONDecoder().decode(GitHubAlertDismissals.self, from: Data("{}".utf8)))?.isEmpty == true)
+    }
+
+    @Test("A new failure after a dismissal raises the badge again")
+    func newAlertAfterDismissal() {
+        var dismissals = GitHubAlertDismissals()
+        let before = overview(runs: [run(10, conclusion: "failure")])
+        dismissals.dismiss(all: before.attention.map(\.alertID), at: base)
+        #expect(indicator(before, dismissals) == .idle)
+
+        // The next run of the same workflow fails too: a different run.
+        let after = overview(runs: [run(11, conclusion: "failure", minute: 5), run(10, conclusion: "failure")])
+        dismissals.reconcile(present: Set(after.attention.map(\.alertID)), isObservable: { _ in true }, now: base.addingTimeInterval(300))
+        #expect(indicator(after, dismissals) == .failed)
+
+        // Checks failing again on a new commit are new as well.
+        var prDismissals = GitHubAlertDismissals()
+        let oldCommit = overview(prs: [headPR(4, sha: "aaa")])
+        prDismissals.dismiss(all: oldCommit.attention.map(\.alertID), at: base)
+        #expect(indicator(oldCommit, prDismissals) == .idle)
+        #expect(indicator(overview(prs: [headPR(4, sha: "bbb")]), prDismissals) == .attention)
+    }
+
+    @Test("Red outranks amber, counting only outstanding alerts")
+    func badgePriority() {
+        let both = overview(runs: [run(10, conclusion: "failure")], reviews: [pr(3, author: "bob")])
+        #expect(indicator(both, GitHubAlertDismissals()) == .failed)
+        #expect(GitHubBadge.from(.failed) == .failure)
+        #expect(GitHubBadge.from(.attention) == .attention)
+        #expect(GitHubBadge.from(.running) == nil)
+        #expect(GitHubBadge.from(.activity) == nil)
+        #expect(GitHubBadge.from(.idle) == nil)
+
+        var dismissals = GitHubAlertDismissals()
+        dismissals.dismiss("review|acme/api|3", at: base)
+        #expect(indicator(both, dismissals) == .failed, "dismissing the amber alert leaves red")
+        dismissals.dismiss(both.attention[0].alertID, at: base)
+        #expect(indicator(both, dismissals) == .idle)
+        #expect(GitHubAlertSeverity.failure > GitHubAlertSeverity.attention)
+        #expect(both.attention.map(\.severity) == [.failure, .attention])
+    }
+
+    @Test("Resolved alerts are marked, recur as new, and are eventually forgotten")
+    func staleAndResolved() {
+        var dismissals = GitHubAlertDismissals()
+        dismissals.dismiss("review|acme/api|3", at: base)
+        dismissals.dismiss("run|acme/web|7.1", at: base)
+
+        // acme/web failed to load: its absence proves nothing.
+        let observable: (String) -> Bool = { GitHubAlertID.repository(of: $0) == "acme/api" }
+        let changed = dismissals.reconcile(present: [], isObservable: observable, now: base.addingTimeInterval(60))
+        #expect(changed)
+        #expect(dismissals.entries["review|acme/api|3"]?.resolvedAt == base.addingTimeInterval(60))
+        #expect(dismissals.entries["run|acme/web|7.1"]?.resolvedAt == nil)
+        #expect(dismissals.isDismissed("run|acme/web|7.1"))
+        #expect(!dismissals.isDismissed("review|acme/api|3"))
+
+        // The review is requested again after it cleared: new, so it alerts.
+        let again = overview(reviews: [pr(3, author: "bob")])
+        dismissals.reconcile(present: Set(again.attention.map(\.alertID)), isObservable: observable, now: base.addingTimeInterval(120))
+        #expect(dismissals.entries["review|acme/api|3"] == nil)
+        #expect(indicator(again, dismissals) == .attention)
+
+        // Cleared dismissals are forgotten after the retention period, and
+        // ones nothing can confirm after the longer one.
+        var old = GitHubAlertDismissals()
+        old.dismiss("review|acme/api|9", at: base)
+        old.dismiss("run|gone/repo|1.1", at: base)
+        old.reconcile(present: [], isObservable: observable, now: base)
+        old.reconcile(present: [], isObservable: observable, now: base.addingTimeInterval(GitHubAlertDismissals.resolvedRetention + 1))
+        #expect(old.entries["review|acme/api|9"] == nil)
+        #expect(old.entries["run|gone/repo|1.1"] != nil)
+        old.reconcile(present: [], isObservable: observable, now: base.addingTimeInterval(GitHubAlertDismissals.unobservedRetention + 1))
+        #expect(old.isEmpty)
+    }
+
+    @Test("The ledger is bounded, keeping the newest dismissals")
+    func bounded() {
+        var dismissals = GitHubAlertDismissals()
+        let count = GitHubAlertDismissals.maximumEntries + 20
+        dismissals.dismiss(all: (0..<count).map { "run|acme/api|\($0).1" }, at: base)
+        #expect(dismissals.entries.count == GitHubAlertDismissals.maximumEntries)
+        dismissals.dismiss("run|acme/api|newest.1", at: base.addingTimeInterval(1))
+        #expect(dismissals.isDismissed("run|acme/api|newest.1"))
+        #expect(dismissals.entries.count == GitHubAlertDismissals.maximumEntries)
+    }
+}

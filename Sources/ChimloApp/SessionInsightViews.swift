@@ -247,8 +247,8 @@ struct CompactWingIndicators: View {
             if spec.showsAgentIndicator, running > 0 {
                 AgentDots(count: running, maximum: spec.compactWingWidthScale > 1.3 ? 3 : 2)
             }
-            if model.github.showsInClosedNotch, model.github.indicator.showsInClosedNotch {
-                GitHubClosedNotchDot(indicator: model.github.indicator)
+            if model.github.showsInClosedNotch, let badge = GitHubBadge.from(model.github.indicator) {
+                GitHubClosedNotchBadge(model: model, badge: badge)
             }
         }
     }

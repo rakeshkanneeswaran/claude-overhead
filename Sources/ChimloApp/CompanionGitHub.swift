@@ -211,12 +211,39 @@ struct GitHubPage: View {
                 StatTile(label: "Failed workflows", value: "\(overview.failedWorkflows)", tint: overview.failedWorkflows > 0 ? palette.failure : nil)
                 StatTile(label: "Reviews waiting", value: "\(overview.reviewsWaiting)", tint: overview.reviewsWaiting > 0 ? palette.warning : nil)
             }
+            let outstanding = github.dismissals.outstanding(overview.attention)
+            let dismissed = github.dismissals.dismissed(overview.attention)
             Card("Needs you") {
-                if overview.attention.isEmpty {
-                    Text("Nothing in your repositories needs you right now.").font(.system(size: 12)).foregroundStyle(palette.textSecondary)
+                if outstanding.isEmpty {
+                    Text(dismissed.isEmpty
+                        ? "Nothing in your repositories needs you right now."
+                        : "Nothing new needs you right now.")
+                        .font(.system(size: 12)).foregroundStyle(palette.textSecondary)
+                } else {
+                    HStack {
+                        Text("Dismissing an alert only quiets the badge; nothing changes on GitHub.")
+                            .font(.system(size: 11)).foregroundStyle(palette.textTertiary)
+                        Spacer()
+                        Button("Clear all") { github.dismissAll() }.controlSize(.small)
+                    }
                 }
-                ForEach(Array(overview.attention.enumerated()), id: \.offset) { _, item in
-                    Button { open(item) } label: { attentionLine(item) }.buttonStyle(.plain)
+                ForEach(Array(outstanding.enumerated()), id: \.offset) { _, item in
+                    HStack(spacing: 6) {
+                        Button { open(item) } label: { attentionLine(item) }.buttonStyle(.plain)
+                        Button { github.dismiss(item) } label: { Image(systemName: "xmark") }
+                            .buttonStyle(.borderless)
+                            .help("Dismiss. Nothing changes on GitHub.")
+                            .accessibilityLabel("Dismiss alert")
+                    }
+                }
+                if !dismissed.isEmpty {
+                    DisclosureGroup(dismissed.count == 1 ? "1 dismissed" : "\(dismissed.count) dismissed") {
+                        ForEach(Array(dismissed.enumerated()), id: \.offset) { _, item in
+                            Button { open(item) } label: { attentionLine(item) }.buttonStyle(.plain).opacity(0.6)
+                        }
+                    }
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(palette.textSecondary)
                 }
             }
             if let latest = overview.latestActivity {

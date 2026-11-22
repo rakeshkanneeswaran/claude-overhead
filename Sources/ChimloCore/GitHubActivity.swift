@@ -489,17 +489,22 @@ public enum GitHubIndicator: Equatable, Sendable {
     case attention
     case failed
 
+    /// Failed and attention come only from outstanding alerts: one the owner
+    /// dismissed no longer raises the badge, though the data behind it (the
+    /// overview's counts, the run, the pull request) stays as GitHub reports.
     public static func resolve(
         enabled: Bool,
         connected: Bool,
         overview: GitHubOverview,
         lastViewed: Date?,
         showRunning: Bool,
-        showPullRequests: Bool
+        showPullRequests: Bool,
+        dismissals: GitHubAlertDismissals = GitHubAlertDismissals()
     ) -> GitHubIndicator {
         guard enabled, connected else { return .unavailable }
-        if overview.failedWorkflows > 0 { return .failed }
-        if showPullRequests, overview.attention.contains(where: { !$0.isFailedRun }) {
+        let outstanding = dismissals.outstanding(overview.attention)
+        if outstanding.contains(where: \.isFailedRun) { return .failed }
+        if showPullRequests, outstanding.contains(where: { !$0.isFailedRun }) {
             return .attention
         }
         if showRunning, overview.runningRuns > 0 { return .running }

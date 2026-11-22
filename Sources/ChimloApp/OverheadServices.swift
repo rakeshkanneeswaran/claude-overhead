@@ -138,7 +138,8 @@ final class OverheadServices: ObservableObject {
             github.$snapshots.map { _ in () }.eraseToAnyPublisher(),
             github.$connection.map { _ in () }.eraseToAnyPublisher(),
             github.$reviewRequests.map { _ in () }.eraseToAnyPublisher(),
-            github.$lastViewed.map { _ in () }.eraseToAnyPublisher()
+            github.$lastViewed.map { _ in () }.eraseToAnyPublisher(),
+            github.$dismissals.map { _ in () }.eraseToAnyPublisher()
         )
         .receive(on: RunLoop.main)
         .sink { [weak self] in self?.refreshGitHubPresentation() }
