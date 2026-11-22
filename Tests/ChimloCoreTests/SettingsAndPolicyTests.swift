@@ -103,7 +103,7 @@ struct OverheadSettingsTests {
         #expect(settings.usageWarningThreshold == 0.8)
         #expect(settings.showResetCountdowns && settings.showCacheMetrics)
         #expect(!settings.github.enabled)
-        #expect(settings.github.refreshMinutes == 5)
+        #expect(settings.github.refreshSeconds == 30)
         #expect(!settings.focus.isOn && !settings.focus.scheduleEnabled)
         #expect(settings.shortcuts == ShortcutDefaults.bindings)
         #expect(settings.shortcutsEnabled)
@@ -175,7 +175,7 @@ struct OverheadSettingsTests {
         settings.usageWarningThreshold = 0.75
         settings.showResetCountdowns = false
         settings.showCacheMetrics = false
-        settings.github = GitHubPreferences(enabled: true, trackPullRequests: false, monitorActions: true, reviewNotifications: false, refreshMinutes: 15)
+        settings.github = GitHubPreferences(enabled: true, trackPullRequests: false, monitorActions: true, reviewNotifications: false, refreshSeconds: 900)
         settings.focus = FocusPreferences(isOn: true, suppressInformational: true, muteSounds: false, reduceAnimations: false, hideActivityLabels: false, schedule: DailyWindow(startMinutes: 540, endMinutes: 720), scheduleEnabled: true)
         settings.shortcuts[.openHistory] = nil
         settings.shortcuts[.togglePanel] = KeyCombo(keyCode: 31, modifiers: [.command, .shift])
@@ -206,7 +206,7 @@ struct OverheadSettingsTests {
         #expect(decoded.notifications.groupCompletions == defaults.notifications.groupCompletions)
         #expect(decoded.notifications.perEvent[.activity] == EventPreference(enabled: false, sound: false, systemBanner: false))
         #expect(decoded.github.enabled)
-        #expect(decoded.github.refreshMinutes == 5)
+        #expect(decoded.github.refreshSeconds == 30)
         #expect(decoded.github.monitorActions)
         #expect(decoded.layout == defaults.layout)
         #expect(decoded.accent == defaults.accent)
@@ -256,7 +256,7 @@ struct OverheadSettingsTests {
         settings.contextCriticalThreshold = 0.9
         settings.usageWarningThreshold = 5
         settings.glowIntensity = -1
-        settings.github.refreshMinutes = 0
+        settings.github.refreshSeconds = 0
         settings.historyRetentionDays = 0
         settings.notifications.quietHours = DailyWindow(startMinutes: -60, endMinutes: 1500)
         settings.focus.schedule = DailyWindow(startMinutes: 1440, endMinutes: 60)
@@ -266,7 +266,7 @@ struct OverheadSettingsTests {
         #expect(abs(normalized.contextAttentionThreshold - 0.85) < 0.0001)
         #expect(normalized.usageWarningThreshold == 0.99)
         #expect(normalized.glowIntensity == 0)
-        #expect(normalized.github.refreshMinutes == 2)
+        #expect(normalized.github.refreshSeconds == 30)
         #expect(normalized.historyRetentionDays == 1)
         #expect(normalized.notifications.quietHours == DailyWindow(startMinutes: 1380, endMinutes: 60))
         #expect(normalized.focus.schedule == DailyWindow(startMinutes: 0, endMinutes: 60))
@@ -274,13 +274,13 @@ struct OverheadSettingsTests {
         settings.contextAttentionThreshold = 0.1
         settings.contextCriticalThreshold = 2
         settings.glowIntensity = .nan
-        settings.github.refreshMinutes = 600
+        settings.github.refreshSeconds = 100_000
         settings.historyRetentionDays = nil
         let high = settings.normalized()
         #expect(high.contextAttentionThreshold == 0.3)
         #expect(high.contextCriticalThreshold == 0.99)
         #expect(high.glowIntensity == 0.8)
-        #expect(high.github.refreshMinutes == 60)
+        #expect(high.github.refreshSeconds == 3600)
         #expect(high.historyRetentionDays == nil)
 
         settings.contextAttentionThreshold = 0.2
@@ -387,11 +387,11 @@ struct SettingsStoreTests {
         await withTaskGroup(of: Void.self) { group in
             for _ in 0..<20 {
                 group.addTask {
-                    _ = store.update { $0.github.refreshMinutes += 1 }
+                    _ = store.update { $0.github.refreshSeconds += 1 }
                 }
             }
         }
-        #expect(store.load().github.refreshMinutes == 25)
+        #expect(store.load().github.refreshSeconds == 50)
     }
 }
 

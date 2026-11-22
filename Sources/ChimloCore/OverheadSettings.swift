@@ -145,9 +145,12 @@ public struct GitHubPreferences: Codable, Equatable, Sendable {
     public var trackPullRequests: Bool
     public var monitorActions: Bool
     public var reviewNotifications: Bool
-    /// Polling interval. At least 2 minutes to respect GitHub's rate limits,
-    /// at most 60 so status never goes stale for longer than an hour.
-    public var refreshMinutes: Int
+    /// How often to look at GitHub, in seconds: every 30 by default. Requests
+    /// are conditional and GitHub does not count a 304 against the rate
+    /// limit, so looking often at repositories that have not changed is free,
+    /// and `GitHubPollBudget` stops review and check lookups when the hourly
+    /// allowance runs low. At most an hour so status never goes stale longer.
+    public var refreshSeconds: Int
 
     /// Which repositories are monitored, and which one is focused.
     public var selection: GitHubRepositorySelection
@@ -187,14 +190,25 @@ public struct GitHubPreferences: Codable, Equatable, Sendable {
     /// The merge method last used in each repository, keyed by repository id.
     public var mergeMethods: [String: GitHubMergeMethod]
 
-    public static let refreshRange: ClosedRange<Int> = 2...60
+    public static let refreshRange: ClosedRange<Int> = 30...3600
+    /// The intervals Settings offers.
+    public static let refreshChoices: [Int] = [30, 60, 120, 300, 600, 900, 1800, 3600]
+
+    /// "Every 30 seconds", "Every minute", "Every 5 minutes", "Every hour".
+    public static func refreshLabel(_ seconds: Int) -> String {
+        if seconds < 60 { return "Every \(seconds) seconds" }
+        if seconds == 60 { return "Every minute" }
+        if seconds == 3600 { return "Every hour" }
+        if seconds % 60 == 0 { return "Every \(seconds / 60) minutes" }
+        return "Every \(seconds) seconds"
+    }
 
     public init(
         enabled: Bool = false,
         trackPullRequests: Bool = true,
         monitorActions: Bool = true,
         reviewNotifications: Bool = true,
-        refreshMinutes: Int = 5,
+        refreshSeconds: Int = 30,
         selection: GitHubRepositorySelection = GitHubRepositorySelection(),
         showNotchButton: Bool = true,
         notchModeEnabled: Bool = true,
@@ -219,7 +233,7 @@ public struct GitHubPreferences: Codable, Equatable, Sendable {
         self.trackPullRequests = trackPullRequests
         self.monitorActions = monitorActions
         self.reviewNotifications = reviewNotifications
-        self.refreshMinutes = refreshMinutes
+        self.refreshSeconds = refreshSeconds
         self.selection = selection
         self.showNotchButton = showNotchButton
         self.notchModeEnabled = notchModeEnabled
@@ -249,11 +263,24 @@ public struct GitHubPreferences: Codable, Equatable, Sendable {
     public var showsNotchButton: Bool { enabled && notchModeEnabled && showNotchButton }
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, trackPullRequests, monitorActions, reviewNotifications, refreshMinutes
+        case enabled, trackPullRequests, monitorActions, reviewNotifications, refreshSeconds
         case selection, showNotchButton, notchModeEnabled, showAccount, showRepositoryInfo
         case showRunningIndicator, showPullRequestIndicator, showInClosedNotch, defaultView, lastView
         case density, showDetailedMetadata, groupNotifications, fastRefreshWhileRunning, repositoryAlerts
         case allowMerging, mergeMethods
+    }
+
+    /// Keys earlier versions wrote. Read once, never written again.
+    private enum LegacyKeys: String, CodingKey {
+        case refreshMinutes
+    }
+
+    /// Up to 1.0.1 the interval was whole minutes, 5 unless changed. A choice
+    /// someone made carries over; the old default becomes the new one.
+    private static func migratedRefreshSeconds(_ decoder: any Decoder) -> Int? {
+        guard let legacy = try? decoder.container(keyedBy: LegacyKeys.self),
+              let minutes = legacy.lenient(Int.self, .refreshMinutes), minutes != 5 else { return nil }
+        return min(max(minutes, 2), 60) * 60
     }
 
     public init(from decoder: any Decoder) throws {
@@ -263,7 +290,9 @@ public struct GitHubPreferences: Codable, Equatable, Sendable {
         trackPullRequests = container.lenient(Bool.self, .trackPullRequests) ?? fallback.trackPullRequests
         monitorActions = container.lenient(Bool.self, .monitorActions) ?? fallback.monitorActions
         reviewNotifications = container.lenient(Bool.self, .reviewNotifications) ?? fallback.reviewNotifications
-        refreshMinutes = container.lenient(Int.self, .refreshMinutes) ?? fallback.refreshMinutes
+        refreshSeconds = container.lenient(Int.self, .refreshSeconds)
+            ?? Self.migratedRefreshSeconds(decoder)
+            ?? fallback.refreshSeconds
         selection = container.lenient(GitHubRepositorySelection.self, .selection) ?? fallback.selection
         showNotchButton = container.lenient(Bool.self, .showNotchButton) ?? fallback.showNotchButton
         notchModeEnabled = container.lenient(Bool.self, .notchModeEnabled) ?? fallback.notchModeEnabled
@@ -391,8 +420,8 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         )
         copy.usageWarningThreshold = Self.clamp(usageWarningThreshold, to: range, fallback: defaults.usageWarningThreshold)
         copy.glowIntensity = Self.clamp(glowIntensity, to: 0...1, fallback: defaults.glowIntensity)
-        copy.github.refreshMinutes = min(
-            max(github.refreshMinutes, GitHubPreferences.refreshRange.lowerBound),
+        copy.github.refreshSeconds = min(
+            max(github.refreshSeconds, GitHubPreferences.refreshRange.lowerBound),
             GitHubPreferences.refreshRange.upperBound
         )
         copy.historyRetentionDays = historyRetentionDays.map { max($0, 1) }

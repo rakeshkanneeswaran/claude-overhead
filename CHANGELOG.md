@@ -15,6 +15,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Running GitHub workflows show a turning green ring instead of a blue dotted
   circle, and running is green throughout GitHub Mode. Queued runs keep their
   clock.
+- GitHub is checked every 30 seconds by default instead of every 5 minutes,
+  so a new pull request or run shows up in the notch within half a minute.
+  Choose a longer interval in **GitHub → Integration**; an interval you set
+  before carries over.
 
 ## [1.0.1] - 2026-11-22
 

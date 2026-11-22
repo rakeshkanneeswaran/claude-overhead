@@ -658,9 +658,38 @@ struct GitHubSettingsTests {
     func legacyDecoding() throws {
         let json = #"{"enabled": true, "monitorActions": false, "refreshMinutes": 10}"#
         let decoded = try JSONDecoder().decode(GitHubPreferences.self, from: Data(json.utf8))
-        #expect(decoded.enabled && !decoded.monitorActions && decoded.refreshMinutes == 10)
+        #expect(decoded.enabled && !decoded.monitorActions && decoded.refreshSeconds == 600)
         #expect(decoded.notchModeEnabled && decoded.defaultView == .overview)
         #expect(decoded.selection.isEmpty)
+    }
+
+    @Test("The old minutes interval carries over, and its old default becomes every 30 seconds")
+    func refreshIntervalMigration() throws {
+        func decode(_ json: String) throws -> GitHubPreferences {
+            try JSONDecoder().decode(GitHubPreferences.self, from: Data(json.utf8))
+        }
+        #expect(try decode(#"{"refreshMinutes": 5}"#).refreshSeconds == 30)
+        #expect(try decode(#"{"refreshMinutes": 15}"#).refreshSeconds == 900)
+        #expect(try decode(#"{"refreshMinutes": 9999}"#).refreshSeconds == 3600)
+        #expect(try decode(#"{"refreshMinutes": "soon"}"#).refreshSeconds == 30)
+        #expect(try decode(#"{"refreshMinutes": 15, "refreshSeconds": 60}"#).refreshSeconds == 60)
+        #expect(try decode("{}").refreshSeconds == 30)
+
+        let encoded = try JSONEncoder().encode(GitHubPreferences(refreshSeconds: 120))
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(object["refreshSeconds"] as? Int == 120)
+        #expect(object["refreshMinutes"] == nil)
+    }
+
+    @Test("Refresh intervals read naturally")
+    func refreshLabels() {
+        #expect(GitHubPreferences.refreshLabel(30) == "Every 30 seconds")
+        #expect(GitHubPreferences.refreshLabel(60) == "Every minute")
+        #expect(GitHubPreferences.refreshLabel(300) == "Every 5 minutes")
+        #expect(GitHubPreferences.refreshLabel(3600) == "Every hour")
+        #expect(GitHubPreferences.refreshLabel(90) == "Every 90 seconds")
+        #expect(GitHubPreferences.refreshChoices.allSatisfy(GitHubPreferences.refreshRange.contains))
+        #expect(GitHubPreferences.refreshChoices.first == GitHubPreferences().refreshSeconds)
     }
 
     @Test("Unknown values fall back one field at a time")
@@ -681,7 +710,7 @@ struct GitHubSettingsTests {
         try withIsolatedDefaults { defaults in
             var settings = OverheadSettings()
             settings.github = GitHubPreferences(
-                enabled: true, refreshMinutes: 15,
+                enabled: true, refreshSeconds: 900,
                 selection: GitHubRepositorySelection(repositories: [api, tools], focusedID: 103),
                 showNotchButton: false, showAccount: false, showRunningIndicator: false,
                 defaultView: .lastActive, lastView: .pullRequests, density: .expanded,

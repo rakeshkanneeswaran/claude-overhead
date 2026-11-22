@@ -97,11 +97,11 @@ struct GitHubIntegrationView: View {
             Toggle("Group related notifications", isOn: settings.binding(\.github.groupNotifications))
             Toggle("Check running workflows every 45 seconds", isOn: settings.binding(\.github.fastRefreshWhileRunning))
                 .disabled(!settings.settings.github.monitorActions)
-            Stepper(
-                "Refresh everything every \(settings.settings.github.refreshMinutes) minutes",
-                value: settings.binding(\.github.refreshMinutes),
-                in: GitHubPreferences.refreshRange
-            )
+            Picker("Refresh everything", selection: settings.binding(\.github.refreshSeconds)) {
+                ForEach(refreshChoices, id: \.self) { seconds in
+                    Text(GitHubPreferences.refreshLabel(seconds)).tag(seconds)
+                }
+            }
             Text("Sound and banners for each GitHub event are below.")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -109,6 +109,11 @@ struct GitHubIntegrationView: View {
 
     /// Sound and banners for each GitHub event. Quiet hours, Focus and the
     /// global mute still apply from Settings → Notifications.
+    /// The offered intervals, plus one carried over from an older version.
+    private var refreshChoices: [Int] {
+        Array(Set(GitHubPreferences.refreshChoices + [settings.settings.github.refreshSeconds])).sorted()
+    }
+
     private var notificationsSection: some View {
         Section {
             ForEach(OverheadEventKind.allCases.filter(\.isGitHub), id: \.self) { kind in

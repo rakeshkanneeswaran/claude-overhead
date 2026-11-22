@@ -83,8 +83,10 @@ focus.
 - `GitHubModel` is the single source of GitHub data for the notch, the
   companion window and notifications. It polls only the selected
   repositories: a parallel quick look (runs and the PR list) for anything new,
-  then a full pass with reviews and checks, every few minutes, and every 45
-  seconds for repositories with running workflows. A refresh is never
+  then a full pass with reviews and checks, every 30 seconds by default.
+  Requests are conditional, so an unchanged repository costs nothing against
+  the rate limit. With a longer interval, repositories with running workflows
+  are still checked every 45 seconds. A refresh is never
   cancelled halfway; a change during one queues another pass. Jobs and pull
   request details load only when opened.
 - GitHub Mode lives in the open notch (`IslandGitHubViews`,

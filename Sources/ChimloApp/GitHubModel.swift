@@ -214,7 +214,7 @@ final class GitHubModel: ObservableObject {
             return
         }
         let added = reconcileSnapshots()
-        let needsFreshLook = previous.refreshMinutes != preferences.refreshMinutes
+        let needsFreshLook = previous.refreshSeconds != preferences.refreshSeconds
             || previous.trackPullRequests != preferences.trackPullRequests
             || previous.monitorActions != preferences.monitorActions
             || !added.isEmpty
@@ -498,7 +498,7 @@ final class GitHubModel: ObservableObject {
     /// One refresh: a full one when due, otherwise a quick look at the
     /// repositories with running workflows. Returns how long to wait.
     private func refresh() async -> TimeInterval {
-        let fullInterval = TimeInterval(max(GitHubPreferences.refreshRange.lowerBound, preferences.refreshMinutes) * 60)
+        let fullInterval = TimeInterval(max(GitHubPreferences.refreshRange.lowerBound, preferences.refreshSeconds))
         isRefreshing = true
         defer { isRefreshing = false }
         rollCountsIfNeeded()
