@@ -89,13 +89,18 @@ struct SessionHistorySearchTests {
 
         let clock = ContinuousClock()
         var matches: [SessionHistoryRecord] = []
-        let elapsed = clock.measure {
-            matches = HistorySearch.filter(records, query: query)
-        }
+        // Best of three, so one scheduling hiccup on a busy machine does not
+        // fail the run. Shared CI runners are about twice as slow as a
+        // developer Mac with every suite in parallel, so they get more room;
+        // a quadratic search would still blow far past either budget.
+        let elapsed = (0..<3).map { _ in
+            clock.measure { matches = HistorySearch.filter(records, query: query) }
+        }.min() ?? .seconds(60)
+        let budget: Duration = ProcessInfo.processInfo.environment["CI"] == nil ? .milliseconds(500) : .milliseconds(1_500)
 
         #expect(matches.count == 1_429)
         #expect(matches.first?.id == "session-9996")
-        #expect(elapsed < .milliseconds(500), "took \(elapsed)")
+        #expect(elapsed < budget, "took \(elapsed), budget \(budget)")
     }
 
     private func ids(_ text: String, in records: [SessionHistoryRecord]) -> [String] {
