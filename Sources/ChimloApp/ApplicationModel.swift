@@ -1818,6 +1818,9 @@ final class ApplicationModel: ObservableObject {
     private func receiveInsights(_ insights: [String: TranscriptInsights]) {
         var merged = sessionInsights
         merged.merge(insights) { _, newer in newer }
+        // Only sessions still known keep their insights, so a long-running
+        // app does not carry (and re-compare) every session it ever saw.
+        merged = merged.filter { reducer.sessions[$0.key] != nil || insights[$0.key] != nil }
         guard merged != sessionInsights else { return }
         sessionInsights = merged
         syncSessionProjections()
@@ -2111,6 +2114,7 @@ final class ApplicationModel: ObservableObject {
         guard !Task.isCancelled else {
             return ChimloDecisionResponse(requestID: request.id, outcome: .cancelled, note: Self.stoppedWaitingNote)
         }
+        endTourForRealRequest()
 
         // The transport cancels this task when the helper's connection
         // closes; the request then leaves the notch without an answer.
@@ -2132,6 +2136,14 @@ final class ApplicationModel: ObservableObject {
                 finishPendingDecision(outcome: .cancelled, note: Self.stoppedWaitingNote)
             }
         }
+    }
+
+    /// A real request outranks the setup tour: the tour ends (its demo
+    /// session goes with it) so the notch never shows a fake "WAIT" beside
+    /// the real one.
+    private func endTourForRealRequest() {
+        guard onboardingSessionID != nil || panelMode == .onboarding else { return }
+        finishOnboarding()
     }
 
     /// Why a request left the notch when Claude Code ended its hook.
@@ -2169,6 +2181,7 @@ final class ApplicationModel: ObservableObject {
         guard !Task.isCancelled else {
             return ProviderPermissionResponse(requestID: request.id, outcome: .cancelled, note: Self.stoppedWaitingNote)
         }
+        endTourForRealRequest()
 
         // Claude Code stopped waiting (answered in the terminal, interrupted
         // the turn, ended the session): the transport cancels this task and
@@ -2300,6 +2313,7 @@ final class ApplicationModel: ObservableObject {
         guard !Task.isCancelled else {
             return ProviderQuestionResponse(requestID: request.id, outcome: .cancelled, answers: [:], note: Self.stoppedWaitingNote)
         }
+        endTourForRealRequest()
 
         // As for permissions: when Claude Code ends the hook, the question
         // leaves the notch unanswered.

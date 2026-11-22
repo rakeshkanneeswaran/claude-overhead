@@ -37,7 +37,7 @@ final class LocalAgentProcessDiscovery: @unchecked Sendable {
 
     private let run: CommandRunner
 
-    init(run: @escaping CommandRunner = LocalAgentProcessDiscovery.commandOutput) {
+    init(run: @escaping CommandRunner = { LocalAgentProcessDiscovery.commandOutput(executable: $0, arguments: $1) }) {
         self.run = run
     }
 
@@ -82,23 +82,45 @@ final class LocalAgentProcessDiscovery: @unchecked Sendable {
         return snapshots
     }
 
-    static func commandOutput(executable: String, arguments: [String]) -> String? {
+    /// Runs a short command (`ps`, `lsof`, `claude agents --json`) and returns
+    /// its output, or nil if it fails or runs past `timeout`. Never waits
+    /// forever: a hung command is terminated, then killed, so the session
+    /// list keeps updating. Output is drained while the command runs, so a
+    /// full pipe can never block it; stdin is closed.
+    static func commandOutput(executable: String, arguments: [String], timeout: TimeInterval = 10) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
+        process.standardInput = FileHandle.nullDevice
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
         do {
             try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            return String(data: data, encoding: .utf8)
         } catch {
             return nil
         }
+        let output = CommandOutputBox()
+        let drained = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            output.data = pipe.fileHandleForReading.readDataToEndOfFile()
+            drained.signal()
+        }
+        if exited.wait(timeout: .now() + timeout) == .timedOut {
+            process.terminate()
+            if exited.wait(timeout: .now() + 1) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exited.wait(timeout: .now() + 1)
+            }
+            return nil
+        }
+        guard drained.wait(timeout: .now() + 2) == .success,
+              process.terminationStatus == 0 else { return nil }
+        return String(data: output.data, encoding: .utf8)
     }
+
 
     struct ProcessLine {
         let processID: Int32
@@ -746,3 +768,9 @@ private extension JSONDecoder {
         return decoder
     }
 }
+
+/// The command's output, written once by the reader before it signals.
+private final class CommandOutputBox: @unchecked Sendable {
+    var data = Data()
+}
+

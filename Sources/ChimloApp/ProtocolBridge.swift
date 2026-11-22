@@ -29,39 +29,49 @@ final class ProtocolBridge {
         setState(.starting, notify: stateChanged)
 
         startupTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+            var failures = 0
+            while !Task.isCancelled {
+                guard let self else { return }
+                do {
+                    let server = try ChimloServer(
+                        eventHandler: { event in
+                            await receive(event)
+                        },
+                        decisionHandler: { request in
+                            await decide(request)
+                        },
+                        permissionHandler: { request in
+                            await permit(request)
+                        },
+                        questionHandler: { request in
+                            await answer(request)
+                        }
+                    )
+                    self.server = server
+                    let descriptor = try await server.start()
 
-            do {
-                let server = try ChimloServer(
-                    eventHandler: { event in
-                        await receive(event)
-                    },
-                    decisionHandler: { request in
-                        await decide(request)
-                    },
-                    permissionHandler: { request in
-                        await permit(request)
-                    },
-                    questionHandler: { request in
-                        await answer(request)
+                    guard !Task.isCancelled else {
+                        server.stop()
+                        return
                     }
-                )
-                self.server = server
-                let descriptor = try await server.start()
-
-                guard !Task.isCancelled else {
-                    server.stop()
+                    self.setState(.listening(port: descriptor.port), notify: stateChanged)
                     return
+                } catch is CancellationError {
+                    self.server?.stop()
+                    self.server = nil
+                    self.setState(.stopped, notify: stateChanged)
+                    return
+                } catch {
+                    self.server?.stop()
+                    self.server = nil
+                    self.setState(.failed(message: Self.conciseMessage(for: error)), notify: stateChanged)
+                    // Meanwhile hooks fall back to Claude Code's own prompts.
+                    // Keep trying, so recovering never needs a restart.
+                    failures += 1
+                    try? await Task.sleep(for: ServerRestartPolicy.delay(afterFailures: failures))
+                    guard !Task.isCancelled else { return }
+                    self.setState(.starting, notify: stateChanged)
                 }
-                self.setState(.listening(port: descriptor.port), notify: stateChanged)
-            } catch is CancellationError {
-                self.server?.stop()
-                self.server = nil
-                self.setState(.stopped, notify: stateChanged)
-            } catch {
-                self.server?.stop()
-                self.server = nil
-                self.setState(.failed(message: Self.conciseMessage(for: error)), notify: stateChanged)
             }
         }
     }

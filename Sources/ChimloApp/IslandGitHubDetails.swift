@@ -287,7 +287,7 @@ struct GitHubRunDetailView: View {
                     Button("More detail") { model.openGitHubInCompanion?(.run(repositoryID: repositoryID, runID: runID)) }
                         .buttonStyle(GitHubPillButtonStyle())
                 }
-                .task(id: "\(run.id)|\(run.status ?? "")|\(run.conclusion ?? "")") {
+                .task(id: "\(run.id)|\(run.status ?? "")|\(run.conclusion ?? "")|\(github.connection.isConnected)") {
                     github.loadJobs(runID: run.id, repositoryID: repositoryID, force: true)
                 }
             } else {
@@ -393,7 +393,7 @@ struct GitHubPullRequestDetailView: View {
                 }
                 .scrollIndicators(.hidden)
                 GitHubMergeBar(model: model, github: github, repositoryID: repositoryID, number: number, pr: pr)
-                    .task(id: "\(repositoryID)#\(number)|\(pr.updatedAt?.timeIntervalSince1970 ?? 0)") {
+                    .task(id: "\(repositoryID)#\(number)|\(pr.updatedAt?.timeIntervalSince1970 ?? 0)|\(github.connection.isConnected)") {
                         github.loadPullRequestDetail(number: number, repositoryID: repositoryID)
                         github.loadRepositorySettings(repositoryID)
                         // GitHub works out mergeability lazily; ask once more

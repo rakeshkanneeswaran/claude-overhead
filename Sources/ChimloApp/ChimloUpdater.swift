@@ -55,8 +55,13 @@ final class ChimloUpdater: NSObject, SPUUserDriver {
             return
         }
         guard ensureStarted() else { return }
-        guard !updater.sessionInProgress else { return }
         shouldPresentErrors = true
+        guard !updater.sessionInProgress else {
+            // A scheduled check or a download is already running: show it
+            // and report its result, rather than ignoring the click.
+            if phase == nil { publish(.checking) }
+            return
+        }
         publish(.checking)
         updater.checkForUpdates()
     }

@@ -59,6 +59,13 @@ public final class ChimloServer: @unchecked Sendable {
         lock.withLock { listener = newListener }
 
         do {
+            // A listener that never becomes ready (or sits in .waiting) would
+            // leave start() pending for good; cancelling it resumes the wait.
+            let watchdog = Task { [newListener] in
+                try? await Task.sleep(for: Self.startTimeout)
+                if !Task.isCancelled { newListener.cancel() }
+            }
+            defer { watchdog.cancel() }
             let port = try await waitUntilReady(newListener)
             let descriptor = RuntimeDescriptor(
                 port: port,
@@ -76,6 +83,11 @@ public final class ChimloServer: @unchecked Sendable {
             throw error
         }
     }
+
+    /// How long the listener may take to become ready.
+    public static let startTimeout: Duration = .seconds(5)
+    /// How long a client may take to send its one frame once connected.
+    public static let firstFrameTimeout: Duration = .seconds(10)
 
     public func stop() {
         lock.lock()
@@ -115,7 +127,14 @@ public final class ChimloServer: @unchecked Sendable {
                 case .cancelled:
                     gate.run {
                         continuation.resume(
-                            throwing: ChimloProtocolError.connectionFailed("Listener was cancelled")
+                            throwing: ChimloProtocolError.connectionFailed("Listener was cancelled or did not start in time")
+                        )
+                    }
+                case let .waiting(error):
+                    // Loopback has nothing to wait for; fail so the owner retries.
+                    gate.run {
+                        continuation.resume(
+                            throwing: ChimloProtocolError.connectionFailed("Listener is waiting: \(error)")
                         )
                     }
                 default:
@@ -134,7 +153,20 @@ public final class ChimloServer: @unchecked Sendable {
                 return
             }
             do {
-                let frame = try await NetworkFrameIO.receiveFrame(from: connection)
+                // A client that connects and never sends would hold this task
+                // and its connection forever.
+                let deadline = Task {
+                    try? await Task.sleep(for: Self.firstFrameTimeout)
+                    if !Task.isCancelled { connection.cancel() }
+                }
+                let frame: Data
+                do {
+                    frame = try await NetworkFrameIO.receiveFrame(from: connection)
+                    deadline.cancel()
+                } catch {
+                    deadline.cancel()
+                    throw error
+                }
                 let envelope = try ChimloFrameCodec.decode(frame)
                 guard constantTimeEqual(envelope.authenticationToken, authenticationToken) else {
                     connection.cancel()
@@ -404,6 +436,16 @@ private enum NetworkFrameIO {
                 }
             }
         }
+    }
+}
+
+/// How soon to try starting the local listener again after a failure:
+/// quickly at first, then every 30 seconds, for as long as the app runs.
+public enum ServerRestartPolicy {
+    public static func delay(afterFailures failures: Int) -> Duration {
+        let steps: [Int] = [2, 5, 10, 20, 30]
+        let index = min(max(failures, 1), steps.count) - 1
+        return .seconds(steps[index])
     }
 }
 

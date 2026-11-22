@@ -330,6 +330,7 @@ private struct SessionDetailCard: View {
     @EnvironmentObject private var settings: SettingsModel
     @Environment(\.overheadPalette) private var palette
     @State private var resumeResult: String?
+    @State private var isResuming = false
 
     var body: some View {
         let insights = session.insights
@@ -381,13 +382,18 @@ private struct SessionDetailCard: View {
     private var actions: some View {
         HStack {
             Button("Focus terminal") { services.focusHost(of: session) }
-            if session.mood == .success || session.mood == .failed || session.mood == .idle {
-                Button("Resume in Terminal") {
+            // Only a session with no live process: resuming a running one
+            // would open a second client writing the same transcript.
+            if session.live == nil, session.mood == .success || session.mood == .failed || session.mood == .idle {
+                Button(isResuming ? "Opening Terminal…" : "Resume in Terminal") {
+                    isResuming = true
                     Task {
                         let ok = await services.resume(sessionID: session.id, projectPath: session.projectPath)
                         resumeResult = ok ? "Opened Terminal with claude --resume." : "Could not open Terminal. Is Claude Code installed?"
+                        isResuming = false
                     }
                 }
+                .disabled(isResuming)
             }
         }
         .controlSize(.small)

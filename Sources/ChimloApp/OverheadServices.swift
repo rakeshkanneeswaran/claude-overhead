@@ -278,8 +278,24 @@ final class OverheadServices: ObservableObject {
                await SessionHostService.focus(host) {
                 return
             }
-            model.open(session)
+            if session.jumpURL != nil {
+                model.open(session)
+            } else {
+                Self.explainFocusFailure(for: session)
+            }
         }
+    }
+
+    /// The button must never do nothing: say why the terminal wasn't found
+    /// and what would let Overhead find it.
+    private static func explainFocusFailure(for session: SessionDisplayModel) {
+        let alert = NSAlert()
+        alert.messageText = "Couldn't find the terminal for \(session.displayTitle)"
+        alert.informativeText = "Claude Overhead looks for the Terminal, iTerm or editor window running this session. It can't when the session runs inside tmux, screen or SSH, when its folder differs from the project's, or when macOS hasn't allowed Claude Overhead to control Terminal or iTerm (System Settings → Privacy & Security → Automation)."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 
     /// Resumes a finished session in a new Terminal window with

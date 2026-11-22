@@ -37,6 +37,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   Reported Cost was; cost stays in history and receipts.
 - Forked Claude Code sessions are watched from their first moment (after
   Connect or Repair).
+- Nothing waits forever any more: the local listener retries on its own if it
+  fails to start (Claude Code falls back to its own prompts meanwhile), the
+  `ps`, `lsof` and `claude agents` checks give up after 10 seconds instead of
+  freezing session state, a GitHub job or pull request view says why it is
+  empty instead of loading forever and reloads when GitHub reconnects, and a
+  real request during the setup tour ends the tour instead of leaving a demo
+  "WAIT" in the notch.
+- **Focus terminal** explains when it can't find the session's terminal (tmux,
+  SSH, Automation permission) instead of doing nothing; **Resume in Terminal**
+  is offered only for sessions with no live process, once at a time.
 
 - A permission or question card leaves the notch as soon as Claude Code stops
   waiting for it (you answered in the terminal, interrupted the turn, or the

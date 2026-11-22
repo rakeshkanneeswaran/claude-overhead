@@ -180,6 +180,17 @@ struct NetworkTransportTests {
         try await ChimloClient(descriptorStore: store, timeout: .seconds(1)).ping()
     }
 
+    @Test("A listener that failed to start is retried quickly, then every 30 seconds, never given up")
+    func restartBackoff() {
+        #expect(ServerRestartPolicy.delay(afterFailures: 1) == .seconds(2))
+        #expect(ServerRestartPolicy.delay(afterFailures: 2) == .seconds(5))
+        #expect(ServerRestartPolicy.delay(afterFailures: 5) == .seconds(30))
+        #expect(ServerRestartPolicy.delay(afterFailures: 500) == .seconds(30))
+        #expect(ServerRestartPolicy.delay(afterFailures: 0) == .seconds(2))
+        #expect(ChimloServer.startTimeout <= .seconds(10))
+        #expect(ChimloServer.firstFrameTimeout <= .seconds(30))
+    }
+
     @Test("A server without a permission handler never grants access")
     func serverDefaultsPermissionsToUnavailable() async throws {
         let directory = FileManager.default.temporaryDirectory

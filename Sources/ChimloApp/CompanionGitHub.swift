@@ -398,7 +398,7 @@ struct GitHubPage: View {
             }
         }
         .frame(minWidth: 320)
-        .task(id: "\(run.id)|\(run.status ?? "")|\(run.conclusion ?? "")") {
+        .task(id: "\(run.id)|\(run.status ?? "")|\(run.conclusion ?? "")|\(github.connection.isConnected)") {
             github.loadJobs(runID: run.id, repositoryID: repositoryID, force: true)
         }
     }
@@ -505,7 +505,7 @@ struct GitHubPage: View {
             }
         }
         .frame(minWidth: 340)
-        .task(id: "\(repositoryID)#\(pr.number)") {
+        .task(id: "\(repositoryID)#\(pr.number)|\(github.connection.isConnected)") {
             github.loadPullRequestDetail(number: pr.number, repositoryID: repositoryID)
             github.loadRepositorySettings(repositoryID)
         }

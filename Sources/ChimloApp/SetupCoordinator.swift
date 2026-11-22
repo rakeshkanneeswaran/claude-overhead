@@ -40,8 +40,9 @@ final class SetupCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
     func present(_ entry: SetupEntry) {
         // A visible window keeps its place, so a second click never resets a
-        // connection that is still running.
-        if window?.isVisible != true {
+        // connection that is still running; nor does reopening the window
+        // while one runs, which would leave its Connect button ignored.
+        if window?.isVisible != true, connectTask == nil {
             switch entry {
             case let .fromWelcome(flow):
                 self.flow = flow

@@ -360,7 +360,9 @@ final class GitHubModel: ObservableObject {
     }
 
     func loadJobs(runID: Int, repositoryID: Int64, force: Bool = false) {
-        guard let client, let snapshot = snapshot(repositoryID) else { return }
+        // Never leave the view on "Loading…": say why there is nothing.
+        guard let client else { jobs[runID] = .failed(Self.notConnectedMessage); return }
+        guard let snapshot = snapshot(repositoryID) else { jobs[runID] = .failed(Self.notMonitoredMessage); return }
         if !force, let existing = jobs[runID] {
             switch existing {
             case .loading: return
@@ -380,8 +382,9 @@ final class GitHubModel: ObservableObject {
     }
 
     func loadPullRequestDetail(number: Int, repositoryID: Int64, force: Bool = false) {
-        guard let client, let snapshot = snapshot(repositoryID) else { return }
         let key = "\(repositoryID)#\(number)"
+        guard let client else { pullRequestDetails[key] = .failed(Self.notConnectedMessage); return }
+        guard let snapshot = snapshot(repositoryID) else { pullRequestDetails[key] = .failed(Self.notMonitoredMessage); return }
         if !force, let existing = pullRequestDetails[key] {
             switch existing {
             case .loading: return
@@ -484,6 +487,8 @@ final class GitHubModel: ObservableObject {
 
     // MARK: Polling
 
+    private var refreshGeneration = 0
+
     private func startPolling() {
         pollTask?.cancel()
         pollTask = Task { [weak self] in
@@ -499,8 +504,11 @@ final class GitHubModel: ObservableObject {
     /// repositories with running workflows. Returns how long to wait.
     private func refresh() async -> TimeInterval {
         let fullInterval = TimeInterval(max(GitHubPreferences.refreshRange.lowerBound, preferences.refreshSeconds))
+        // A refresh replaced by a newer one must not clear the newer one's flag.
+        refreshGeneration += 1
+        let generation = refreshGeneration
         isRefreshing = true
-        defer { isRefreshing = false }
+        defer { if refreshGeneration == generation { isRefreshing = false } }
         rollCountsIfNeeded()
 
         if client == nil {
@@ -791,6 +799,9 @@ final class GitHubModel: ObservableObject {
     }
 
     // MARK: Errors
+
+    static let notConnectedMessage = "GitHub isn't connected right now. It loads again on its own once it reconnects; check Settings → GitHub."
+    static let notMonitoredMessage = "This repository is no longer monitored."
 
     private func handle(_ error: any Error) -> TimeInterval? {
         guard let error = error as? GitHubError else {
