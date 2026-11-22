@@ -9,6 +9,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-22
+
 - Install from Terminal with one command, which checks the download's checksum
   and needs no Gatekeeper approval:
   `curl -fsSL https://github.com/rakeshkanneeswaran/claude-overhead/releases/latest/download/install.sh | bash`
@@ -99,6 +101,7 @@ controls in the MacBook notch.
 - Accessibility permission is needed for Chimlo's volume and brightness
   controls. Agent activity remains available without it.
 
-[Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.1
 [1.0.0]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.0
 [0.1.0]: https://github.com/kraten/chimlo/releases/tag/v0.1.0
