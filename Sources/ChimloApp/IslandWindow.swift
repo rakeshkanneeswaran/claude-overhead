@@ -293,16 +293,14 @@ final class IslandWindowCoordinator {
             leftArea?.height ?? 0,
             rightArea?.height ?? 0
         )
-        model.updateIslandLayout(
-            IslandLayout.make(
-                for: IslandDisplayMetrics(
-                    screenWidth: screen.frame.width,
-                    screenHeight: screen.frame.height,
-                    visibleTop: screen.visibleFrame.maxY,
-                    safeTopInset: safeTopInset,
-                    cameraHousingLeftEdge: leftArea?.maxX,
-                    cameraHousingRightEdge: rightArea?.minX
-                )
+        model.updateDisplayMetrics(
+            IslandDisplayMetrics(
+                screenWidth: screen.frame.width,
+                screenHeight: screen.frame.height,
+                visibleTop: screen.visibleFrame.maxY,
+                safeTopInset: safeTopInset,
+                cameraHousingLeftEdge: leftArea?.maxX,
+                cameraHousingRightEdge: rightArea?.minX
             )
         )
     }

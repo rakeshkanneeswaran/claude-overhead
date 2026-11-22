@@ -199,6 +199,18 @@ final class ApplicationModel: ObservableObject {
     @Published private(set) var animatesCompletionGlow = false
     @Published private(set) var sessionInsights: [String: TranscriptInsights] = [:]
     @Published private(set) var liveSessions: [String: ClaudeLiveSession] = [:]
+    /// What the chosen notch layout shows, with Focus and motion folded in.
+    @Published private(set) var layoutSpec: NotchLayoutSpec = NotchLayout.classic.spec
+    /// The session the next/previous shortcuts moved to, highlighted in the
+    /// panel and used by "Focus terminal".
+    @Published private(set) var selectedSessionID: String?
+    @Published private(set) var isFocusModeActive = false
+    @Published private(set) var contextAttentionThreshold = 0.7
+    @Published private(set) var contextCriticalThreshold = 0.9
+    /// How loudly to announce an event. The services set this from the
+    /// notification settings; without it every event is announced as before.
+    var attentionDecider: ((AttentionEvent) -> NotificationDecision)?
+    var usageWarningThreshold = 0.8
 
     let isUpdateTestMode: Bool
 
@@ -248,6 +260,16 @@ final class ApplicationModel: ObservableObject {
     private var claudeUsageRefreshTask: Task<Void, Never>?
     private var lastClaudeUsageProbeAttemptAt: Date?
     private var capacityRefreshFailures: Set<CapacityProvider> = []
+    private var displayMetrics = IslandDisplayMetrics(
+        screenWidth: 0,
+        screenHeight: 0,
+        visibleTop: 0,
+        safeTopInset: 0,
+        cameraHousingLeftEdge: nil,
+        cameraHousingRightEdge: nil
+    )
+    private var contextWarnedSessions: Set<String> = []
+    private var usageWarnedWindows: Set<String> = []
 
     var panelSize: CGSize {
         switch panelMode {
@@ -500,7 +522,7 @@ final class ApplicationModel: ObservableObject {
         if inside {
             clearCompletionGlow()
             cancelCollapse()
-            guard panelMode == .compact else { return }
+            guard panelMode == .compact, layoutSpec.expandsOnHover else { return }
             panelMode = .sessions
         } else {
             scheduleCollapseAfterHover()
@@ -621,6 +643,109 @@ final class ApplicationModel: ObservableObject {
     func updateIslandLayout(_ layout: IslandLayout) {
         guard islandLayout != layout else { return }
         islandLayout = layout
+    }
+
+    /// The screen changed. The layout is rebuilt from these metrics and the
+    /// chosen layout's wing width, so either change re-lays the notch.
+    func updateDisplayMetrics(_ metrics: IslandDisplayMetrics) {
+        displayMetrics = metrics
+        rebuildIslandLayout()
+    }
+
+    /// Applies the owner's settings that the notch itself reads.
+    func applySettings(_ settings: OverheadSettings, now: Date = .now) {
+        let spec = settings.resolvedLayoutSpec(at: now, calendar: .current)
+        if spec != layoutSpec {
+            layoutSpec = spec
+            rebuildIslandLayout()
+        }
+        let focus = settings.focus.isActive(at: now, calendar: .current)
+        if focus != isFocusModeActive { isFocusModeActive = focus }
+        if soundsEnabled != settings.notifications.soundsEnabled {
+            soundsEnabled = settings.notifications.soundsEnabled
+        }
+        if contextAttentionThreshold != settings.contextAttentionThreshold {
+            contextAttentionThreshold = settings.contextAttentionThreshold
+        }
+        if contextCriticalThreshold != settings.contextCriticalThreshold {
+            contextCriticalThreshold = settings.contextCriticalThreshold
+        }
+        usageWarningThreshold = settings.usageWarningThreshold
+    }
+
+    private func rebuildIslandLayout() {
+        updateIslandLayout(IslandLayout.make(
+            for: displayMetrics,
+            wingWidthScale: CGFloat(layoutSpec.compactWingWidthScale)
+        ))
+    }
+
+    /// Motion is calmer when the layout, Focus, or the system asks for it.
+    var reducesMotion: Bool {
+        accessibility.reduceMotion || layoutSpec.animationScale < 0.3
+    }
+
+    // MARK: Session selection
+
+    /// Moves the highlight through the sessions in panel order and opens the
+    /// panel so the owner sees where it landed.
+    func selectSession(offset: Int) {
+        let ordered = displayedSessions.filter { !$0.isDemo }
+        guard !ordered.isEmpty else { return }
+        let current = selectedSessionID.flatMap { id in ordered.firstIndex { $0.id == id } }
+        let next: Int
+        if let current {
+            next = (current + offset % ordered.count + ordered.count) % ordered.count
+        } else {
+            next = offset >= 0 ? 0 : ordered.count - 1
+        }
+        selectedSessionID = ordered[next].id
+        openPanel()
+        scheduleCollapseAfterHover(delayMilliseconds: 4_000)
+    }
+
+    func selectSession(id: String) {
+        guard sessions.contains(where: { $0.id == id }) else { return }
+        selectedSessionID = id
+    }
+
+    /// The session "Focus terminal" acts on: the highlighted one, else the
+    /// one that needs the owner, else the most recent.
+    var focusTargetSession: SessionDisplayModel? {
+        if let selectedSessionID, let selected = sessions.first(where: { $0.id == selectedSessionID }) {
+            return selected
+        }
+        return sessions.first(where: \.needsAttention) ?? sessions.first(where: { !$0.isDemo })
+    }
+
+    // MARK: Attention
+
+    /// Asks the notification policy how to announce an event and returns
+    /// whether to play its sound. Banners are posted by the decider.
+    @discardableResult
+    private func announce(
+        _ kind: OverheadEventKind,
+        key: String,
+        sessionID: String?,
+        title: String,
+        body: String
+    ) -> NotificationDecision {
+        let event = AttentionEvent(kind: kind, key: key, sessionID: sessionID, title: title, body: body)
+        if let attentionDecider { return attentionDecider(event) }
+        return NotificationDecision(
+            showInNotch: true,
+            expandNotch: kind.priority == .critical,
+            playSound: soundsEnabled && kind.priority != .ambient,
+            postSystemBanner: false
+        )
+    }
+
+    private func bannerTitle(for sessionID: String) -> String {
+        guard let path = reducer.sessions[sessionID]?.projectPath else {
+            return "Claude Code"
+        }
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        return name.isEmpty ? "Claude Code" : name
     }
 
     func beginOnboardingDemo() {
@@ -967,14 +1092,13 @@ final class ApplicationModel: ObservableObject {
             announceCompletionIfNeeded(sessionID: event.sessionID, receivedAt: completionReceivedAt)
         }
 
-        if soundsEnabled {
+        if !isDemo {
+            announceLiveEvent(event)
+        } else if soundsEnabled {
             switch event.kind {
-            case .sessionStarted:
-                chiptunePlayer.play(.arrival)
-            case .permissionRequested, .questionRequested, .failed:
-                chiptunePlayer.play(.attention)
-            case .activity, .permissionResolved, .questionResolved, .completed, .sessionEnded:
-                break
+            case .sessionStarted: chiptunePlayer.play(.arrival)
+            case .permissionRequested, .questionRequested, .failed: chiptunePlayer.play(.attention)
+            case .activity, .permissionResolved, .questionResolved, .completed, .sessionEnded: break
             }
         }
 
@@ -1057,7 +1181,90 @@ final class ApplicationModel: ObservableObject {
               lastPresentedResponse[sessionID] != response else { return }
 
         lastPresentedResponse[sessionID] = response
-        if soundsEnabled { chiptunePlayer.play(.success) }
+        if demoSessionIDs.contains(sessionID) {
+            if soundsEnabled { chiptunePlayer.play(.success) }
+            return
+        }
+        let decision = announce(
+            .sessionCompleted,
+            key: "\(sessionID)|\(response.hashValue)",
+            sessionID: sessionID,
+            title: bannerTitle(for: sessionID),
+            body: "Claude finished and is waiting for you."
+        )
+        if decision.playSound { chiptunePlayer.play(.success) }
+    }
+
+    /// Sounds and banners for a hook event, as the notification settings say.
+    private func announceLiveEvent(_ event: AgentEvent) {
+        let sessionID = event.sessionID
+        let title = bannerTitle(for: sessionID)
+        let decision: NotificationDecision
+        let cue: ChiptuneCue
+        switch event.kind {
+        case .sessionStarted:
+            decision = announce(.sessionStarted, key: sessionID, sessionID: sessionID,
+                                title: title, body: "A Claude Code session started.")
+            cue = .arrival
+        case .permissionRequested:
+            decision = announce(.permissionRequested, key: "\(sessionID)|\(event.sequence)", sessionID: sessionID,
+                                title: title, body: "Claude needs your permission to continue.")
+            cue = .attention
+        case .questionRequested:
+            decision = announce(.questionAsked, key: "\(sessionID)|\(event.sequence)", sessionID: sessionID,
+                                title: title, body: "Claude has a question for you.")
+            cue = .attention
+        case .failed:
+            decision = announce(.sessionFailed, key: sessionID, sessionID: sessionID,
+                                title: title, body: "The Claude Code session stopped with an error.")
+            cue = .attention
+        case .activity, .permissionResolved, .questionResolved, .completed, .sessionEnded:
+            return
+        }
+        if decision.playSound { chiptunePlayer.play(cue) }
+    }
+
+    /// A context window crossing the attention threshold is worth one
+    /// informational nudge per crossing; compaction re-arms it.
+    private func announceContextWarnings() {
+        for (sessionID, insight) in sessionInsights {
+            guard let fraction = insight.contextFraction else { continue }
+            if fraction < contextAttentionThreshold {
+                contextWarnedSessions.remove(sessionID)
+                continue
+            }
+            guard !contextWarnedSessions.contains(sessionID),
+                  sessions.contains(where: { $0.id == sessionID && !$0.isDemo }) else { continue }
+            contextWarnedSessions.insert(sessionID)
+            let percent = Int((fraction * 100).rounded())
+            let decision = announce(
+                .contextWarning,
+                key: sessionID,
+                sessionID: sessionID,
+                title: bannerTitle(for: sessionID),
+                body: "Context is \(percent)% full. Claude Code will compact soon."
+            )
+            if decision.playSound { chiptunePlayer.play(.attention) }
+        }
+    }
+
+    /// The 5-hour or weekly limit crossing the warning threshold.
+    private func announceUsageWarnings(_ snapshot: ProviderCapacitySnapshot) {
+        for window in snapshot.windows {
+            let key = "\(window.kind.rawValue)|\(window.resetsAt?.timeIntervalSince1970 ?? 0)"
+            let used = window.usedPercentage / 100
+            guard used >= usageWarningThreshold, !window.isExpired() else { continue }
+            guard usageWarnedWindows.insert(key).inserted else { continue }
+            let name = window.kind == .weekly ? "weekly" : "5-hour"
+            let decision = announce(
+                .usageWarning,
+                key: key,
+                sessionID: nil,
+                title: "Claude usage",
+                body: "You have used \(Int(window.usedPercentage.rounded()))% of your \(name) limit."
+            )
+            if decision.playSound { chiptunePlayer.play(.attention) }
+        }
     }
 
     private func syncSessionProjections() {
@@ -1170,6 +1377,7 @@ final class ApplicationModel: ObservableObject {
         guard merged != sessionInsights else { return }
         sessionInsights = merged
         syncSessionProjections()
+        announceContextWarnings()
     }
 
     /// Claude Code's own list of live sessions (`claude agents --json`, about
@@ -1267,6 +1475,7 @@ final class ApplicationModel: ObservableObject {
         capacitySnapshots[snapshot.provider] = snapshot
         capacityRefreshFailures.remove(snapshot.provider)
         capacityClock = .now
+        if snapshot.provider == .claude { announceUsageWarnings(snapshot) }
         if persist {
             try? ProviderCapacityFile.write(
                 snapshot,
