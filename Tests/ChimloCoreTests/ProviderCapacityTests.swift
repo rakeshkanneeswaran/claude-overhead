@@ -264,3 +264,138 @@ struct ProviderCapacityTests {
         #expect(window.isExpired(at: Date(timeIntervalSince1970: 2_000)))
     }
 }
+
+// MARK: - Per-model limits and reported rows
+
+/// Shaped like Claude Code 2.1.280's `/usage` panel on a plan with a weekly
+/// limit, a per-model weekly limit and no 5-hour window. The all-models block
+/// is drawn with cursor moves between words, so its text arrives glued
+/// together; the per-model block is redrawn later with ordinary spaces.
+private let perModelPanel = """
+\u{1B}[2JSettings: Usage
+Currentweek(allmodels)
+███████████████████████████████▌63%used
+ResetsNov24at1:30pm(Asia/Calcutta)
+What'scontributingtoyourlimitsusage?
+Refreshing…
+Current week (Fable)
+███████████████████████████████████████████████    94% used
+Resets Nov 24 at 1:30pm (Asia/Calcutta)
+What's contributing to your limits usage?
+"""
+
+@Suite("Per-model usage limits")
+struct PerModelCapacityTests {
+    private let observedAt = ISO8601DateFormatter().date(from: "2026-11-22T16:19:30Z")!
+    private let reset = ISO8601DateFormatter().date(from: "2026-11-24T08:00:00Z")!
+
+    @Test("A per-model weekly limit is read beside the all-models one, glued text included")
+    func parsesPerModelLimit() throws {
+        let snapshot = try #require(ProviderCapacityParser.claudeUsagePanel(perModelPanel, observedAt: observedAt))
+        let weekly = try #require(snapshot.window(.weekly))
+        #expect(weekly.usedPercentage == 63)
+        #expect(weekly.scope == nil)
+        #expect(weekly.resetsAt == reset, "the glued reset line still parses")
+        let fable = try #require(snapshot.window(.weekly, scope: "Fable"))
+        #expect(fable.usedPercentage == 94)
+        #expect(fable.remainingPercentage == 6)
+        #expect(fable.resetsAt == reset)
+        #expect(fable.source == .claudeCLIUsage)
+        #expect(snapshot.window(.session) == nil, "this plan reports no 5-hour window")
+        #expect(snapshot.modelWindows.map(\.scope) == ["Fable"])
+        #expect(weekly.id != fable.id)
+    }
+
+    @Test("Model names are found once each and keep the spelling with spaces")
+    func modelScopes() {
+        let panel = """
+        Currentweek(allmodels)
+        Currentweek(Sonnetonly)
+        40% used
+        Current week (Sonnet only)
+        41% used
+        Current week (Fable)
+        10% used
+        """[...]
+        #expect(ProviderCapacityParser.claudeUsageModelScopes(in: panel) == ["Sonnet only", "Fable"])
+        let snapshot = ProviderCapacityParser.claudeUsagePanel(String(panel))
+        #expect(snapshot?.window(.weekly, scope: "Sonnetonly")?.usedPercentage == 41, "names match by letters alone")
+        #expect(snapshot?.window(.weekly) == nil, "the all-models block carried no percentage")
+    }
+
+    @Test("The panel shows exactly the limits Claude Code reported")
+    func reportedRows() throws {
+        // Before any reading, the usual two rows, both unavailable.
+        #expect(CapacityRows.rows(for: nil).map(\.label) == ["7D", "5H"])
+
+        // A plan without a 5-hour window gets no 5-hour row, and a row per model.
+        let snapshot = try #require(ProviderCapacityParser.claudeUsagePanel(perModelPanel, observedAt: observedAt))
+        let rows = CapacityRows.rows(for: snapshot)
+        #expect(rows.map(\.label) == ["7D", "FABLE"])
+        #expect(rows.map(\.name) == ["weekly", "Fable weekly"])
+        #expect(rows[1].scope == "Fable")
+
+        // A plan with both keeps both, all-models weekly first.
+        let both = ProviderCapacitySnapshot(provider: .claude, windows: [
+            CapacityWindowSnapshot(provider: .claude, kind: .session, usedPercentage: 20, resetsAt: nil, observedAt: observedAt, source: .claudeStatusLine),
+            CapacityWindowSnapshot(provider: .claude, kind: .weekly, usedPercentage: 30, resetsAt: nil, observedAt: observedAt, source: .claudeStatusLine),
+        ], observedAt: observedAt)
+        #expect(CapacityRows.rows(for: both).map(\.label) == ["7D", "5H"])
+    }
+
+    @Test("Model labels fit the notch's pixel type")
+    func modelLabels() {
+        #expect(CapacityRows.label(forModel: "Fable") == "FABLE")
+        #expect(CapacityRows.label(forModel: "Sonnet only") == "SONNET O")
+        #expect(CapacityRows.label(forModel: "Opus 4.5") == "OPUS 4.5")
+        #expect(CapacityRows.label(forModel: "✻ Ünïcode ✻") == "NCODE")
+        #expect(CapacityRows.label(forModel: "✻✻") == "MODEL")
+    }
+
+    @Test("A later reading keeps a per-model reset time, and retains a briefly missing model limit")
+    func mergesPerModelLimits() {
+        let earlier = ProviderCapacitySnapshot(provider: .claude, windows: [
+            CapacityWindowSnapshot(provider: .claude, kind: .weekly, usedPercentage: 90, resetsAt: reset, observedAt: observedAt, source: .claudeCLIUsage, scope: "Fable"),
+            CapacityWindowSnapshot(provider: .claude, kind: .weekly, usedPercentage: 60, resetsAt: reset, observedAt: observedAt, source: .claudeCLIUsage),
+        ], observedAt: observedAt)
+        let later = observedAt.addingTimeInterval(600)
+
+        // The reset line did not parse this time; the earlier one still holds.
+        let noReset = ProviderCapacitySnapshot(provider: .claude, windows: [
+            CapacityWindowSnapshot(provider: .claude, kind: .weekly, usedPercentage: 95, resetsAt: nil, observedAt: later, source: .claudeCLIUsage, scope: "Fable"),
+            CapacityWindowSnapshot(provider: .claude, kind: .weekly, usedPercentage: 64, resetsAt: nil, observedAt: later, source: .claudeCLIUsage),
+        ], observedAt: later).preservingValidResetTimes(from: earlier)
+        #expect(noReset.window(.weekly, scope: "Fable")?.resetsAt == reset)
+        #expect(noReset.window(.weekly, scope: "Fable")?.usedPercentage == 95)
+        #expect(noReset.window(.weekly)?.resetsAt == reset)
+
+        // A reading that omits the model limit keeps the earlier one until it resets.
+        let omitted = ProviderCapacitySnapshot(provider: .claude, windows: [
+            CapacityWindowSnapshot(provider: .claude, kind: .weekly, usedPercentage: 64, resetsAt: reset, observedAt: later, source: .claudeCLIUsage),
+        ], observedAt: later)
+        #expect(omitted.preservingValidResetTimes(from: earlier).window(.weekly, scope: "Fable")?.usedPercentage == 90)
+        let afterReset = ProviderCapacitySnapshot(provider: .claude, windows: omitted.windows, observedAt: reset.addingTimeInterval(60))
+        #expect(afterReset.preservingValidResetTimes(from: earlier).window(.weekly, scope: "Fable") == nil)
+    }
+
+    @Test("A cache saved before per-model limits still loads")
+    func decodesOlderCache() throws {
+        let saved = #"{"observedAt":"2026-11-22T16:19:30Z","provider":"claude","windows":[{"usedPercentage":63,"resetsAt":"2026-11-24T08:00:00Z","observedAt":"2026-11-22T16:19:30Z","source":"claudeCLIUsage","provider":"claude","kind":"weekly"}]}"#
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let snapshot = try decoder.decode(ProviderCapacitySnapshot.self, from: Data(saved.utf8))
+        #expect(snapshot.window(.weekly)?.usedPercentage == 63)
+        #expect(snapshot.window(.weekly)?.scope == nil)
+        #expect(snapshot.modelWindows.isEmpty)
+        #expect(CapacityRows.rows(for: snapshot).map(\.label) == ["7D"])
+    }
+
+    @Test("A snapshot with only a per-model limit has no all-models window")
+    func scopedWindowsStaySeparate() {
+        let onlyModel = ProviderCapacitySnapshot(provider: .claude, windows: [
+            CapacityWindowSnapshot(provider: .claude, kind: .weekly, usedPercentage: 50, resetsAt: nil, observedAt: observedAt, source: .claudeCLIUsage, scope: "Fable"),
+        ], observedAt: observedAt)
+        #expect(onlyModel.window(.weekly) == nil)
+        #expect(CapacityRows.rows(for: onlyModel).map(\.label) == ["FABLE"])
+    }
+}

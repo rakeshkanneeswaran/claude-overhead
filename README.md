@@ -99,9 +99,10 @@ shortcut (⌃⌥ and comma), or by opening the app again.
   **receipt** per session: duration, model, branch, files changed with git's
   own line counts, commits made in that window, tests run, PRs and reported
   cost.
-- **Usage:** context per session against your thresholds, the 5-hour and
-  weekly limits with reset countdowns, and prompt-cache hit rates with a
-  warm/cold estimate.
+- **Usage:** context per session against your thresholds; the limits Claude
+  Code reports for your plan (5-hour, weekly, and per-model weekly limits such
+  as Fable) with reset countdowns; and prompt-cache hit rates with a warm/cold
+  estimate.
 - **GitHub:** the one place for GitHub. Overview, Repositories, Actions (jobs
   and steps), Pull Requests (descriptions, reviews, checks, merge) and Reviews,
   plus **Integration**: sign-in, which repositories are monitored, and every

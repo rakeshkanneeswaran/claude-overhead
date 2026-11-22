@@ -34,6 +34,8 @@ enum ClaudeUsageProbeError: Error, LocalizedError {
 /// items, cookies, or private HTTP endpoints are read by this probe.
 actor ClaudeUsageProbe {
     static let workingDirectoryName = "Claude Usage Probe"
+    /// How long to keep reading after the weekly limit appears.
+    static let panelSettleSeconds: TimeInterval = 5
     private static let sessionIDFilename = ".overhead-session-id"
 
     private let fileManager: FileManager
@@ -133,6 +135,9 @@ actor ClaudeUsageProbe {
         var answeredQueries: [String: Int] = [:]
         var lastReplyAt = Date.distantPast
         var lastTrustKeyAt = Date.distantPast
+        /// When the panel first showed the weekly limit. Per-model limits are
+        /// drawn a moment later, and some plans have no 5-hour window at all.
+        var weeklyShownAt: Date?
 
         while !Task.isCancelled, process.isRunning {
             let chunk = readAvailable(from: primary)
@@ -211,14 +216,19 @@ actor ClaudeUsageProbe {
                 lastEnterAt = now
             }
 
+            // Once the weekly limit is on screen, give the panel a few seconds
+            // to draw any per-model limits, then take the latest reading.
             if sentUsageCommand,
                let snapshot = ProviderCapacityParser.claudeUsagePanel(
                    text,
                    observedAt: observedAt
                ),
-               snapshot.window(.session) != nil,
                snapshot.window(.weekly) != nil {
-                return snapshot
+                let shownAt = weeklyShownAt ?? now
+                weeklyShownAt = shownAt
+                if now.timeIntervalSince(shownAt) >= Self.panelSettleSeconds {
+                    return snapshot
+                }
             }
 
             if now.timeIntervalSince(startedAt) >= timeout {

@@ -49,7 +49,7 @@ struct IslandRootView: View {
                                 .top,
                                 model.islandLayout.expandedContentTopInset
                                     + 2
-                                    + (showsUsage ? CapacityLayout.disclosureHeight : 0)
+                                    + (showsUsage ? model.usageDetailsHeight : 0)
                             )
                             .padding(.bottom, 10)
                             .frame(width: model.panelSize.width)
@@ -664,12 +664,12 @@ private struct UsageDashboardView: View {
     var body: some View {
         let panelShape = ChamferedIslandShape(shoulder: 6, lowerCut: 6)
 
+        // Exactly the limits Claude Code reports: no 5-hour row on plans
+        // without one, and a row for each per-model weekly limit.
+        let rows = model.claudeCapacityRows
         HStack(alignment: .top, spacing: 16) {
             UsageProviderBlock(
-                readings: [
-                    ("7d", model.capacityReading(provider: .claude, kind: .weekly)),
-                    ("5h", model.capacityReading(provider: .claude, kind: .session)),
-                ],
+                readings: rows.map { (label: $0.row.label, name: $0.row.name, reading: $0.reading) },
                 now: model.capacityClock
             )
         }
@@ -677,7 +677,7 @@ private struct UsageDashboardView: View {
         .padding(.top, 12)
         .padding(.bottom, 7)
         .frame(maxWidth: .infinity)
-        .frame(height: CapacityLayout.detailsHeight, alignment: .top)
+        .frame(height: CapacityLayout.detailsHeight(rows: rows.count), alignment: .top)
         .background(
             panelShape.fill(
                 ChimloTheme.raisedSurface(increasedContrast: model.accessibility.increaseContrast)
@@ -690,8 +690,15 @@ private struct UsageDashboardView: View {
 }
 
 private struct UsageProviderBlock: View {
-    let readings: [(String, CapacityReading)]
+    let readings: [(label: String, name: String, reading: CapacityReading)]
     let now: Date
+
+    /// One label column for every row, as wide as the longest label, so the
+    /// gauges still line up when a model row ("FABLE") joins "7D".
+    private var labelWidth: CGFloat {
+        let longest = readings.map(\.label.count).max() ?? 2
+        return max(15, CGFloat(longest) * 6)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -708,8 +715,10 @@ private struct UsageProviderBlock: View {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(readings.enumerated()), id: \.offset) { _, item in
                     UsageLimitBlock(
-                        label: item.0,
-                        reading: item.1,
+                        label: item.label,
+                        name: item.name,
+                        labelWidth: labelWidth,
+                        reading: item.reading,
                         now: now
                     )
                 }
@@ -722,7 +731,7 @@ private struct UsageProviderBlock: View {
     // data is stale past the freshness window so a failed or slow fetch is
     // visible rather than confident stale numbers.
     private var freshness: (text: String, stale: Bool)? {
-        guard let updated = readings.first?.1.lastUpdatedAt else { return nil }
+        guard let updated = readings.first?.reading.lastUpdatedAt else { return nil }
         let elapsed = max(0, now.timeIntervalSince(updated))
         return (compactAge(elapsed), elapsed > CapacityPolicy.freshnessInterval)
     }
@@ -738,15 +747,19 @@ private struct UsageProviderBlock: View {
 }
 
 private struct UsageLimitBlock: View {
+    /// The short pixel label, such as "7D" or "FABLE".
     let label: String
+    /// The limit in words, such as "Fable weekly", for help and VoiceOver.
+    let name: String
+    var labelWidth: CGFloat = 15
     let reading: CapacityReading
     let now: Date
 
     var body: some View {
         capacityRow
-            .help(rowHelp(label: label, reading: reading))
+            .help(rowHelp(label: name, reading: reading))
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(rowHelp(label: label, reading: reading))
+            .accessibilityLabel(rowHelp(label: name, reading: reading))
     }
 
     // LABEL · gauge · PERCENT · RESET — label sits on the left, the reset
@@ -794,7 +807,7 @@ private struct UsageLimitBlock: View {
     // between the window label and the bar.
     private func rowLabel(_ text: String) -> some View {
         PixelText(text: text, pixelSize: 1, color: ChimloTheme.quietPaper, spacing: 1)
-            .frame(width: 15, alignment: .leading)
+            .frame(width: labelWidth, alignment: .leading)
     }
 
     private func gauge(usedOverride: Double?, colorOverride: Color?) -> some View {

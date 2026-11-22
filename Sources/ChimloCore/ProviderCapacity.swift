@@ -21,6 +21,10 @@ public struct CapacityWindowSnapshot: Codable, Equatable, Identifiable, Sendable
     public let resetsAt: Date?
     public let observedAt: Date
     public let source: CapacitySource
+    /// The model a per-model limit applies to, as Claude Code names it (for
+    /// example "Fable" in "Current week (Fable)"); nil for the limits that
+    /// cover every model.
+    public let scope: String?
 
     public init(
         provider: CapacityProvider,
@@ -28,7 +32,8 @@ public struct CapacityWindowSnapshot: Codable, Equatable, Identifiable, Sendable
         usedPercentage: Double,
         resetsAt: Date?,
         observedAt: Date,
-        source: CapacitySource
+        source: CapacitySource,
+        scope: String? = nil
     ) {
         self.provider = provider
         self.kind = kind
@@ -36,9 +41,25 @@ public struct CapacityWindowSnapshot: Codable, Equatable, Identifiable, Sendable
         self.resetsAt = resetsAt
         self.observedAt = observedAt
         self.source = source
+        self.scope = scope
     }
 
-    public var id: String { "\(provider.rawValue)-\(kind.rawValue)" }
+    public var id: String {
+        let base = "\(provider.rawValue)-\(kind.rawValue)"
+        return scope.map { "\(base)-\(CapacityWindowSnapshot.scopeKey($0))" } ?? base
+    }
+
+    /// Whether this is the same limit as `other`, whatever its numbers.
+    public func isSameLimit(as other: CapacityWindowSnapshot) -> Bool {
+        provider == other.provider && kind == other.kind
+            && scope.map(Self.scopeKey) == other.scope.map(Self.scopeKey)
+    }
+
+    /// Model names compare by letters and digits alone: Claude Code sometimes
+    /// draws words apart with cursor moves, so "Sonnet 4" can read "Sonnet4".
+    static func scopeKey(_ scope: String) -> String {
+        String(scope.lowercased().unicodeScalars.filter(CharacterSet.alphanumerics.contains))
+    }
 
     public var remainingPercentage: Double {
         min(100, max(0, 100 - usedPercentage))
@@ -65,8 +86,20 @@ public struct ProviderCapacitySnapshot: Codable, Equatable, Sendable {
         self.observedAt = observedAt
     }
 
+    /// The limit across all models of this kind.
     public func window(_ kind: CapacityWindowKind) -> CapacityWindowSnapshot? {
-        windows.first { $0.kind == kind }
+        windows.first { $0.kind == kind && $0.scope == nil }
+    }
+
+    /// A per-model limit, matched by model name.
+    public func window(_ kind: CapacityWindowKind, scope: String) -> CapacityWindowSnapshot? {
+        let key = CapacityWindowSnapshot.scopeKey(scope)
+        return windows.first { $0.kind == kind && $0.scope.map(CapacityWindowSnapshot.scopeKey) == key }
+    }
+
+    /// Per-model limits, in the order Claude Code lists them.
+    public var modelWindows: [CapacityWindowSnapshot] {
+        windows.filter { $0.scope != nil }
     }
 
     /// The Claude `/usage` panel reports exact percentages and a rounded reset
@@ -76,10 +109,10 @@ public struct ProviderCapacitySnapshot: Codable, Equatable, Sendable {
     public func preservingValidResetTimes(
         from previous: ProviderCapacitySnapshot?
     ) -> ProviderCapacitySnapshot {
-        guard provider == .claude, previous?.provider == .claude else { return self }
+        guard provider == .claude, let previous, previous.provider == .claude else { return self }
         var merged = windows.map { window in
             guard window.source == .claudeCLIUsage,
-                  let reset = previous?.window(window.kind)?.resetsAt,
+                  let reset = previous.windows.first(where: { $0.isSameLimit(as: window) })?.resetsAt,
                   reset > observedAt else {
                 return window
             }
@@ -89,12 +122,13 @@ public struct ProviderCapacitySnapshot: Codable, Equatable, Sendable {
                 usedPercentage: window.usedPercentage,
                 resetsAt: reset,
                 observedAt: window.observedAt,
-                source: window.source
+                source: window.source,
+                scope: window.scope
             )
         }
-        for kind in CapacityWindowKind.allCases where !merged.contains(where: { $0.kind == kind }) {
-            guard let previousWindow = previous?.window(kind),
-                  !previousWindow.isExpired(at: observedAt) else { continue }
+        for previousWindow in previous.windows
+        where !merged.contains(where: { $0.isSameLimit(as: previousWindow) }) {
+            guard !previousWindow.isExpired(at: observedAt) else { continue }
             merged.append(previousWindow)
         }
         return ProviderCapacitySnapshot(
@@ -102,6 +136,57 @@ public struct ProviderCapacitySnapshot: Codable, Equatable, Sendable {
             windows: merged,
             observedAt: observedAt
         )
+    }
+}
+
+/// One line of the usage panel.
+public struct CapacityRow: Equatable, Sendable, Identifiable {
+    public let kind: CapacityWindowKind
+    /// The model a per-model limit applies to; nil for all models.
+    public let scope: String?
+    /// The notch's short label: "7D", "5H", or the model, such as "FABLE".
+    public let label: String
+    /// Words for help text and notifications: "weekly", "5-hour", "Fable weekly".
+    public let name: String
+
+    public var id: String { "\(kind.rawValue)-\(scope.map(CapacityWindowSnapshot.scopeKey) ?? "all")" }
+}
+
+public enum CapacityRows {
+    static let weekly = CapacityRow(kind: .weekly, scope: nil, label: "7D", name: "weekly")
+    static let session = CapacityRow(kind: .session, scope: nil, label: "5H", name: "5-hour")
+    static let maximumLabelCharacters = 8
+
+    /// The limits to show: exactly the ones Claude Code reported, all-models
+    /// weekly first, then the 5-hour window, then per-model limits. A plan
+    /// without a 5-hour window gets no 5-hour row. Before any reading exists
+    /// the panel shows the weekly and 5-hour rows, both unavailable.
+    public static func rows(for snapshot: ProviderCapacitySnapshot?) -> [CapacityRow] {
+        guard let snapshot, !snapshot.windows.isEmpty else { return [weekly, session] }
+        var rows: [CapacityRow] = []
+        if snapshot.window(.weekly) != nil { rows.append(weekly) }
+        if snapshot.window(.session) != nil { rows.append(session) }
+        for window in snapshot.modelWindows {
+            guard let scope = window.scope else { continue }
+            let row = CapacityRow(
+                kind: window.kind,
+                scope: scope,
+                label: label(forModel: scope),
+                name: "\(scope) \(window.kind == .weekly ? "weekly" : "5-hour")"
+            )
+            if !rows.contains(where: { $0.id == row.id }) { rows.append(row) }
+        }
+        return rows.isEmpty ? [weekly, session] : rows
+    }
+
+    /// A model name in the notch's pixel type: upper case, letters, digits,
+    /// spaces, dots and dashes only, at most eight characters.
+    static func label(forModel model: String) -> String {
+        let allowed = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .-")
+        let filtered = String(model.uppercased().filter { allowed.contains($0) })
+            .split(separator: " ").joined(separator: " ")
+        let label = String(filtered.prefix(maximumLabelCharacters)).trimmingCharacters(in: .whitespaces)
+        return label.isEmpty ? "MODEL" : label
     }
 }
 
@@ -185,7 +270,7 @@ public enum ProviderCapacityParser {
             panel = plainText[...]
         }
 
-        let windows: [CapacityWindowSnapshot] = [
+        var windows: [CapacityWindowSnapshot] = [
             claudeUsageWindow(
                 in: panel,
                 label: "Current session",
@@ -199,6 +284,19 @@ public enum ProviderCapacityParser {
                 observedAt: observedAt
             ),
         ].compactMap { $0 }
+        // Some plans also cap individual models each week, listed as
+        // "Current week (Fable)" beside the all-models limit.
+        for model in claudeUsageModelScopes(in: panel) {
+            if let window = claudeUsageWindow(
+                in: panel,
+                label: "Current week (\(model))",
+                kind: .weekly,
+                observedAt: observedAt,
+                scope: model
+            ) {
+                windows.append(window)
+            }
+        }
 
         guard !windows.isEmpty else { return nil }
         return ProviderCapacitySnapshot(
@@ -228,11 +326,38 @@ public enum ProviderCapacityParser {
         )
     }
 
+    /// The model names of per-model weekly limits on the panel, in order and
+    /// once each. The all-models limit is not one of them.
+    static func claudeUsageModelScopes(in panel: Substring) -> [String] {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"current\s*week\s*\(([^()\n]{1,40})\)"#,
+            options: [.caseInsensitive]
+        ) else { return [] }
+        let text = String(panel)
+        var names: [String] = []
+        var keys: [String: Int] = [:]
+        for match in expression.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let range = Range(match.range(at: 1), in: text) else { continue }
+            let name = text[range].split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            let key = CapacityWindowSnapshot.scopeKey(name)
+            guard !key.isEmpty, key != "allmodels" else { continue }
+            if let index = keys[key] {
+                // The panel redraws; keep the spelling that has its spaces.
+                if name.count > names[index].count { names[index] = name }
+            } else {
+                keys[key] = names.count
+                names.append(name)
+            }
+        }
+        return names
+    }
+
     private static func claudeUsageWindow(
         in panel: Substring,
         label: String,
         kind: CapacityWindowKind,
-        observedAt: Date
+        observedAt: Date,
+        scope: String? = nil
     ) -> CapacityWindowSnapshot? {
         guard let expression = try? NSRegularExpression(
             pattern: #"([0-9]{1,3}(?:\.[0-9]+)?)\s*%\s*(used|spent|consumed|left|remaining|available)"#,
@@ -279,7 +404,8 @@ public enum ProviderCapacityParser {
                     usedPercentage: usedPercentage,
                     resetsAt: resetsAt,
                     observedAt: observedAt,
-                    source: .claudeCLIUsage
+                    source: .claudeCLIUsage,
+                    scope: scope
                 )
             }
         }
@@ -328,7 +454,7 @@ public enum ProviderCapacityParser {
         observedAt: Date
     ) -> Date? {
         guard let expression = try? NSRegularExpression(
-            pattern: #"\bresets?\s+(\d{1,2}):(\d{2})\s*(am|pm)\s*(?:\(([^)]+)\))?"#,
+            pattern: #"resets?\s*(\d{1,2}):(\d{2})\s*(am|pm)\s*(?:\(([^)]+)\))?"#,
             options: [.caseInsensitive]
         ), let match = expression.firstMatch(
             in: line,
@@ -374,7 +500,9 @@ public enum ProviderCapacityParser {
         observedAt: Date
     ) -> Date? {
         guard let expression = try? NSRegularExpression(
-            pattern: #"\bresets?\s+([a-z]{3,9})\s+(\d{1,2})(?:,?\s+(\d{4}))?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)\s*(?:\(([^)]+)\))?"#,
+            // Spaces are optional: the panel sometimes draws words apart with
+            // cursor moves, which read as "ResetsNov24at1:30pm(Asia/Calcutta)".
+            pattern: #"resets?\s*([a-z]{3,9})\s*(\d{1,2})(?:,?\s*(\d{4}))?\s*at\s*(\d{1,2}):(\d{2})\s*(am|pm)\s*(?:\(([^)]+)\))?"#,
             options: [.caseInsensitive]
         ), let match = expression.firstMatch(
             in: line,

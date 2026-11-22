@@ -142,12 +142,18 @@ private struct UsageGlance: View {
     var body: some View {
         Card("Claude usage") {
             if let snapshot = model.capacitySnapshots[.claude], !snapshot.windows.isEmpty {
-                ForEach(snapshot.windows) { window in
+                // The same limits, in the same order, as the notch's usage panel.
+                let limits = CapacityRows.rows(for: snapshot).compactMap { row in
+                    (row.scope.flatMap { snapshot.window(row.kind, scope: $0) } ?? (row.scope == nil ? snapshot.window(row.kind) : nil))
+                        .map { (name: row.name, window: $0) }
+                }
+                ForEach(limits, id: \.window.id) { limit in
+                    let window = limit.window
                     HStack {
-                        Text(window.kind == .weekly ? "Weekly" : "5-hour")
+                        Text(limit.name.prefix(1).uppercased() + limit.name.dropFirst())
                             .font(.system(size: 12))
                             .foregroundStyle(palette.textSecondary)
-                            .frame(width: 60, alignment: .leading)
+                            .frame(width: 90, alignment: .leading)
                         ThresholdMeter(
                             fraction: window.usedPercentage / 100,
                             attentionAt: settings.settings.usageWarningThreshold,

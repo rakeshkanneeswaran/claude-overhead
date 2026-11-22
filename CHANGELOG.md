@@ -12,6 +12,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Install from Terminal with one command, which checks the download's checksum
   and needs no Gatekeeper approval:
   `curl -fsSL https://github.com/rakeshkanneeswaran/claude-overhead/releases/latest/download/install.sh | bash`
+- The usage panel shows per-model weekly limits, such as Fable, beside the
+  all-models limit, and warns when one crosses your threshold.
+- Plans without a 5-hour window no longer show an empty "5H —%" row.
+- Weekly reset times parse even when Claude Code draws the panel without
+  spaces between words.
 
 ## [1.0.0] - 2026-11-22
 

@@ -387,7 +387,7 @@ final class ApplicationModel: ObservableObject {
                 width: islandLayout.expandedWidth,
                 height: islandLayout.expandedContentTopInset
                     + contentHeight
-                    + (showsUsageDetails ? CapacityLayout.disclosureHeight : 0)
+                    + (showsUsageDetails ? usageDetailsHeight : 0)
             )
         case .update:
             return CGSize(
@@ -769,10 +769,11 @@ final class ApplicationModel: ObservableObject {
 
     func capacityReading(
         provider: CapacityProvider,
-        kind: CapacityWindowKind
+        kind: CapacityWindowKind,
+        scope: String? = nil
     ) -> CapacityReading {
         let snapshot = capacitySnapshots[provider]
-        let window = snapshot?.window(kind)
+        let window = scope.flatMap { snapshot?.window(kind, scope: $0) } ?? (scope == nil ? snapshot?.window(kind) : nil)
         guard let window, !window.isExpired(at: capacityClock) else {
             return CapacityReading(
                 window: nil,
@@ -796,6 +797,18 @@ final class ApplicationModel: ObservableObject {
             provider: provider,
             kind: .session
         )
+    }
+
+    /// The usage panel's rows: the limits Claude Code reported, each with its reading.
+    var claudeCapacityRows: [(row: CapacityRow, reading: CapacityReading)] {
+        CapacityRows.rows(for: capacitySnapshots[.claude]).map { row in
+            (row, capacityReading(provider: .claude, kind: row.kind, scope: row.scope))
+        }
+    }
+
+    /// The usage panel's height, which follows its row count.
+    var usageDetailsHeight: CGFloat {
+        CapacityLayout.disclosureHeight(rows: CapacityRows.rows(for: capacitySnapshots[.claude]).count)
     }
 
     func updateIslandLayout(_ layout: IslandLayout) {
@@ -1429,14 +1442,16 @@ final class ApplicationModel: ObservableObject {
         }
     }
 
-    /// The 5-hour or weekly limit crossing the warning threshold.
+    /// A 5-hour, weekly or per-model weekly limit crossing the warning
+    /// threshold, once per limit per reset.
     private func announceUsageWarnings(_ snapshot: ProviderCapacitySnapshot) {
         for window in snapshot.windows {
-            let key = "\(window.kind.rawValue)|\(window.resetsAt?.timeIntervalSince1970 ?? 0)"
+            let key = "\(window.id)|\(window.resetsAt?.timeIntervalSince1970 ?? 0)"
             let used = window.usedPercentage / 100
             guard used >= usageWarningThreshold, !window.isExpired() else { continue }
             guard usageWarnedWindows.insert(key).inserted else { continue }
-            let name = window.kind == .weekly ? "weekly" : "5-hour"
+            let period = window.kind == .weekly ? "weekly" : "5-hour"
+            let name = window.scope.map { "\($0) \(period)" } ?? period
             let decision = announce(
                 .usageWarning,
                 key: key,
