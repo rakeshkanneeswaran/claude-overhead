@@ -60,6 +60,18 @@ final class GitHubModel: ObservableObject {
     @Published private(set) var lastViewed: Date?
     /// A detail the notch asked the companion window to show.
     @Published var companionRequest: GitHubDetail?
+    /// What GitHub says about each monitored repository: merge methods, push access.
+    @Published private(set) var repositorySettings: [Int64: GitHubRepositoryInfo] = [:]
+    @Published private(set) var merges: [String: MergeState] = [:]
+
+    enum MergeState: Equatable {
+        case merging
+        case merged(sha: String?)
+        case failed(String)
+    }
+
+    /// Remembers the method the owner chose, per repository.
+    var saveMergeMethod: ((Int64, GitHubMergeMethod) -> Void)?
 
     /// GitHub changes worth announcing, already mapped to Overhead events.
     var onEvent: ((AttentionEvent) -> Void)?
@@ -86,6 +98,9 @@ final class GitHubModel: ObservableObject {
     private var hasReviewBaseline = false
     private var countsDay = Calendar.current.startOfDay(for: .now)
     private var nextFullRefresh = Date.distantPast
+    /// Pull requests merged from Overhead; their "merged" event is not news.
+    private var mergedHere: Set<String> = []
+    private var repositorySettingsLoadedAt: [Int64: Date] = [:]
     private var pendingFullRefresh = false
 
     init(folderAccess: FolderAccessModel) {
@@ -328,6 +343,84 @@ final class GitHubModel: ObservableObject {
 
     func pullRequestDetail(number: Int, repositoryID: Int64) -> Load<GitHubPullRequestDetail>? {
         pullRequestDetails["\(repositoryID)#\(number)"]
+    }
+
+    // MARK: Merging
+
+    /// Merge methods and push access, fetched once per half hour per repository.
+    func loadRepositorySettings(_ repositoryID: Int64) {
+        guard let client else { return }
+        if let at = repositorySettingsLoadedAt[repositoryID], at.timeIntervalSinceNow > -1800 { return }
+        repositorySettingsLoadedAt[repositoryID] = .now
+        Task {
+            if let info = try? await client.repository(id: repositoryID) {
+                repositorySettings[repositoryID] = info
+            } else {
+                repositorySettingsLoadedAt[repositoryID] = nil
+            }
+        }
+    }
+
+    /// GitHub's verdict for a pull request, once its detail has loaded.
+    /// Nil while unknown: the merge button never appears on a guess.
+    func mergeEligibility(number: Int, repositoryID: Int64) -> GitHubMergeEligibility? {
+        guard let detail = pullRequestDetail(number: number, repositoryID: repositoryID)?.value else { return nil }
+        return GitHubMergeEligibility.evaluate(
+            detail.pullRequest,
+            mergeable: detail.mergeable,
+            canPush: repositorySettings[repositoryID]?.canPush
+        )
+    }
+
+    func mergeMethods(for repositoryID: Int64) -> [GitHubMergeMethod] {
+        repositorySettings[repositoryID]?.mergeMethods ?? GitHubMergeMethod.allCases
+    }
+
+    func preferredMergeMethod(for repositoryID: Int64) -> GitHubMergeMethod {
+        GitHubMergeMethod.preferred(
+            among: mergeMethods(for: repositoryID),
+            last: preferences.mergeMethods[String(repositoryID)]
+        ) ?? .merge
+    }
+
+    func mergeState(number: Int, repositoryID: Int64) -> MergeState? {
+        merges["\(repositoryID)#\(number)"]
+    }
+
+    func clearMergeState(number: Int, repositoryID: Int64) {
+        if case .failed? = merges["\(repositoryID)#\(number)"] { merges["\(repositoryID)#\(number)"] = nil }
+    }
+
+    /// Merges after the owner confirmed. Pinned to the head commit the owner
+    /// was shown, so a push in between makes GitHub refuse rather than merge
+    /// unseen code. Never retried automatically.
+    func merge(number: Int, repositoryID: Int64, method: GitHubMergeMethod) {
+        let key = "\(repositoryID)#\(number)"
+        guard preferences.allowMerging, let client, let snapshot = snapshot(repositoryID),
+              let detail = pullRequestDetail(number: number, repositoryID: repositoryID)?.value,
+              mergeEligibility(number: number, repositoryID: repositoryID) == .eligible else { return }
+        if case .merging? = merges[key] { return }
+        merges[key] = .merging
+        saveMergeMethod?(repositoryID, method)
+        let remote = snapshot.ref.remote
+        let sha = detail.pullRequest.headSha
+        Task {
+            do {
+                let result = try await client.mergePullRequest(remote, number: number, method: method, expectedHeadSha: sha)
+                if result.merged {
+                    merges[key] = .merged(sha: result.sha)
+                    mergedHere.insert(detail.pullRequest.id)
+                    todayCounts.pullRequestsMerged += 1
+                    loadPullRequestDetail(number: number, repositoryID: repositoryID, force: true)
+                    refreshNow()
+                } else {
+                    merges[key] = .failed(result.message ?? "GitHub did not merge it.")
+                }
+            } catch {
+                merges[key] = .failed(Self.describe(error))
+                loadPullRequestDetail(number: number, repositoryID: repositoryID, force: true)
+            }
+        }
     }
 
     // MARK: Polling
@@ -713,6 +806,9 @@ final class GitHubModel: ObservableObject {
     /// rest to the shared notification policy.
     private func deliver(_ notices: [GitHubNotice]) {
         let allowed = notices.filter { notice in
+            if notice.kind == .githubMerged, mergedHere.contains(where: { notice.key.hasSuffix(":\($0)") }) {
+                return false
+            }
             guard let id = snapshots.first(where: { $0.ref.fullName.lowercased() == notice.repository.lowercased() })?.id else {
                 // Review requests in repositories that are not monitored still
                 // count: they ask something of the owner.

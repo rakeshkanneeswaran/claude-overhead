@@ -714,3 +714,44 @@ struct GitHubSettingsTests {
         #expect(decoded.shortcuts[.openHistory] == nil)
     }
 }
+
+// MARK: - Merging
+
+@Suite("GitHub merging")
+struct GitHubMergeTests {
+    @Test("Only GitHub's own clean verdict makes a pull request mergeable")
+    func eligibility() {
+        let ready = pr(1, review: .approved, ci: .success, mergeable: "clean")
+        #expect(GitHubMergeEligibility.evaluate(ready, mergeable: true, canPush: true) == .eligible)
+        #expect(GitHubMergeEligibility.evaluate(ready, mergeable: true, canPush: nil) == .eligible, "GitHub has the final word when it did not say")
+        #expect(GitHubMergeEligibility.evaluate(ready, mergeable: nil, canPush: true) == .unknown, "not computed yet is not a yes")
+        #expect(GitHubMergeEligibility.evaluate(ready, mergeable: true, canPush: false) == .noPermission)
+        #expect(GitHubMergeEligibility.evaluate(pr(2, mergeable: "dirty"), mergeable: false, canPush: true) == .conflicts)
+        #expect(GitHubMergeEligibility.evaluate(pr(3, mergeable: "blocked"), mergeable: true, canPush: true) == .blocked)
+        #expect(GitHubMergeEligibility.evaluate(pr(4, mergeable: "behind"), mergeable: true, canPush: true) == .behind)
+        #expect(GitHubMergeEligibility.evaluate(pr(5, mergeable: "unstable"), mergeable: true, canPush: true) == .checksNotPassing)
+        #expect(GitHubMergeEligibility.evaluate(pr(6, draft: true, mergeable: "clean"), mergeable: true, canPush: true) == .draft)
+        #expect(GitHubMergeEligibility.evaluate(pr(7, state: "closed", merged: true), mergeable: nil, canPush: true) == .notOpen)
+        #expect(GitHubMergeEligibility.evaluate(pr(8), mergeable: true, canPush: true) == .unknown, "no merge state, no button")
+        #expect(GitHubMergeEligibility.eligible.reason == nil)
+        #expect(GitHubMergeEligibility.blocked.reason != nil)
+    }
+
+    @Test("Methods follow what the repository allows, and remember the owner's last choice")
+    func methods() {
+        #expect(GitHubMergeMethod.allowed(mergeCommit: true, squash: false, rebase: nil) == [.merge, .rebase])
+        #expect(GitHubMergeMethod.allowed(mergeCommit: nil, squash: nil, rebase: nil) == GitHubMergeMethod.allCases)
+        #expect(GitHubMergeMethod.preferred(among: [.merge, .squash], last: .squash) == .squash)
+        #expect(GitHubMergeMethod.preferred(among: [.merge], last: .squash) == .merge, "a method the repository dropped is not offered")
+        #expect(GitHubMergeMethod.preferred(among: [], last: nil) == nil)
+    }
+
+    @Test("Merging preferences decode leniently and default to allowed")
+    func preferences() throws {
+        #expect(GitHubPreferences().allowMerging)
+        let json = #"{"allowMerging": false, "mergeMethods": {"101": "squash", "102": "octopus"}}"#
+        let decoded = try JSONDecoder().decode(GitHubPreferences.self, from: Data(json.utf8))
+        #expect(!decoded.allowMerging)
+        #expect(decoded.mergeMethods == ["101": .squash])
+    }
+}

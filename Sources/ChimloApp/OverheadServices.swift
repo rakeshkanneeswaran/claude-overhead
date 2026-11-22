@@ -117,6 +117,10 @@ final class OverheadServices: ObservableObject {
         }
         model.githubNavigation.restore(view: settings.settings.github.lastView)
         model.onGitHubModeOpened = { [weak self] in self?.github.markViewed() }
+        github.saveMergeMethod = { [weak self] repositoryID, method in
+            guard let self, settings.settings.github.mergeMethods[String(repositoryID)] != method else { return }
+            settings.settings.github.mergeMethods[String(repositoryID)] = method
+        }
         model.openGitHubSettings = { [weak self] in self?.openCompanion?(.settings, .github) }
         model.openGitHubInCompanion = { [weak self] detail in
             guard let self else { return }
@@ -155,7 +159,8 @@ final class OverheadServices: ObservableObject {
             defaultView: preferences.defaultView,
             showsAccount: preferences.showAccount,
             showsRepositoryInfo: preferences.showRepositoryInfo,
-            showsDetailedMetadata: preferences.showDetailedMetadata
+            showsDetailedMetadata: preferences.showDetailedMetadata,
+            allowsMerging: preferences.allowMerging
         ))
     }
 

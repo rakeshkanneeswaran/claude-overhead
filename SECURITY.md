@@ -66,4 +66,6 @@ principles:
 - No telemetry; the only network destination is api.github.com, and only while
   GitHub is turned on
 - A pasted GitHub token lives only in the Keychain and is never logged
+- The only write to GitHub is a pull request merge the owner confirms, pinned
+  to the head commit they were shown
 - External tools run with fixed argument lists, never through a shell

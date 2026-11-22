@@ -155,6 +155,11 @@ session remains open.
 - GitHub's critical events (failed workflow, failed checks, requested changes,
   merge conflicts) show and may sound, but never expand the notch: only
   Claude's own requests may open it. Workflow logs are never downloaded.
+- The one GitHub write is a pull request merge (`PUT .../pulls/{n}/merge`).
+  It is offered only when GitHub's own `mergeable` and `mergeable_state` say
+  the pull request can merge (`GitHubMergeEligibility`), needs a separate
+  confirmation each time, sends the head SHA the owner saw so a later push
+  makes GitHub refuse, and is never retried automatically.
 - Git never runs in a macOS-protected folder (Documents, Desktop, Downloads,
   iCloud Drive, other volumes) until the owner asks (`FolderAccess`,
   `FolderAccessModel`). macOS's folder prompt blocks the git process until it

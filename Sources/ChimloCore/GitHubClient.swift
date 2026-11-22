@@ -218,8 +218,32 @@ public struct GitHubClient: Sendable {
             mergedAt: pull.mergedAt,
             closedAt: pull.closedAt,
             reviews: reviews,
-            checks: checks
+            checks: checks,
+            mergeable: pull.mergeable
         )
+    }
+
+    // MARK: - Writing
+
+    /// Merges a pull request: the only write Overhead ever makes, and only
+    /// after the owner confirms. `expectedHeadSha` pins the merge to the commit
+    /// the owner looked at; if anyone pushed since, GitHub answers 409 and
+    /// nothing is merged.
+    public func mergePullRequest(
+        _ repo: GitRemote,
+        number: Int,
+        method: GitHubMergeMethod,
+        expectedHeadSha: String?
+    ) async throws -> GitHubMergeResult {
+        var body: [String: String] = ["merge_method": method.rawValue]
+        if let expectedHeadSha, !expectedHeadSha.isEmpty { body["sha"] = expectedHeadSha }
+        let data = try await send(
+            "PUT",
+            ["repos", repo.owner, repo.name, "pulls", String(number), "merge"],
+            body: try JSONEncoder().encode(body)
+        )
+        let response = (try? Self.makeDecoder().decode(MergeDTO.self, from: data))
+        return GitHubMergeResult(merged: response?.merged ?? true, sha: response?.sha, message: response?.message)
     }
 
     // MARK: - Details
@@ -346,6 +370,39 @@ public struct GitHubClient: Sendable {
             throw GitHubError.notFound
         default:
             throw GitHubError.unexpectedStatus(status)
+        }
+    }
+
+    /// A request that changes something. Never conditional and never cached.
+    private func send(_ method: String, _ path: [String], body: Data) async throws -> Data {
+        guard let url = makeURL(path, query: []) else {
+            throw GitHubError.network("Could not build a request URL")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.httpBody = body
+        request.setValue("Bearer \(credential.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
+        request.setValue("ClaudeOverhead", forHTTPHeaderField: "User-Agent")
+        let data: Data
+        let response: HTTPURLResponse
+        do {
+            (data, response) = try await transport(request)
+        } catch {
+            throw Self.transportError(error)
+        }
+        let rateLimit = Self.rateLimit(from: response)
+        if let rateLimit, Self.isCoreResource(response) { cache.record(rateLimit) }
+        let message = (try? JSONDecoder().decode(MessageDTO.self, from: data))?.message
+        switch response.statusCode {
+        case 200..<300: return data
+        case 401: throw GitHubError.unauthorized
+        case 404: throw GitHubError.notFound
+        case 405, 409, 422: throw GitHubError.mergeRejected(message ?? "HTTP \(response.statusCode)")
+        case 403, 429: throw Self.deniedError(status: response.statusCode, response: response, body: data, rateLimit: rateLimit)
+        default: throw GitHubError.unexpectedStatus(response.statusCode)
         }
     }
 
@@ -547,6 +604,12 @@ private struct MessageDTO: Decodable {
     let message: String?
 }
 
+private struct MergeDTO: Decodable {
+    let merged: Bool?
+    let sha: String?
+    let message: String?
+}
+
 private struct RepositoryDTO: Decodable {
     let id: Int64?
     let name: String?
@@ -556,6 +619,14 @@ private struct RepositoryDTO: Decodable {
     let defaultBranch: String?
     let archived: Bool?
     let pushedAt: Date?
+    let permissions: Permissions?
+    let allowMergeCommit: Bool?
+    let allowSquashMerge: Bool?
+    let allowRebaseMerge: Bool?
+
+    struct Permissions: Decodable {
+        let push: Bool?
+    }
 
     var info: GitHubRepositoryInfo? {
         guard let id else { return nil }
@@ -565,7 +636,9 @@ private struct RepositoryDTO: Decodable {
             ref: GitHubRepoRef(id: id, owner: owner, name: name, isPrivate: self.private),
             defaultBranch: defaultBranch,
             archived: archived ?? false,
-            pushedAt: pushedAt
+            pushedAt: pushedAt,
+            canPush: permissions?.push,
+            mergeMethods: GitHubMergeMethod.allowed(mergeCommit: allowMergeCommit, squash: allowSquashMerge, rebase: allowRebaseMerge)
         )
     }
 }
@@ -606,6 +679,7 @@ private struct PullRequestDTO: Decodable {
     let commits: Int?
     let createdAt: Date?
     let closedAt: Date?
+    let mergeable: Bool?
 
     func pullRequest(fallbackRepository: String) -> GitHubPullRequest {
         let reviewers = (requestedReviewers ?? []).compactMap(\.login)
@@ -805,11 +879,24 @@ public struct GitHubRepositoryInfo: Equatable, Sendable {
     public let defaultBranch: String?
     public let archived: Bool
     public let pushedAt: Date?
+    /// Whether the signed-in account can push (and so merge); nil when GitHub
+    /// did not say.
+    public let canPush: Bool?
+    public let mergeMethods: [GitHubMergeMethod]
 
-    public init(ref: GitHubRepoRef, defaultBranch: String? = nil, archived: Bool = false, pushedAt: Date? = nil) {
+    public init(
+        ref: GitHubRepoRef,
+        defaultBranch: String? = nil,
+        archived: Bool = false,
+        pushedAt: Date? = nil,
+        canPush: Bool? = nil,
+        mergeMethods: [GitHubMergeMethod] = GitHubMergeMethod.allCases
+    ) {
         self.ref = ref
         self.defaultBranch = defaultBranch
         self.archived = archived
         self.pushedAt = pushedAt
+        self.canPush = canPush
+        self.mergeMethods = mergeMethods
     }
 }

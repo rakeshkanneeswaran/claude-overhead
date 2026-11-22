@@ -367,6 +367,9 @@ struct GitHubPage: View {
             if let review = GitHubNotchStyle.label(pr.reviewState) { KeyValueRow(key: "Review", value: review) }
             if pr.ciState != .unknown { KeyValueRow(key: "Checks", value: GitHubRunStatus.from(ciState: pr.ciState).label) }
             if let merge = pr.mergeability.label { KeyValueRow(key: "Merge", value: merge) }
+            if settings.settings.github.allowMerging, pr.isOpen {
+                CompanionMergeRow(pr: pr, repositoryID: repositoryID)
+            }
             switch detail {
             case nil, .loading?:
                 ProgressView("Loading details…").controlSize(.small)
@@ -407,6 +410,7 @@ struct GitHubPage: View {
         .frame(minWidth: 340)
         .task(id: "\(repositoryID)#\(pr.number)") {
             github.loadPullRequestDetail(number: pr.number, repositoryID: repositoryID)
+            github.loadRepositorySettings(repositoryID)
         }
     }
 
@@ -443,5 +447,70 @@ struct GitHubPage: View {
         }
         .font(.system(size: 11))
         .foregroundStyle(palette.textTertiary)
+    }
+}
+
+/// Merge in the companion window, with the same rules as the notch: only
+/// when GitHub says the pull request can merge, and only after a confirmation
+/// naming the method and the branch.
+private struct CompanionMergeRow: View {
+    let pr: GitHubPullRequest
+    let repositoryID: Int64
+    @EnvironmentObject private var github: GitHubModel
+    @Environment(\.overheadPalette) private var palette
+    @State private var method: GitHubMergeMethod = .merge
+    @State private var confirming = false
+
+    var body: some View {
+        let eligibility = github.mergeEligibility(number: pr.number, repositoryID: repositoryID)
+        let state = github.mergeState(number: pr.number, repositoryID: repositoryID)
+        VStack(alignment: .leading, spacing: 6) {
+            switch state {
+            case .merging?:
+                ProgressView("Merging…").controlSize(.small)
+            case .merged?:
+                Label("Merged into \(pr.baseRef)", systemImage: "checkmark.circle.fill").foregroundStyle(palette.success)
+            case let .failed(message)?:
+                Text(message).font(.system(size: 12)).foregroundStyle(palette.warning)
+                mergeControls(eligibility)
+            case nil:
+                mergeControls(eligibility)
+            }
+        }
+        .onAppear { method = github.preferredMergeMethod(for: repositoryID) }
+        .confirmationDialog(
+            "\(method.displayName): #\(pr.number) into \(pr.baseRef)?",
+            isPresented: $confirming,
+            titleVisibility: .visible
+        ) {
+            Button(method.shortName) { github.merge(number: pr.number, repositoryID: repositoryID, method: method) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This merges on GitHub for everyone. It only goes ahead if no one has pushed to the branch since you loaded it.")
+        }
+    }
+
+    @ViewBuilder
+    private func mergeControls(_ eligibility: GitHubMergeEligibility?) -> some View {
+        if eligibility == .eligible {
+            HStack {
+                let methods = github.mergeMethods(for: repositoryID)
+                if methods.count > 1 {
+                    Picker("Method", selection: $method) {
+                        ForEach(methods) { Text($0.displayName).tag($0) }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 220)
+                }
+                Button("Merge pull request…") {
+                    github.clearMergeState(number: pr.number, repositoryID: repositoryID)
+                    confirming = true
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(palette.success)
+            }
+        } else if let reason = eligibility?.reason {
+            Text("Can't merge yet. \(reason)").font(.system(size: 12)).foregroundStyle(palette.textSecondary)
+        }
     }
 }

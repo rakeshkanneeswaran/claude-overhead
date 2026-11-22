@@ -190,6 +190,8 @@ public struct GitHubPullRequestDetail: Equatable, Sendable {
     /// Newest first.
     public var reviews: [GitHubReview]
     public var checks: [GitHubCheckRun]
+    /// GitHub's `mergeable`: false means conflicts, nil means not computed yet.
+    public var mergeable: Bool?
 
     public init(
         pullRequest: GitHubPullRequest,
@@ -202,8 +204,10 @@ public struct GitHubPullRequestDetail: Equatable, Sendable {
         mergedAt: Date? = nil,
         closedAt: Date? = nil,
         reviews: [GitHubReview] = [],
-        checks: [GitHubCheckRun] = []
+        checks: [GitHubCheckRun] = [],
+        mergeable: Bool? = nil
     ) {
+        self.mergeable = mergeable
         self.pullRequest = pullRequest
         self.body = body
         self.additions = additions

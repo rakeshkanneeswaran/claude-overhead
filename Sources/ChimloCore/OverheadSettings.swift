@@ -181,6 +181,11 @@ public struct GitHubPreferences: Codable, Equatable, Sendable {
     public var fastRefreshWhileRunning: Bool
     /// Per repository, keyed by GitHub repository id. A missing entry is `.all`.
     public var repositoryAlerts: [String: GitHubAlertLevel]
+    /// Offer to merge pull requests GitHub says are ready. Each merge still
+    /// needs its own confirmation.
+    public var allowMerging: Bool
+    /// The merge method last used in each repository, keyed by repository id.
+    public var mergeMethods: [String: GitHubMergeMethod]
 
     public static let refreshRange: ClosedRange<Int> = 2...60
 
@@ -204,8 +209,12 @@ public struct GitHubPreferences: Codable, Equatable, Sendable {
         showDetailedMetadata: Bool = true,
         groupNotifications: Bool = true,
         fastRefreshWhileRunning: Bool = true,
-        repositoryAlerts: [String: GitHubAlertLevel] = [:]
+        repositoryAlerts: [String: GitHubAlertLevel] = [:],
+        allowMerging: Bool = true,
+        mergeMethods: [String: GitHubMergeMethod] = [:]
     ) {
+        self.allowMerging = allowMerging
+        self.mergeMethods = mergeMethods
         self.enabled = enabled
         self.trackPullRequests = trackPullRequests
         self.monitorActions = monitorActions
@@ -244,6 +253,7 @@ public struct GitHubPreferences: Codable, Equatable, Sendable {
         case selection, showNotchButton, notchModeEnabled, showAccount, showRepositoryInfo
         case showRunningIndicator, showPullRequestIndicator, showInClosedNotch, defaultView, lastView
         case density, showDetailedMetadata, groupNotifications, fastRefreshWhileRunning, repositoryAlerts
+        case allowMerging, mergeMethods
     }
 
     public init(from decoder: any Decoder) throws {
@@ -271,6 +281,9 @@ public struct GitHubPreferences: Codable, Equatable, Sendable {
         // Lenient per entry: an unknown level drops that entry, not the map.
         let rawAlerts = container.lenient([String: String].self, .repositoryAlerts) ?? [:]
         repositoryAlerts = rawAlerts.compactMapValues(GitHubAlertLevel.init(rawValue:))
+        allowMerging = container.lenient(Bool.self, .allowMerging) ?? fallback.allowMerging
+        let rawMethods = container.lenient([String: String].self, .mergeMethods) ?? [:]
+        mergeMethods = rawMethods.compactMapValues(GitHubMergeMethod.init(rawValue:))
     }
 }
 

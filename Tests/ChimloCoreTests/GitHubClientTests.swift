@@ -677,3 +677,70 @@ struct GitHubClientDetailTests {
         #expect(run.runStatus == .failure)
     }
 }
+
+@Suite("GitHub client: merging")
+struct GitHubClientMergeTests {
+    private let credential = GitHubCredential(token: "ghp_test_token_value", source: .personalAccessToken)
+    private let remote = GitRemote(host: "github.com", owner: "acme", name: "api")
+
+    @Test("A merge is a PUT pinned to the head commit, with the chosen method")
+    func mergeRequest() async throws {
+        let fake = FakeGitHubTransport()
+        fake.on("/repos/acme/api/pulls/5/merge", body: #"{"sha": "m3rg3", "merged": true, "message": "Pull Request successfully merged"}"#)
+        let client = GitHubClient(credential: credential, transport: fake.transport)
+        let result = try await client.mergePullRequest(remote, number: 5, method: .squash, expectedHeadSha: "abc123")
+        #expect(result == GitHubMergeResult(merged: true, sha: "m3rg3", message: "Pull Request successfully merged"))
+        let request = try #require(fake.requests.first)
+        #expect(request.httpMethod == "PUT")
+        #expect(request.value(forHTTPHeaderField: "If-None-Match") == nil)
+        let body = try #require(request.httpBody)
+        let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: String])
+        #expect(json == ["merge_method": "squash", "sha": "abc123"])
+    }
+
+    @Test("GitHub's refusals carry its own reason and are never treated as merged",
+          arguments: [(405, "Pull Request is not mergeable"), (409, "Head branch was modified. Review and try the merge again."), (422, "Merge method not allowed")])
+    func refusals(_ status: Int, _ message: String) async throws {
+        let fake = FakeGitHubTransport()
+        fake.on("/repos/acme/api/pulls/5/merge", status: status, body: #"{"message": "\#(message)"}"#)
+        let client = GitHubClient(credential: credential, transport: fake.transport)
+        await #expect(throws: GitHubError.mergeRejected(message)) {
+            try await client.mergePullRequest(remote, number: 5, method: .merge, expectedHeadSha: "abc123")
+        }
+    }
+
+    @Test("A token without write access is reported as such")
+    func forbidden() async throws {
+        let fake = FakeGitHubTransport()
+        fake.on("/repos/acme/api/pulls/5/merge", status: 403, body: #"{"message": "Resource not accessible by personal access token"}"#)
+        let client = GitHubClient(credential: credential, transport: fake.transport)
+        await #expect(throws: GitHubError.forbidden("Resource not accessible by personal access token")) {
+            try await client.mergePullRequest(remote, number: 5, method: .merge, expectedHeadSha: nil)
+        }
+    }
+
+    @Test("Repository settings carry push access and the allowed merge methods")
+    func repositorySettings() async throws {
+        let fake = FakeGitHubTransport()
+        fake.on("/repositories/9", body: """
+        {"id": 9, "name": "api", "full_name": "acme/api", "owner": {"login": "acme"}, "private": true,
+         "permissions": {"admin": false, "push": true, "pull": true},
+         "allow_merge_commit": false, "allow_squash_merge": true, "allow_rebase_merge": true}
+        """)
+        let info = try await GitHubClient(credential: credential, transport: fake.transport).repository(id: 9)
+        #expect(info.canPush == true)
+        #expect(info.mergeMethods == [.squash, .rebase])
+    }
+
+    @Test("Pull request detail reports GitHub's mergeable flag")
+    func mergeableFlag() async throws {
+        let fake = FakeGitHubTransport()
+        fake.on("/repos/acme/api/pulls/5", body: """
+        {"number": 5, "title": "A", "html_url": "https://github.com/acme/api/pull/5", "state": "open",
+         "head": {"ref": "a", "sha": "s"}, "base": {"ref": "main"}, "mergeable": true, "mergeable_state": "clean"}
+        """)
+        let detail = try await GitHubClient(credential: credential, transport: fake.transport).pullRequestDetail(remote, number: 5)
+        #expect(detail.mergeable == true)
+        #expect(GitHubMergeEligibility.evaluate(detail.pullRequest, mergeable: detail.mergeable, canPush: true) == .eligible)
+    }
+}

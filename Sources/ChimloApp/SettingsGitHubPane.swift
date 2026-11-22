@@ -44,7 +44,7 @@ struct GitHubPane: View {
                 monitoringSection
             }
             Section("Privacy") {
-                Text("Overhead signs in with the GitHub CLI (`gh auth token`) when it is installed, or with a token you save to the Keychain. It only reads: pull requests, reviews, checks and Actions runs for the repositories you select. Requests go to api.github.com and nowhere else. Logs are never downloaded.")
+                Text("Overhead signs in with the GitHub CLI (`gh auth token`) when it is installed, or with a token you save to the Keychain. It reads pull requests, reviews, checks and Actions runs for the repositories you select, and writes only one thing: a merge you confirm. Requests go to api.github.com and nowhere else. Logs are never downloaded.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -88,6 +88,10 @@ struct GitHubPane: View {
                 .disabled(!settings.settings.github.monitorActions)
             Toggle("Notify when a workflow succeeds", isOn: eventBinding(.githubWorkflowSucceeded))
                 .disabled(!settings.settings.github.monitorActions)
+            Toggle("Allow merging pull requests", isOn: settings.binding(\.github.allowMerging))
+                .disabled(!settings.settings.github.trackPullRequests)
+            Text("Merge appears only on pull requests GitHub says can merge, and asks you to confirm every time. It needs push access to the repository; a fine-grained token also needs Pull requests and Contents write access.")
+                .font(.caption).foregroundStyle(.secondary)
             Toggle("Group related notifications", isOn: settings.binding(\.github.groupNotifications))
             Toggle("Check running workflows every 45 seconds", isOn: settings.binding(\.github.fastRefreshWhileRunning))
                 .disabled(!settings.settings.github.monitorActions)

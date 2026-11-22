@@ -11,6 +11,10 @@ public enum GitHubError: Error, Equatable, Sendable, LocalizedError {
     case network(String)
     case decoding(String)
     case unexpectedStatus(Int)
+    /// GitHub refused a merge: not mergeable (405), the head moved since it
+    /// was checked (409), or the method is not allowed (422). Carries GitHub's
+    /// own message.
+    case mergeRejected(String)
 
     public var errorDescription: String? {
         switch self {
@@ -36,6 +40,8 @@ public enum GitHubError: Error, Equatable, Sendable, LocalizedError {
             "GitHub sent a response Overhead could not read: \(message)"
         case .unexpectedStatus(let status):
             "GitHub returned an unexpected response (HTTP \(status))."
+        case .mergeRejected(let message):
+            "GitHub didn't merge it: \(message)"
         }
     }
 }

@@ -46,7 +46,9 @@ what is happening to your code after it reaches GitHub. Click it again, or
   steps, and a link to the log on github.com.
 - **Pull requests:** filter by open, draft, review requested, changes
   requested, approved, CI failing, ready to merge or merged. Open one for its
-  description, size, reviews, checks and merge state.
+  description, size, reviews, checks and merge state, and merge it right there
+  when GitHub says it can merge. Every merge asks you to confirm the method
+  and branch first, and only goes ahead if nobody pushed since you looked.
 - **Repository switcher:** monitor as many repositories as you like, across
   organizations, and switch the focused one from the notch.
 - The GitHub button carries a quiet dot: red for a failed workflow, amber when
@@ -106,9 +108,10 @@ permission.
   GitHub turned on, plus Claude Code's own usage check.
 - GitHub sign-in reuses the GitHub CLI (`gh auth token`). If you would rather
   paste a personal access token, it is stored only in the macOS Keychain.
-  Overhead only reads, and only the repositories you select in
-  **Settings → GitHub** (each stored by GitHub's numeric id). Workflow logs
-  are never downloaded; they open on github.com.
+  Overhead reads only the repositories you select in **Settings → GitHub**
+  (each stored by GitHub's numeric id), and its only write is a merge you
+  confirm (turn merging off there if you like). Workflow logs are never
+  downloaded; they open on github.com.
 - Session history is a summary per session in
   `~/Library/Application Support/Overhead/history/sessions.json`, readable
   only by you (mode 0600). By default it keeps your last prompt and Claude's

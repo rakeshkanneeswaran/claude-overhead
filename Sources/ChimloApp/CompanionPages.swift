@@ -952,7 +952,7 @@ struct GitHubConnectionCard: View {
                         }
                     }
                 }
-                Text(tokenNote ?? "A fine-grained token with read access to pull requests, Actions and checks is enough. It is stored only in the Keychain.")
+                Text(tokenNote ?? "A fine-grained token with read access to pull requests, Actions and checks is enough to watch. Merging also needs Pull requests and Contents write access. It is stored only in the Keychain.")
                     .font(.system(size: 11)).foregroundStyle(palette.textTertiary)
             }
         }

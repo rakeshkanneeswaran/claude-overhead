@@ -368,6 +368,13 @@ struct GitHubPullRequestDetailView: View {
                                 GitHubTag(text: merge, color: pr.mergeability == .ready ? ChimloTheme.liveGreen : ChimloTheme.attention)
                             }
                         }
+                        if model.github.allowsMerging, pr.isOpen,
+                           let eligibility = github.mergeEligibility(number: number, repositoryID: repositoryID),
+                           let reason = eligibility.reason {
+                            Text("Can't merge yet. \(reason)")
+                                .font(.system(size: 10.5)).foregroundStyle(ChimloTheme.mutedPaper)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         VStack(alignment: .leading, spacing: 4) {
                             if !pr.headRef.isEmpty { GitHubFactRow("Branches", "\(pr.headRef) → \(pr.baseRef)") }
                             if let author = pr.author { GitHubFactRow("Author", author) }
@@ -385,15 +392,17 @@ struct GitHubPullRequestDetailView: View {
                     }
                 }
                 .scrollIndicators(.hidden)
-                HStack(spacing: 6) {
-                    Button("Open on GitHub") { GitHubModel.openWebPage(pr.url) }.buttonStyle(GitHubPillButtonStyle(prominent: true))
-                    Spacer()
-                    Button("More detail") { model.openGitHubInCompanion?(.pullRequest(repositoryID: repositoryID, number: number)) }
-                        .buttonStyle(GitHubPillButtonStyle())
-                }
-                .task(id: "\(repositoryID)#\(number)|\(pr.updatedAt?.timeIntervalSince1970 ?? 0)") {
-                    github.loadPullRequestDetail(number: number, repositoryID: repositoryID)
-                }
+                GitHubMergeBar(model: model, github: github, repositoryID: repositoryID, number: number, pr: pr)
+                    .task(id: "\(repositoryID)#\(number)|\(pr.updatedAt?.timeIntervalSince1970 ?? 0)") {
+                        github.loadPullRequestDetail(number: number, repositoryID: repositoryID)
+                        github.loadRepositorySettings(repositoryID)
+                        // GitHub works out mergeability lazily; ask once more
+                        // if it had not finished the first time.
+                        try? await Task.sleep(for: .seconds(3))
+                        if github.mergeEligibility(number: number, repositoryID: repositoryID) == .unknown {
+                            github.loadPullRequestDetail(number: number, repositoryID: repositoryID, force: true)
+                        }
+                    }
             } else {
                 GitHubListEmpty(symbol: "arrow.triangle.pull", text: "This pull request is no longer in the recent list.")
             }
@@ -444,6 +453,110 @@ struct GitHubPullRequestDetailView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Merging
+
+/// The pull request detail's action row. Merge appears only when GitHub
+/// says the pull request can merge, and always asks once more, naming the
+/// method and the branch, before anything is sent.
+struct GitHubMergeBar: View {
+    @ObservedObject var model: ApplicationModel
+    @ObservedObject var github: GitHubModel
+    let repositoryID: Int64
+    let number: Int
+    let pr: GitHubPullRequest
+    @State private var confirming = false
+    @State private var method: GitHubMergeMethod = .merge
+
+    var body: some View {
+        let state = github.mergeState(number: number, repositoryID: repositoryID)
+        let canMerge = model.github.allowsMerging
+            && github.mergeEligibility(number: number, repositoryID: repositoryID) == .eligible
+        VStack(alignment: .leading, spacing: 6) {
+            if case let .failed(message)? = state {
+                GitHubInlineNote(text: message, color: ChimloTheme.attention)
+            }
+            if confirming, canMerge, state == nil {
+                confirmRow
+            } else {
+                HStack(spacing: 6) {
+                    switch state {
+                    case .merging?:
+                        HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Merging…") }
+                            .font(.system(size: 11, weight: .semibold)).foregroundStyle(ChimloTheme.quietPaper)
+                    case .merged?:
+                        Label("Merged into \(pr.baseRef)", systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.66, green: 0.55, blue: 0.95))
+                    default:
+                        if canMerge {
+                            Button("Merge…") {
+                                github.clearMergeState(number: number, repositoryID: repositoryID)
+                                method = github.preferredMergeMethod(for: repositoryID)
+                                confirming = true
+                            }
+                            .buttonStyle(GitHubMergeButtonStyle())
+                            .help("Merge #\(pr.number) into \(pr.baseRef). You'll confirm first.")
+                        }
+                    }
+                    Button("Open on GitHub") { GitHubModel.openWebPage(pr.url) }
+                        .buttonStyle(GitHubPillButtonStyle(prominent: !canMerge))
+                    Spacer()
+                    Button("More detail") { model.openGitHubInCompanion?(.pullRequest(repositoryID: repositoryID, number: number)) }
+                        .buttonStyle(GitHubPillButtonStyle())
+                }
+            }
+        }
+        .onChange(of: canMerge) { _, eligible in if !eligible { confirming = false } }
+    }
+
+    private var confirmRow: some View {
+        let methods = github.mergeMethods(for: repositoryID)
+        return HStack(spacing: 6) {
+            if methods.count > 1 {
+                Menu {
+                    ForEach(methods) { option in
+                        Button(option.displayName) { method = option }
+                    }
+                } label: {
+                    Text(method.shortName).font(.system(size: 11, weight: .semibold))
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.visible)
+                .fixedSize()
+                .foregroundStyle(ChimloTheme.paper)
+                .accessibilityLabel("Merge method: \(method.displayName)")
+            } else {
+                Text(method.shortName).font(.system(size: 11, weight: .semibold)).foregroundStyle(ChimloTheme.paper)
+            }
+            Text("#\(pr.number) into \(pr.baseRef)?")
+                .font(.system(size: 11)).foregroundStyle(ChimloTheme.quietPaper).lineLimit(1)
+            Spacer(minLength: 4)
+            Button("Cancel") { confirming = false }
+                .buttonStyle(GitHubPillButtonStyle())
+                .keyboardShortcut(.cancelAction)
+            Button("Confirm") {
+                github.merge(number: number, repositoryID: repositoryID, method: method)
+                confirming = false
+            }
+            .buttonStyle(GitHubMergeButtonStyle())
+            .accessibilityLabel("Confirm \(method.displayName) for pull request \(pr.number) into \(pr.baseRef)")
+        }
+    }
+}
+
+struct GitHubMergeButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Color.black)
+            .padding(.horizontal, 11)
+            .frame(height: 24)
+            .background(Capsule().fill(ChimloTheme.liveGreen))
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .contentShape(Capsule())
     }
 }
 

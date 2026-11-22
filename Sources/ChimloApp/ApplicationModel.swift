@@ -186,6 +186,8 @@ struct GitHubNotchPresentation: Equatable {
     var showsAccount = true
     var showsRepositoryInfo = true
     var showsDetailedMetadata = true
+    /// Offer Merge on pull requests GitHub says are ready.
+    var allowsMerging = true
 }
 
 enum OnboardingStep: Equatable, Sendable {
