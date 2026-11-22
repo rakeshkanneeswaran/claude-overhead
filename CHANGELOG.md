@@ -9,6 +9,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+- The notch's usage panel shows how much of each limit you have used, the same
+  number Claude Code's `/usage` shows, instead of how much is left. Bars fill
+  as a limit is spent, and a limit you have used up reads 100%.
+
 ## [1.0.2] - 2026-11-22
 
 - The closed notch's line of live activity under the camera can be turned off

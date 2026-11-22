@@ -622,10 +622,7 @@ private struct InlineCapacityView: View {
                 segmentWidth: segmentWidth,
                 segmentHeight: 7,
                 segmentCount: segmentCount,
-                segmentSpacing: 1,
-                // Header shows remaining %, so fill the bar to match that
-                // number rather than the consumed amount.
-                usedOverride: reading.remainingPercentage
+                segmentSpacing: 1
             )
             capacityPercentage(
                 reading,
@@ -771,29 +768,20 @@ private struct UsageLimitBlock: View {
     }
 
     private func mainRowContent(includesReset: Bool) -> some View {
-        // At the limit the remaining percentage is always "0%" and tells you
-        // nothing — blank that cell and surface the reset countdown in red in
-        // its own (already reserved) column. Every frame is retained so the
-        // row does not reflow.
+        // Used, as Claude Code's /usage counts it: the bar fills as the limit
+        // is spent. At the limit it reads 100% and the reset countdown turns
+        // red, since that is when the limit comes back.
         let atLimit = reading.isExhausted
         let reset = includesReset ? resetDuration(reading, now: now) : nil
-        let hidePercent = atLimit && reset != nil
         return HStack(spacing: 5) {
             rowLabel(label)
 
-            gauge(
-                usedOverride: reading.remainingPercentage,
-                colorOverride: atLimit ? ChimloTheme.clayText.opacity(0.4) : nil
-            )
+            gauge(colorOverride: atLimit ? ChimloTheme.clayText.opacity(0.4) : nil)
 
-            if hidePercent {
-                percentText("", color: .clear)
-            } else {
-                percentText(
-                    capacityPercentageText(reading),
-                    color: capacityColor(reading)
-                )
-            }
+            percentText(
+                capacityPercentageText(reading),
+                color: capacityColor(reading)
+            )
 
             trailingText(
                 reset ?? "",
@@ -810,14 +798,13 @@ private struct UsageLimitBlock: View {
             .frame(width: labelWidth, alignment: .leading)
     }
 
-    private func gauge(usedOverride: Double?, colorOverride: Color?) -> some View {
+    private func gauge(colorOverride: Color?) -> some View {
         PixelCapacityGauge(
             reading: reading,
             segmentWidth: 5,
             segmentHeight: 8,
             segmentCount: 10,
             fillsWidth: true,
-            usedOverride: usedOverride,
             colorOverride: colorOverride
         )
     }
@@ -849,9 +836,7 @@ private struct PixelCapacityGauge: View {
     // When true the segments stretch to fill the available width instead of
     // using a fixed segmentWidth, so the bar spans the full row.
     var fillsWidth = false
-    // When set, the gauge fills by this percentage (0...100), or in the given
-    // color, instead of deriving both from the reading.
-    var usedOverride: Double?
+    // When set, the gauge fills in this color instead of the reading's.
     var colorOverride: Color?
 
     var body: some View {
@@ -872,11 +857,7 @@ private struct PixelCapacityGauge: View {
 
     private enum SegmentState { case lit, dimmed, empty }
 
-    private var usedValue: Double? {
-        if let usedOverride { return usedOverride }
-        if let reading = reading.usedPercentage { return reading }
-        return nil
-    }
+    private var usedValue: Double? { reading.usedPercentage }
 
     private func fillStyle(for index: Int) -> Color {
         switch segmentState(index) {
@@ -906,9 +887,10 @@ private struct PixelCapacityGauge: View {
     }
 }
 
+/// Used, matching Claude Code's own /usage panel.
 private func capacityPercentageText(_ reading: CapacityReading) -> String {
-    guard let remaining = reading.remainingPercentage else { return "—%" }
-    return "\(Int(remaining.rounded()))%"
+    guard let used = reading.usedPercentage else { return "—%" }
+    return "\(Int(used.rounded()))%"
 }
 
 // Urgency comes from colour, not row position: any bar and its percentage go
@@ -925,11 +907,11 @@ private func capacityDisclosureHelp(
     isExpanded: Bool
 ) -> String {
     let action = isExpanded ? "Hide all usage limits." : "Show all usage limits."
-    guard let remaining = reading.remainingPercentage else {
+    guard let used = reading.usedPercentage else {
         return "Claude weekly usage unavailable. \(action)"
     }
     let qualifier = reading.isApproximate ? "approximately " : ""
-    return "Claude weekly capacity: \(qualifier)\(Int(remaining.rounded())) percent remaining. \(action)"
+    return "Claude weekly usage: \(qualifier)\(Int(used.rounded())) percent used. \(action)"
 }
 
 private func resetDuration(_ reading: CapacityReading, now: Date) -> String? {
@@ -942,7 +924,7 @@ private func rowHelp(
     reading: CapacityReading
 ) -> String {
     let name = "Claude"
-    guard let window = reading.window, let remaining = reading.remainingPercentage else {
+    guard let window = reading.window, let used = reading.usedPercentage else {
         if let lastUpdatedAt = reading.lastUpdatedAt {
             return "\(name) \(label) usage unavailable. Last updated \(exactTimestamp(lastUpdatedAt))."
         }
@@ -950,7 +932,7 @@ private func rowHelp(
     }
     let qualifier = reading.isApproximate ? "Approximately " : ""
     let reset = window.resetsAt.map { " Resets \(exactTimestamp($0))." } ?? " Reset time unavailable."
-    return "\(name) \(label): \(qualifier)\(Int(remaining.rounded())) percent remaining.\(reset)"
+    return "\(name) \(label): \(qualifier)\(Int(used.rounded())) percent used.\(reset)"
 }
 
 private func compactDuration(until date: Date, now: Date) -> String {
