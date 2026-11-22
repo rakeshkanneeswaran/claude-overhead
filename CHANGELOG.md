@@ -26,6 +26,17 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Lock Mode: the lock in the open notch keeps the notch closed until you
   click it, while every session is still watched and enabled sounds still
   play. Requests wait in the notch, never approved or dropped.
+- Settings is one row of seven tabs (General, Appearance, Notifications,
+  Usage, Shortcuts, GitHub, Privacy) instead of a second sidebar of twelve
+  panes, with nothing configured in two places. Focus mode is part of
+  Notifications; layouts, themes and motion are Appearance.
+- Settings → GitHub is the integration only: sign-in, repositories and what
+  it watches. The GitHub page shows GitHub; until it is connected it explains
+  what it offers and has a **Connect GitHub** button.
+- Overview shows your Claude usage (the limit closest to running out) where
+  Reported Cost was; cost stays in history and receipts.
+- Forked Claude Code sessions are watched from their first moment (after
+  Connect or Repair).
 
 - A permission or question card leaves the notch as soon as Claude Code stops
   waiting for it (you answered in the terminal, interrupted the turn, or the
