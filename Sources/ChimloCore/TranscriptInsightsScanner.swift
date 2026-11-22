@@ -20,8 +20,24 @@ public struct TranscriptInsightsScanner: Sendable {
     /// Tool-use ids parallel to `insights.testRuns`, kept out of the public
     /// type so `TestRun` stays exactly the integration shape.
     private var testRunToolIDs: [String] = []
+    /// The session's working directory, from the lines' `cwd`, so paths can
+    /// be shown relative to the project.
+    private var workingDirectory: String?
+    /// Results that arrived before their tool call (lines out of order, or a
+    /// cold start that began between the two). Bounded, oldest dropped.
+    private var pendingResults: [String: PendingResult] = [:]
+    private var pendingResultOrder: [String] = []
+    private var unidentifiedToolCount = 0
+    private let homeDirectory: String?
 
-    public init() {}
+    public init(homeDirectory: String? = NSHomeDirectory()) {
+        self.homeDirectory = homeDirectory
+    }
+
+    private struct PendingResult: Sendable {
+        var failed: Bool
+        var at: Date?
+    }
 
     /// Large enough for Write calls and tool results that embed whole files,
     /// which still carry the ids and paths this scanner needs.
@@ -31,6 +47,8 @@ public struct TranscriptInsightsScanner: Sendable {
     static let maximumAgents = 200
     static let maximumCompactions = 100
     static let maximumPullRequests = 50
+    public static let maximumActivities = 120
+    static let maximumPendingResults = 64
     private static let maximumCountedMessageIDs = 1_024
 
     static let interruptMarker = "[Request interrupted by user"
@@ -49,6 +67,9 @@ public struct TranscriptInsightsScanner: Sendable {
         }
         if let branch = Self.bounded(line.gitBranch, maximumUTF8Bytes: 256), branch != "HEAD" {
             insights.gitBranch = branch
+        }
+        if let directory = Self.bounded(line.cwd, maximumUTF8Bytes: 4_096) {
+            workingDirectory = directory
         }
 
         switch line.type {
@@ -86,6 +107,7 @@ public struct TranscriptInsightsScanner: Sendable {
         }
         if let stopReason = message.stopReason, Self.turnEndingStopReasons.contains(stopReason) {
             insights.activity = nil
+            markUnfinishedActivities()
         }
     }
 
@@ -93,6 +115,7 @@ public struct TranscriptInsightsScanner: Sendable {
         guard let name = Self.bounded(tool.name, maximumUTF8Bytes: 256) else { return }
         insights.activity = ToolActivity(toolName: name, startedAt: timestamp)
         let id = Self.bounded(tool.id, maximumUTF8Bytes: 256)
+        recordActivity(tool, name: name, id: id, at: timestamp)
 
         switch ToolActivityKind(toolName: name) {
         case .writing:
@@ -127,11 +150,9 @@ public struct TranscriptInsightsScanner: Sendable {
     }
 
     private mutating func consume(user message: UserMessage, at timestamp: Date?) {
-        if message.isInterrupt {
-            insights.activity = nil
-        }
         for result in message.toolResults {
             let failed = result.isError == true
+            finishActivity(result.toolUseID, failed: failed, at: timestamp)
             if let index = insights.agents.lastIndex(where: { $0.id == result.toolUseID }),
                insights.agents[index].finishedAt == nil {
                 // A result without a timestamp must still end the run, so fall
@@ -145,6 +166,106 @@ public struct TranscriptInsightsScanner: Sendable {
             if let index = testRunToolIDs.lastIndex(of: result.toolUseID) {
                 insights.testRuns[index].outcome = failed ? .failed : .passed
             }
+        }
+        // After the results: an interrupt's own tool result says which call
+        // it stopped, and only calls left without one become unknown.
+        if message.isInterrupt {
+            insights.activity = nil
+            markUnfinishedActivities()
+        }
+    }
+
+    // MARK: Activity log
+
+    private mutating func recordActivity(_ tool: ToolUse, name: String, id: String?, at timestamp: Date?) {
+        let id = id ?? {
+            unidentifiedToolCount += 1
+            return "unidentified-\(unidentifiedToolCount)"
+        }()
+        // Claude Code can write a block more than once; the first copy wins.
+        guard !insights.activities.contains(where: { $0.id == id }) else { return }
+
+        var activity = SessionActivity(
+            id: id,
+            tool: name,
+            summary: tool.input.description.flatMap(ActivityText.singleLine),
+            target: target(of: tool.input, toolName: name),
+            startedAt: timestamp,
+            isTestRun: name == "Bash"
+                && tool.input.command.flatMap(TranscriptInsightsTestCommand.testRunnerCommand(from:)) != nil
+        )
+        if let pending = pendingResults.removeValue(forKey: id) {
+            pendingResultOrder.removeAll { $0 == id }
+            activity.status = pending.failed ? .failed : .completed
+            activity.finishedAt = pending.at
+        }
+
+        // Keep start order even when lines arrive out of order. Undated
+        // calls stay where they arrived.
+        var index = insights.activities.endIndex
+        if let startedAt = timestamp {
+            while index > insights.activities.startIndex,
+                  let previous = insights.activities[index - 1].startedAt,
+                  previous > startedAt {
+                index -= 1
+            }
+        }
+        insights.activities.insert(activity, at: index)
+        Self.trim(&insights.activities, to: Self.maximumActivities)
+    }
+
+    private mutating func finishActivity(_ id: String, failed: Bool, at timestamp: Date?) {
+        guard let index = insights.activities.lastIndex(where: { $0.id == id }) else {
+            guard pendingResults[id] == nil else { return }
+            pendingResults[id] = PendingResult(failed: failed, at: timestamp)
+            pendingResultOrder.append(id)
+            if pendingResultOrder.count > Self.maximumPendingResults {
+                pendingResults.removeValue(forKey: pendingResultOrder.removeFirst())
+            }
+            return
+        }
+        // A result settles a call once; a repeated line changes nothing. A
+        // late result still corrects an earlier guess of unknown.
+        guard insights.activities[index].status == .running
+            || insights.activities[index].status == .unknown else { return }
+        insights.activities[index].status = failed ? .failed : .completed
+        insights.activities[index].finishedAt = timestamp ?? insights.lastUpdated
+    }
+
+    /// The turn ended or was interrupted: any call still without a result
+    /// did not run on, so it is unknown rather than running.
+    private mutating func markUnfinishedActivities() {
+        for index in insights.activities.indices where insights.activities[index].status == .running {
+            insights.activities[index].status = .unknown
+        }
+    }
+
+    private func target(of input: ToolInput, toolName: String) -> String? {
+        switch toolName {
+        case "Bash":
+            return ActivityText.command(input.command)
+        case "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "NotebookRead":
+            return ActivityText.path(input.filePath, workingDirectory: workingDirectory, home: homeDirectory)
+        case "Grep", "Glob":
+            guard let pattern = ActivityText.singleLine(input.pattern) else { return nil }
+            // Searching the project itself needs no "in".
+            let searched = input.path.map { $0.hasSuffix("/") ? String($0.dropLast()) : $0 }
+            guard searched != workingDirectory,
+                  let path = ActivityText.path(searched, workingDirectory: workingDirectory, home: homeDirectory)
+            else { return pattern }
+            return ActivityText.singleLine("\(pattern) in \(path)")
+        case "WebFetch":
+            return ActivityText.url(input.url)
+        case "WebSearch", "ToolSearch":
+            return ActivityText.singleLine(input.query)
+        case "Agent", "Task":
+            return ActivityText.singleLine(input.subagentType)
+        case "Skill":
+            return ActivityText.singleLine(input.skill)
+        case "AskUserQuestion":
+            return ActivityText.singleLine(input.questionHeader)
+        default:
+            return nil
         }
     }
 
@@ -299,6 +420,7 @@ extension TranscriptInsightsScanner {
         var isSidechain: Bool?
         var timestamp: String?
         var gitBranch: String?
+        var cwd: String?
         var assistant: AssistantMessage?
         var user: UserMessage?
         var subtype: String?
@@ -312,6 +434,7 @@ extension TranscriptInsightsScanner {
             isSidechain = values.lenient(Bool.self, .isSidechain)
             timestamp = values.lenient(String.self, .timestamp)
             gitBranch = values.lenient(String.self, .gitBranch)
+            cwd = values.lenient(String.self, .cwd)
 
             switch type {
             case "assistant":
@@ -349,7 +472,7 @@ extension TranscriptInsightsScanner {
         }
 
         private enum Key: String, CodingKey {
-            case type, isSidechain, timestamp, gitBranch, message, subtype, compactMetadata
+            case type, isSidechain, timestamp, gitBranch, cwd, message, subtype, compactMetadata
             case totalCostUSD, totalLinesAdded, totalLinesRemoved, totalDuration, totalAPIDuration
             case prNumber, prUrl, prRepository
         }
@@ -421,31 +544,65 @@ extension TranscriptInsightsScanner {
         var subagentType: String?
         var model: String?
         var runInBackground: Bool?
+        var pattern: String?
+        var path: String?
+        var url: String?
+        var query: String?
+        var skill: String?
+        /// The short chip label of the first question, never its text.
+        var questionHeader: String?
 
         init() {}
 
         init(from decoder: Decoder, toolName: String) throws {
             let values = try decoder.container(keyedBy: Key.self)
             switch toolName {
-            case "Edit", "MultiEdit", "Write":
+            case "Edit", "MultiEdit", "Write", "Read", "NotebookRead":
                 filePath = values.lenient(String.self, .filePath)
             case "NotebookEdit":
                 // NotebookEdit names its target `notebook_path`.
                 filePath = values.lenient(String.self, .notebookPath) ?? values.lenient(String.self, .filePath)
             case "Bash":
                 command = values.lenient(String.self, .command)
+                description = values.lenient(String.self, .description)
             case "Agent", "Task":
                 description = values.lenient(String.self, .description)
                 subagentType = values.lenient(String.self, .subagentType)
                 model = values.lenient(String.self, .model)
                 runInBackground = values.lenient(Bool.self, .runInBackground)
+            case "Grep", "Glob":
+                pattern = values.lenient(String.self, .pattern)
+                path = values.lenient(String.self, .path)
+            case "WebFetch":
+                // Only the address; the fetch prompt stays unread.
+                url = values.lenient(String.self, .url)
+            case "WebSearch", "ToolSearch":
+                query = values.lenient(String.self, .query)
+            case "Skill":
+                skill = values.lenient(String.self, .skill)
+            case "AskUserQuestion":
+                questionHeader = values.lenient([QuestionHeader].self, .questions)?.first?.header
             default:
-                break
+                // Built-in tools describe themselves the same way Bash does.
+                // MCP inputs are arbitrary user data, so they stay unread.
+                if !toolName.hasPrefix("mcp__") {
+                    description = values.lenient(String.self, .description)
+                }
             }
         }
 
+        private struct QuestionHeader: Decodable {
+            var header: String?
+
+            init(from decoder: Decoder) throws {
+                header = try decoder.container(keyedBy: Key.self).lenient(String.self, .header)
+            }
+
+            private enum Key: String, CodingKey { case header }
+        }
+
         private enum Key: String, CodingKey {
-            case command, description, model
+            case command, description, model, pattern, path, url, query, skill, questions
             case filePath = "file_path"
             case notebookPath = "notebook_path"
             case subagentType = "subagent_type"

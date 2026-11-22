@@ -229,9 +229,10 @@ public struct TestRun: Codable, Equatable, Sendable {
 }
 
 /// Privacy-safe facts derived from one Claude Code transcript. No prompt,
-/// response, or tool-output text is retained; the only free text is file
-/// paths from editing tools, redacted test commands, and short agent
-/// descriptions.
+/// response, thinking, or tool-output text is retained. The only free text
+/// is what Claude wrote to describe its own tool calls (Bash and agent
+/// descriptions), the redacted commands, file paths, search patterns and
+/// queries those calls act on, and URLs without their query.
 public struct TranscriptInsights: Codable, Equatable, Sendable {
     /// Latest main-chain assistant model.
     public var model: String?
@@ -253,6 +254,9 @@ public struct TranscriptInsights: Codable, Equatable, Sendable {
     public var filesTouched: [String]
     /// Newest last, capped at 50.
     public var testRuns: [TestRun]
+    /// Main-chain tool calls in start order, newest last, capped at
+    /// `TranscriptInsightsScanner.maximumActivities`.
+    public var activities: [SessionActivity]
     public var lastUpdated: Date?
 
     public init(
@@ -269,6 +273,7 @@ public struct TranscriptInsights: Codable, Equatable, Sendable {
         cost: SessionCost? = nil,
         filesTouched: [String] = [],
         testRuns: [TestRun] = [],
+        activities: [SessionActivity] = [],
         lastUpdated: Date? = nil
     ) {
         self.model = model
@@ -284,6 +289,7 @@ public struct TranscriptInsights: Codable, Equatable, Sendable {
         self.cost = cost
         self.filesTouched = filesTouched
         self.testRuns = testRuns
+        self.activities = activities
         self.lastUpdated = lastUpdated
     }
 
@@ -298,6 +304,12 @@ public struct TranscriptInsights: Codable, Equatable, Sendable {
     /// Subagents whose launching tool call has not returned yet.
     public var runningAgents: [AgentRun] {
         agents.filter(\.isRunning)
+    }
+
+    /// The newest tool call of the turn in progress; `nil` between turns, so
+    /// a finished turn's last call never reads as what Claude is doing now.
+    public var currentTurnActivity: SessionActivity? {
+        activity == nil ? nil : activities.last
     }
 }
 

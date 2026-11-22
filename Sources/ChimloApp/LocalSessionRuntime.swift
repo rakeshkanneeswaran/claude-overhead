@@ -210,6 +210,9 @@ final class LocalTranscriptDiscovery: @unchecked Sendable {
     /// Which file the insights came from. A session moved between projects
     /// has a transcript in each; the most recently written one is current.
     private var insightsSource: [String: TranscriptSourcePreference.Source] = [:]
+    /// When each scanned file was last seen written, so the fast tail only
+    /// watches transcripts that are actually being written.
+    private var modifiedAtByPath: [String: Date] = [:]
 
     init(
         homeURL: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -295,6 +298,7 @@ final class LocalTranscriptDiscovery: @unchecked Sendable {
             fallbackUpdatedAt: modifiedAt
         )
         cursors[key] = cursor
+        modifiedAtByPath[key] = modifiedAt
         if let id = candidate?.id {
             let source = TranscriptSourcePreference.Source(path: key, modifiedAt: modifiedAt)
             if TranscriptSourcePreference.shouldReplace(insightsSource[id], with: source) {
@@ -378,6 +382,34 @@ final class LocalTranscriptDiscovery: @unchecked Sendable {
     /// Insights for the sessions the last `discover()` saw. Call it from the
     /// same task, right after `discover()`, like the candidates themselves.
     func latestInsights() -> [String: TranscriptInsights] { insightsBySessionID }
+
+    /// What a fast pass found: the sessions whose transcripts grew.
+    struct Refresh: Sendable {
+        var candidates: [SessionCandidate]
+        var insights: [String: TranscriptInsights]
+    }
+
+    /// Transcripts written to in the last `window`, read on from where the
+    /// last pass stopped. Costs one stat per such file; bytes are read only
+    /// when a file grew, and a file that shrank (rewritten or rotated) gets a
+    /// fresh cold start. `nil` when nothing changed. Like `discover()`, call
+    /// it only from the monitor task, never concurrently with it.
+    func refreshActive(now: Date = .now, window: TimeInterval = 10 * 60) -> Refresh? {
+        var candidates: [SessionCandidate] = []
+        var insights: [String: TranscriptInsights] = [:]
+        for (path, lastModified) in modifiedAtByPath where now.timeIntervalSince(lastModified) <= window {
+            guard let cursor = cursors[path] else { continue }
+            let url = URL(fileURLWithPath: path)
+            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+                  let size = values.fileSize,
+                  UInt64(size) != cursor.offset else { continue }
+            guard let candidate = scan(url, modifiedAt: values.contentModificationDate ?? now) else { continue }
+            candidates.append(candidate)
+            insights[candidate.id] = insightsBySessionID[candidate.id]
+        }
+        guard !candidates.isEmpty else { return nil }
+        return Refresh(candidates: newestBySessionID(candidates), insights: insights)
+    }
 
     private func newestBySessionID(_ candidates: [SessionCandidate]) -> [SessionCandidate] {
         var byID: [String: SessionCandidate] = [:]
@@ -537,9 +569,24 @@ final class LocalSessionRuntime {
             reconcileTranscripts(transcripts, processes: processes)
             onInsights?(insights)
 
+            // A full pass (process list and every recent transcript) every
+            // 8 s; in between, a fast tail of the transcripts being written,
+            // so the activity feed follows Claude within about a second. The
+            // passes run one after another, never at the same time.
+            let clock = ContinuousClock()
+            var lastFullPass = clock.now
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(8))
+                try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
+                if clock.now - lastFullPass < .seconds(8) {
+                    let refresh = await Task.detached(priority: .userInitiated) {
+                        transcriptDiscovery.refreshActive()
+                    }.value
+                    guard !Task.isCancelled else { return }
+                    if let refresh { applyRefresh(refresh) }
+                    continue
+                }
+                lastFullPass = clock.now
                 let transcriptTask = Task.detached(priority: .utility) {
                     (transcriptDiscovery.discover(), transcriptDiscovery.latestInsights())
                 }
@@ -575,6 +622,17 @@ final class LocalSessionRuntime {
             guard !Task.isCancelled else { return }
             try? registry.save(sessions)
         }
+    }
+
+    /// Only sessions already on screen take fast updates. New ones, and
+    /// ending ones, stay with the full pass that can tell them apart.
+    private func applyRefresh(_ refresh: LocalTranscriptDiscovery.Refresh) {
+        for candidate in refresh.candidates where trackedTranscriptSessionIDs.contains(candidate.id) {
+            missedTranscriptCounts[candidate.id] = 0
+            onCandidate?(candidate)
+        }
+        let tracked = refresh.insights.filter { trackedTranscriptSessionIDs.contains($0.key) }
+        if !tracked.isEmpty { onInsights?(tracked) }
     }
 
     private func applyCachedSessions(_ candidates: [SessionCandidate]) {

@@ -1,6 +1,10 @@
 import Foundation
 
 public enum SessionListLayout {
+    /// A session's activity feed takes the height of a full list, so opening
+    /// it never resizes the panel twice.
+    public static let inspectorContentHeight: CGFloat = 12 + 320
+
     public static func contentHeight(
         displayedRowHeights: [CGFloat],
         hasSessions: Bool,

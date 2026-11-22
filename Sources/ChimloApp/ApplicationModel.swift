@@ -29,9 +29,28 @@ struct SessionDisplayModel: Identifiable, Equatable, Sendable {
     var insights: TranscriptInsights?
     /// Claude Code's own live listing, when it knows this session.
     var live: ClaudeLiveSession?
+    /// Where the session stands, with stale work no longer called running.
+    var runState: SessionRunState = .older
 
     var hasActiveOwnerInteraction: Bool {
         permission != nil || question != nil
+    }
+
+    var isRunning: Bool { runState == .running }
+
+    /// The project folder's name, when it is known.
+    var projectName: String? {
+        guard let projectPath, !projectPath.isEmpty else { return nil }
+        let name = URL(fileURLWithPath: projectPath).lastPathComponent
+        return name.isEmpty || name == "/" ? nil : name
+    }
+
+    /// The transcript's tool calls, oldest first.
+    var activities: [SessionActivity] { insights?.activities ?? [] }
+
+    /// The newest tool call of the turn in progress, only while running.
+    var currentActivity: SessionActivity? {
+        isRunning ? insights?.currentTurnActivity : nil
     }
 
     /// Claude Code's own session title, exactly, once it has one.
@@ -203,7 +222,12 @@ final class ApplicationModel: ObservableObject {
     @Published var panelMode: PanelMode = .compact {
         // A closed notch reopens on Claude. GitHub Mode keeps its tab and
         // detail for the next time the owner enters it.
-        didSet { if panelMode == .compact, githubNavigation.content == .github { githubNavigation.returnToClaude() } }
+        didSet {
+            guard panelMode == .compact else { return }
+            if githubNavigation.content == .github { githubNavigation.returnToClaude() }
+            // A closed notch reopens on the session list.
+            inspectedSessionID = nil
+        }
     }
     /// GitHub Mode's place: tab, detail and filter. Separate from every
     /// Claude property, so moving between the modes changes neither.
@@ -219,7 +243,9 @@ final class ApplicationModel: ObservableObject {
     @Published private(set) var onboardingStep: OnboardingStep = .working
     @Published private(set) var accessibility = AccessibilityEnvironment.current
     @Published private(set) var serverState: LocalServerState = .stopped
-    @Published private(set) var pendingDecision: ChimloDecisionRequest?
+    @Published private(set) var pendingDecision: ChimloDecisionRequest? {
+        didSet { updateCompactActivity() }
+    }
     @Published private(set) var sessionPermissions: [String: SessionPermissionPresentation] = [:]
     @Published private(set) var sessionQuestions: [String: SessionQuestionPresentation] = [:]
     @Published private(set) var showsAllSessionsDuringOwnerInteraction = false
@@ -242,6 +268,11 @@ final class ApplicationModel: ObservableObject {
     /// The session the next/previous shortcuts moved to, highlighted in the
     /// panel and used by "Focus terminal".
     @Published private(set) var selectedSessionID: String?
+    /// The session whose activity feed the open notch shows, if any.
+    @Published private(set) var inspectedSessionID: String?
+    /// The closed notch's activity strip. Shown at once, hidden after a short
+    /// hold, so the notch does not resize between two turns.
+    @Published private(set) var compactActivity: CompactActivityLine?
     @Published private(set) var isFocusModeActive = false
     @Published private(set) var contextAttentionThreshold = 0.7
     @Published private(set) var contextCriticalThreshold = 0.9
@@ -249,6 +280,8 @@ final class ApplicationModel: ObservableObject {
     @Published private(set) var glowIntensity = 1.0
     /// Flips Overhead's Focus mode; set by the services.
     var toggleFocusMode: (() -> Void)?
+    /// Brings a session's terminal or editor forward; set by the services.
+    var focusSessionHost: ((SessionDisplayModel) -> Void)?
     /// How loudly to announce an event. The services set this from the
     /// notification settings; without it every event is announced as before.
     var attentionDecider: ((AttentionEvent) -> NotificationDecision)?
@@ -294,6 +327,7 @@ final class ApplicationModel: ObservableObject {
     private let claudeUsageProbe = ClaudeUsageProbe()
     private var sessionRemovalTasks: [String: Task<Void, Never>] = [:]
     private var sessionActivityExpiryTask: Task<Void, Never>?
+    private var compactActivityHideTask: Task<Void, Never>?
     private var sessionsArmedForCompletion: Set<String> = []
     private var latestResponseReceivedAt: [String: Date] = [:]
     private var completionDetailExpiryTasks: [String: Task<Void, Never>] = [:]
@@ -316,11 +350,23 @@ final class ApplicationModel: ObservableObject {
     var panelSize: CGSize {
         switch panelMode {
         case .compact:
-            return CGSize(width: islandLayout.compactWidth, height: islandLayout.compactHeight)
+            guard compactActivity != nil else {
+                return CGSize(width: islandLayout.compactWidth, height: islandLayout.compactHeight)
+            }
+            // The strip sits under the camera housing on notched displays,
+            // and widens the pill elsewhere; one fixed size either way.
+            return islandLayout.hasCameraHousing
+                ? CGSize(width: islandLayout.compactWidth, height: islandLayout.compactHeight + CompactActivityStrip.height)
+                : CGSize(width: max(islandLayout.compactWidth, CompactActivityStrip.standardWidth), height: islandLayout.compactHeight)
         case .sessions where notchContent == .github:
             return CGSize(
                 width: islandLayout.expandedWidth,
                 height: islandLayout.expandedContentTopInset + CGFloat(github.density.contentHeight)
+            )
+        case .sessions where inspectedSession != nil:
+            return CGSize(
+                width: islandLayout.expandedWidth,
+                height: islandLayout.expandedContentTopInset + SessionListLayout.inspectorContentHeight
             )
         case .sessions:
             let responseTextWidth = max(1, islandLayout.expandedWidth - 56)
@@ -752,6 +798,7 @@ final class ApplicationModel: ObservableObject {
         if spec != layoutSpec {
             layoutSpec = spec
             rebuildIslandLayout()
+            updateCompactActivity()
         }
         let focus = settings.focus.isActive(at: now, calendar: .current)
         if focus != isFocusModeActive { isFocusModeActive = focus }
@@ -800,6 +847,33 @@ final class ApplicationModel: ObservableObject {
     func selectSession(id: String) {
         guard sessions.contains(where: { $0.id == id }) else { return }
         selectedSessionID = id
+    }
+
+    // MARK: Session inspector
+
+    /// The session whose feed is open. Never while Claude waits on the owner:
+    /// a permission or question always takes the panel, and the feed comes
+    /// back once it is answered.
+    var inspectedSession: SessionDisplayModel? {
+        guard panelMode == .sessions, notchContent == .claude, !hasActiveOwnerInteraction,
+              let inspectedSessionID else { return nil }
+        return sessions.first { $0.id == inspectedSessionID }
+    }
+
+    func inspect(_ session: SessionDisplayModel) {
+        guard sessions.contains(where: { $0.id == session.id }) else { return }
+        selectedSessionID = session.id
+        inspectedSessionID = session.id
+        cancelCollapse()
+    }
+
+    func closeInspector() {
+        inspectedSessionID = nil
+    }
+
+    /// Brings the session's terminal forward, falling back to its link.
+    func focusHost(of session: SessionDisplayModel) {
+        if let focusSessionHost { focusSessionHost(session) } else { open(session) }
     }
 
     /// The session "Focus terminal" acts on: the highlighted one, else the
@@ -1379,13 +1453,25 @@ final class ApplicationModel: ObservableObject {
                   ) else {
                 return nil
             }
+            let permission = sessionPermissions[session.id]
+            let question = sessionQuestions[session.id]
+            let runState = SessionRunState.classify(
+                phase: session.phase,
+                hasOwnerInteraction: permission != nil || question != nil,
+                updatedAt: session.updatedAt,
+                liveStatus: liveSessions[session.id]?.status,
+                now: now
+            )
+            var mood = mood(for: session)
+            // Work that went quiet is not shown as work.
+            if mood == .working, runState != .running { mood = .idle }
             return SessionDisplayModel(
                 id: session.id,
                 agentName: Self.agentName(session.agent),
                 title: session.title,
                 titleKind: session.titleKind,
                 detail: session.detail,
-                mood: mood(for: session),
+                mood: mood,
                 isDemo: isDemo,
                 needsAttention: session.pendingRequest != nil
                     || sessionPermissions[session.id] != nil
@@ -1404,26 +1490,79 @@ final class ApplicationModel: ObservableObject {
                 permission: sessionPermissions[session.id],
                 question: sessionQuestions[session.id],
                 insights: sessionInsights[session.id],
-                live: liveSessions[session.id]
+                live: liveSessions[session.id],
+                runState: runState
             )
         }
 
-        sessions = projectedSessions.enumerated().sorted { left, right in
-            if left.element.hasActiveOwnerInteraction
-                != right.element.hasActiveOwnerInteraction {
-                return left.element.hasActiveOwnerInteraction
-            }
-            return left.offset < right.offset
-        }.map { $0.element }
+        // Needs-you, failed, running, waiting for input, recently finished,
+        // then older; newest first within each.
+        let byID = Dictionary(uniqueKeysWithValues: projectedSessions.map { ($0.id, $0) })
+        sessions = SessionOrdering.ordered(projectedSessions.map {
+            SessionOrdering.Entry(id: $0.id, state: $0.runState, updatedAt: $0.updatedAt)
+        }).compactMap { byID[$0.id] }
+        if let inspectedSessionID, byID[inspectedSessionID] == nil {
+            self.inspectedSessionID = nil
+        }
         resetSessionRevealIfNoOwnerInteraction()
+        updateCompactActivity()
         scheduleSessionActivityExpiry(now: now)
+    }
+
+    /// The closed notch's strip: the session that needs the owner, else the
+    /// selected or newest running one. Appears at once; disappears only after
+    /// a short hold, so two back-to-back turns do not resize the notch.
+    private func updateCompactActivity() {
+        let line = currentCompactActivityLine()
+        if let line {
+            compactActivityHideTask?.cancel()
+            compactActivityHideTask = nil
+            if compactActivity != line { compactActivity = line }
+            return
+        }
+        guard compactActivity != nil, compactActivityHideTask == nil else { return }
+        compactActivityHideTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(CompactActivityStrip.hideDelaySeconds))
+            guard !Task.isCancelled, let self else { return }
+            compactActivityHideTask = nil
+            if currentCompactActivityLine() == nil { compactActivity = nil }
+        }
+    }
+
+    private func currentCompactActivityLine() -> CompactActivityLine? {
+        guard layoutSpec.showsActivityLabel else { return nil }
+        if pendingDecision != nil {
+            return CompactActivityLine(tool: nil, text: "Needs your decision", tone: .attention, kind: nil)
+        }
+        let candidates = sessions.filter { !$0.isDemo }.map {
+            NotchActivityFocus.Candidate(id: $0.id, state: $0.runState, updatedAt: $0.updatedAt)
+        }
+        guard let id = NotchActivityFocus.sessionID(among: candidates, selected: selectedSessionID),
+              let session = sessions.first(where: { $0.id == id }) else { return nil }
+        return CompactActivityLine.make(
+            permissionTool: session.permission?.request.toolName,
+            hasQuestion: session.question != nil,
+            latest: session.insights?.currentTurnActivity,
+            isWorking: session.isRunning,
+            fallback: session.detail
+        )
     }
 
     private func scheduleSessionActivityExpiry(now: Date) {
         sessionActivityExpiryTask?.cancel()
         sessionActivityExpiryTask = nil
+        // Re-project when a session leaves the list, and when its standing
+        // can change with no new evidence (work going stale, a finish no
+        // longer recent), so the order and "running" never go out of date.
         let nextExpiration = sessions
-            .map { $0.updatedAt.addingTimeInterval(SessionVisibilityPolicy.activityLifetime) }
+            .flatMap { session in
+                [
+                    SessionVisibilityPolicy.activityLifetime,
+                    SessionRunState.idleListingGrace,
+                    SessionRunState.staleWorkingAfter,
+                    SessionRunState.recentAfter,
+                ].map { session.updatedAt.addingTimeInterval($0 + 1) }
+            }
             .filter { $0 > now }
             .min()
         guard hasStarted, let nextExpiration else { return }

@@ -62,6 +62,9 @@ final class OverheadServices: ObservableObject {
         model.toggleFocusMode = { [weak self] in
             self?.settings.settings.focus.isOn.toggle()
         }
+        model.focusSessionHost = { [weak self] session in
+            self?.focusHost(of: session)
+        }
         wireGitHub()
         settings.onChange = { [weak self] old, new in
             self?.apply(new, previous: old)

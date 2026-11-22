@@ -37,7 +37,8 @@ struct IslandRootView: View {
                         if model.islandLayout.hasCameraHousing {
                             ExpandedStatusBand(model: model, openSettings: openSettings)
                         }
-                        if model.showsUsageDetails {
+                        let showsUsage = model.showsUsageDetails && model.inspectedSession == nil
+                        if showsUsage {
                             UsageDashboardView(model: model)
                                 .padding(.horizontal, expandedHorizontalGutter)
                                 .padding(.top, model.islandLayout.expandedContentTopInset + 2)
@@ -48,7 +49,7 @@ struct IslandRootView: View {
                                 .top,
                                 model.islandLayout.expandedContentTopInset
                                     + 2
-                                    + (model.showsUsageDetails ? CapacityLayout.disclosureHeight : 0)
+                                    + (showsUsage ? CapacityLayout.disclosureHeight : 0)
                             )
                             .padding(.bottom, 10)
                             .frame(width: model.panelSize.width)
@@ -463,12 +464,29 @@ private struct CompactIslandView: View {
                 size: 31,
                 reduceMotion: model.accessibility.reduceMotion
             )
-            PixelText(text: model.compactLabel, pixelSize: 1.7, spacing: 1)
-            Spacer(minLength: 5)
+            if let line = model.compactActivity {
+                CompactActivityStripView(line: line, reduceMotion: model.reducesMotion, fontSize: 11)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                PixelText(text: model.compactLabel, pixelSize: 1.7, spacing: 1)
+                Spacer(minLength: 5)
+            }
         }
     }
 
     private var notchContent: some View {
+        VStack(spacing: 0) {
+            wings
+            if let line = model.compactActivity {
+                CompactActivityStripView(line: line, reduceMotion: model.reducesMotion)
+                    .padding(.horizontal, 12)
+                    .frame(width: model.islandLayout.compactWidth, height: CompactActivityStrip.height, alignment: .top)
+            }
+        }
+        .frame(width: model.islandLayout.compactWidth, alignment: .top)
+    }
+
+    private var wings: some View {
         HStack(spacing: 0) {
             leadingWing
             .frame(
@@ -942,6 +960,21 @@ private struct SessionListView: View {
     @ObservedObject var model: ApplicationModel
 
     var body: some View {
+        if let inspected = model.inspectedSession {
+            SessionInspectorView(
+                session: inspected,
+                reduceMotion: model.reducesMotion,
+                back: model.closeInspector,
+                focusTerminal: inspected.isDemo ? nil : { model.focusHost(of: inspected) }
+            )
+            .frame(height: SessionListLayout.inspectorContentHeight - 12, alignment: .top)
+            .transition(.opacity)
+        } else {
+            sessionList
+        }
+    }
+
+    private var sessionList: some View {
         VStack(spacing: 8) {
             if model.sessions.isEmpty {
                 Group {
@@ -973,6 +1006,7 @@ private struct SessionListView: View {
                                 contextCriticalAt: model.contextCriticalThreshold,
                                 showsAgents: model.layoutSpec.expandedShowsAgents || model.layoutSpec.showsAgentIndicator,
                                 onOpen: session.jumpURL == nil ? nil : { model.open(session) },
+                                onInspect: session.isDemo ? nil : { model.inspect(session) },
                                 onArchive: session.needsAttention || session.isDemo
                                     ? nil
                                     : { model.archiveSession(session) },
@@ -1093,6 +1127,9 @@ struct SessionRow: View {
     var contextCriticalAt = 0.9
     var showsAgents = true
     var onOpen: (() -> Void)? = nil
+    /// Opens the session's activity feed. When set, a click on the row opens
+    /// the feed and the jump mark beside the title goes to the terminal.
+    var onInspect: (() -> Void)? = nil
     var onArchive: (() -> Void)? = nil
     var onPermissionDecision: ((ProviderPermissionOutcome) -> Void)? = nil
     var onQuestionOption: ((String) -> Void)? = nil
@@ -1132,7 +1169,16 @@ struct SessionRow: View {
     private var summaryCard: some View {
         ZStack(alignment: .topTrailing) {
             Group {
-                if let onOpen {
+                if let onInspect {
+                    Button(action: onInspect) {
+                        rowContent
+                    }
+                    .buttonStyle(SessionMessageButtonStyle(
+                        isHovering: isHovering
+                    ))
+                    .accessibilityLabel(accessibilitySummary)
+                    .accessibilityHint("Shows this session's activity")
+                } else if let onOpen {
                     Button(action: onOpen) {
                         rowContent
                     }
@@ -1150,6 +1196,9 @@ struct SessionRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             trailingAccessory
+        }
+        .overlayPreferenceValue(JumpMarkAnchorKey.self) { anchor in
+            jumpOverlay(anchor)
         }
         .background(cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
@@ -1191,18 +1240,22 @@ struct SessionRow: View {
                         .layoutPriority(1)
 
                     if onOpen != nil {
+                        // The jump mark is its own button once the row opens
+                        // the feed; it sits over the row in `jumpOverlay`.
                         PixelJumpMark(
                             color: isHovering ? ChimloTheme.paper : ChimloTheme.mutedPaper
                         )
                         .fixedSize()
+                        .opacity(onInspect == nil ? 1 : 0)
+                        .anchorPreference(key: JumpMarkAnchorKey.self, value: .bounds) { $0 }
                     }
 
                     Spacer(minLength: 6)
 
-                    SessionStatusBadge(
-                        mood: session.mood,
-                        isHovering: isHovering,
-                        reduceMotion: reduceMotion
+                    RunStateBadge(
+                        state: session.runState,
+                        reduceMotion: reduceMotion,
+                        isHovering: isHovering
                     )
 
                     if let model = session.model, !model.isEmpty {
@@ -1278,6 +1331,26 @@ struct SessionRow: View {
         .frame(minHeight: 62)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+    }
+
+    /// A real button at the jump mark's place, above the row's own button,
+    /// so one click jumps to the terminal and any other click opens the feed.
+    @ViewBuilder
+    private func jumpOverlay(_ anchor: Anchor<CGRect>?) -> some View {
+        if let onOpen, onInspect != nil, let anchor {
+            GeometryReader { geometry in
+                let frame = geometry[anchor]
+                Button(action: onOpen) {
+                    PixelJumpMark(color: isHovering ? ChimloTheme.paper : ChimloTheme.mutedPaper)
+                        .frame(width: frame.width + 10, height: frame.height + 10)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(session.terminal.map { "Jump to \($0)" } ?? "Jump to the session")
+                .accessibilityLabel(session.terminal.map { "Jump to \($0)" } ?? "Jump to the session")
+                .position(x: frame.midX, y: frame.midY)
+            }
+        }
     }
 
     private var trailingAccessory: some View {
@@ -1804,65 +1877,6 @@ private struct SessionMetadataBadge: View {
 
 /// Says in words what the avatar's mood shows: is this Claude working right
 /// now, waiting for the owner, or idle until the next prompt?
-private struct SessionStatusBadge: View {
-    let mood: AvatarMood
-    let isHovering: Bool
-    let reduceMotion: Bool
-    @State private var dimmed = false
-
-    var body: some View {
-        HStack(spacing: 4) {
-            if mood == .working {
-                Circle()
-                    .fill(color)
-                    .frame(width: 5, height: 5)
-                    .opacity(dimmed ? 0.3 : 1)
-                    .onAppear {
-                        guard !reduceMotion else { return }
-                        withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                            dimmed = true
-                        }
-                    }
-                    .onDisappear { dimmed = false }
-            }
-            Text(label)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(color)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 6)
-        .frame(height: 18)
-        .fixedSize(horizontal: true, vertical: false)
-        .background(background)
-        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(label)
-    }
-
-    private var label: String {
-        switch mood {
-        case .working: "Running"
-        case .waiting, .question: "Needs you"
-        case .failed: "Failed"
-        case .idle, .success: "Idle"
-        }
-    }
-
-    private var color: Color {
-        switch mood {
-        case .working: ChimloTheme.providerOrange
-        case .waiting, .question: ChimloTheme.attention
-        case .failed: ChimloTheme.clayText
-        case .idle, .success: ChimloTheme.quietPaper
-        }
-    }
-
-    private var background: Color {
-        guard mood != .idle, mood != .success else { return ChimloTheme.badgeInk }
-        return color.opacity(isHovering ? 0.24 : 0.15)
-    }
-}
-
 private struct SessionTimeBadge: View {
     let text: String
     let accessibilityLabel: String

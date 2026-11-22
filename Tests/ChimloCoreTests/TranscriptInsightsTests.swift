@@ -553,7 +553,7 @@ struct TranscriptInsightsTests {
     @Test("Test runs take their outcome from the matching tool_result")
     func testRunOutcomes() throws {
         let lines = [
-            Fixture.tool("t1", "Bash", ["command": "API_TOKEN=SECRET-VALUE swift test", "description": "SECRET-DESC"], second: 1),
+            Fixture.tool("t1", "Bash", ["command": "API_TOKEN=SECRET-VALUE swift test", "description": "Run the tests"], second: 1),
             Fixture.tool("t2", "Bash", ["command": "ls -la"], second: 2),
             Fixture.tool("t3", "Bash", ["command": "npm test"], second: 3),
             Fixture.tool("t4", "Bash", ["command": "go test ./..."], second: 4),
@@ -573,7 +573,10 @@ struct TranscriptInsightsTests {
             Fixture.result("t4"),
         ])
         #expect(finished.testRuns.map(\.outcome) == [.passed, .failed, .passed])
+        // The token's value never survives, in test runs or in the feed.
         #expect(try !encodedText(finished).contains("SECRET"))
+        #expect(finished.activities.first?.target == "API_TOKEN=••• swift test")
+        #expect(finished.activities.map(\.status) == [.completed, .failed, .failed, .completed])
     }
 
     @Test("Test runs keep the newest 50 and still resolve their outcomes")
@@ -620,7 +623,10 @@ struct TranscriptInsightsTests {
         #expect(insights.activity?.toolName == "Bash")
     }
 
-    @Test("No prompt, response, thinking, or tool-output text survives into insights")
+    /// Claude's own call descriptions, redacted commands and URL paths are
+    /// kept on purpose for the activity feed; everything marked SECRET is
+    /// text that must never be kept.
+    @Test("No prompt, response, thinking, tool-output, or credential text survives into insights")
     func privacy() throws {
         let insights = scan([
             Fixture.user("SECRET-PROMPT please refactor", branch: "main"),
@@ -632,8 +638,8 @@ struct TranscriptInsightsTests {
                     ["type": "thinking", "thinking": "SECRET-THINKING", "signature": "SECRET-SIG"],
                     ["type": "text", "text": "SECRET-RESPONSE"],
                     Fixture.toolUse("t1", "Write", ["file_path": "/p/out.swift", "content": "SECRET-CONTENT"]),
-                    Fixture.toolUse("t2", "Bash", ["command": "SECRET_ENV=SECRET-VALUE swift test", "description": "SECRET-DESC"]),
-                    Fixture.toolUse("t3", "WebFetch", ["url": "https://example.com/SECRET-URL", "prompt": "SECRET-FETCH"]),
+                    Fixture.toolUse("t2", "Bash", ["command": "API_KEY=SECRET-VALUE swift test", "description": "Run the suite"]),
+                    Fixture.toolUse("t3", "WebFetch", ["url": "https://example.com/docs?token=SECRET-URL", "prompt": "SECRET-FETCH"]),
                     Fixture.toolUse("t4", "AskUserQuestion", ["questions": [["question": "SECRET-QUESTION"]]]),
                 ]
             ),
@@ -643,6 +649,8 @@ struct TranscriptInsightsTests {
         #expect(insights.filesTouched == ["/p/out.swift"])
         #expect(insights.testRuns.map(\.command) == ["swift test"])
         #expect(try !encodedText(insights).contains("SECRET"))
+        #expect(insights.activities.map(\.summary) == [nil, "Run the suite", nil, nil])
+        #expect(insights.activities.map(\.target) == ["/p/out.swift", "API_KEY=••• swift test", "example.com/docs", nil])
     }
 
     @Test("Last updated is the newest timestamp and insights round-trip through Codable")
