@@ -44,7 +44,10 @@ final class LocalAgentProcessDiscovery: @unchecked Sendable {
     func discover() -> [AgentProcessSnapshot] {
         guard let output = run("/bin/ps", ["-Ao", "pid=,ppid=,tty=,command="]) else { return [] }
         let processes = output.split(whereSeparator: \.isNewline).compactMap(ProcessLine.init)
-        let byID = Dictionary(uniqueKeysWithValues: processes.map { ($0.processID, $0) })
+        // Not uniqueKeysWithValues, which traps on a repeat: a command whose
+        // arguments contain a newline splits into extra lines, and one of
+        // those can parse as a process with an id already seen.
+        let byID = Dictionary(processes.map { ($0.processID, $0) }, uniquingKeysWith: { first, _ in first })
         var seen = Set<String>()
         var snapshots: [AgentProcessSnapshot] = []
 

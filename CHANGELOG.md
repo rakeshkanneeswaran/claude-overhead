@@ -12,6 +12,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Fixed a crash: clicking **Connect GitHub**, **Choose repositories**,
   **Settings** or **Change monitored repositories** on the GitHub page quit
   the app (1.0.4 and 1.0.5). They now open Settings → GitHub as intended.
+- Closed off a possible crash while looking for Claude Code processes, when
+  another program's command line contains a line break.
 
 ## [1.0.5] - 2026-11-23
 
