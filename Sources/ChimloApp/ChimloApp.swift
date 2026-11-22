@@ -17,8 +17,10 @@ struct ChimloApplication: App {
 @MainActor
 final class ChimloAppDelegate: NSObject, NSApplicationDelegate {
     let model = ApplicationModel()
+    private lazy var services = OverheadServices(model: model)
     private var islandCoordinator: IslandWindowCoordinator?
     private var settingsCoordinator: SettingsWindowCoordinator?
+    private var companionCoordinator: CompanionWindowCoordinator?
     private var setupCoordinator: SetupCoordinator?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -35,9 +37,14 @@ final class ChimloAppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        let companion = CompanionWindowCoordinator(services: services)
+        companionCoordinator = companion
+        services.openCompanion = { [weak companion] section, pane in
+            companion?.show(section, settingsPane: pane)
+        }
         let islandCoordinator = IslandWindowCoordinator(
             model: model,
-            openSettings: { [weak settingsCoordinator] in settingsCoordinator?.show() }
+            openSettings: { [weak companion] in companion?.show(.settings) }
         )
         self.islandCoordinator = islandCoordinator
 
@@ -53,6 +60,7 @@ final class ChimloAppDelegate: NSObject, NSApplicationDelegate {
 
         // The model starts first: setup's verification pings its listener.
         model.start()
+        services.start()
         if let flow = SetupFlow.atLaunch(
             hasCompletedSetup: model.hasCompletedSetup,
             integrationInstalled: model.claudeConnectionState.isInstalled,
@@ -85,6 +93,7 @@ final class ChimloAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         islandCoordinator?.stop()
+        services.stop()
         model.stop()
         islandCoordinator = nil
         settingsCoordinator = nil

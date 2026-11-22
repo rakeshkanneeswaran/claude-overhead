@@ -53,7 +53,17 @@ struct SessionDisplayModel: Identifiable, Equatable, Sendable {
             )
     }
 
-    func preferredRowHeight(responseTextWidth: CGFloat) -> CGFloat {
+    /// The row's height in the panel. The meta line (branch, context, agents)
+    /// sits under the conversation preview and adds one short line.
+    func preferredRowHeight(responseTextWidth: CGFloat, includesMetaLine: Bool = false) -> CGFloat {
+        let base = baseRowHeight(responseTextWidth: responseTextWidth)
+        guard includesMetaLine else { return base }
+        // Rows without a prompt line are held at their 62-point minimum,
+        // which absorbs most of the extra line.
+        return base + (latestUserPrompt != nil ? SessionMetaLineMetrics.height + 1 : 4)
+    }
+
+    private func baseRowHeight(responseTextWidth: CGFloat) -> CGFloat {
         if let permission {
             let request = permission.request
             let promptLineCount = measuredLineCount(
@@ -207,6 +217,10 @@ final class ApplicationModel: ObservableObject {
     @Published private(set) var isFocusModeActive = false
     @Published private(set) var contextAttentionThreshold = 0.7
     @Published private(set) var contextCriticalThreshold = 0.9
+    /// How strongly the completion wave shows, 0...1; 0 turns it off.
+    @Published private(set) var glowIntensity = 1.0
+    /// Flips Overhead's Focus mode; set by the services.
+    var toggleFocusMode: (() -> Void)?
     /// How loudly to announce an event. The services set this from the
     /// notification settings; without it every event is announced as before.
     var attentionDecider: ((AttentionEvent) -> NotificationDecision)?
@@ -278,7 +292,10 @@ final class ApplicationModel: ObservableObject {
         case .sessions:
             let responseTextWidth = max(1, islandLayout.expandedWidth - 56)
             let displayedRowHeights = displayedSessions.map { session in
-                session.preferredRowHeight(responseTextWidth: responseTextWidth)
+                session.preferredRowHeight(
+                    responseTextWidth: responseTextWidth,
+                    includesMetaLine: showsMetaLine(for: session)
+                )
             }
             let contentHeight = SessionListLayout.contentHeight(
                 displayedRowHeights: displayedRowHeights,
@@ -671,6 +688,7 @@ final class ApplicationModel: ObservableObject {
             contextCriticalThreshold = settings.contextCriticalThreshold
         }
         usageWarningThreshold = settings.usageWarningThreshold
+        if glowIntensity != settings.glowIntensity { glowIntensity = settings.glowIntensity }
     }
 
     private func rebuildIslandLayout() {
@@ -678,6 +696,11 @@ final class ApplicationModel: ObservableObject {
             for: displayMetrics,
             wingWidthScale: CGFloat(layoutSpec.compactWingWidthScale)
         ))
+    }
+
+    /// Whether a session row shows its branch, context and agents line.
+    func showsMetaLine(for session: SessionDisplayModel) -> Bool {
+        layoutSpec.expandedRowDensity == .comfortable && !session.isDemo && SessionMetaLine.hasContent(session)
     }
 
     /// Motion is calmer when the layout, Focus, or the system asks for it.
@@ -1116,6 +1139,7 @@ final class ApplicationModel: ObservableObject {
     /// One glow at a time: a completion while it shows (or fades) restarts the
     /// same glow instead of stacking a second one.
     private func flashCompletionGlow() {
+        guard glowIntensity > 0 else { return }
         completionGlowTask?.cancel()
         animatesCompletionGlow = true
         showsCompletionGlow = true

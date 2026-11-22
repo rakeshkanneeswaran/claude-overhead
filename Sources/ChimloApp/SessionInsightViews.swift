@@ -85,6 +85,8 @@ struct SessionMetaLine: View {
     let session: SessionDisplayModel
     var attentionAt: Double = 0.7
     var criticalAt: Double = 0.9
+    var showsAgents = true
+    static var height: CGFloat { SessionMetaLineMetrics.height }
 
     var body: some View {
         let insights = session.insights
@@ -109,7 +111,7 @@ struct SessionMetaLine: View {
                     health: ContextHealth.classify(fraction: fraction, attentionAt: attentionAt, criticalAt: criticalAt)
                 )
             }
-            if let running = insights?.runningAgents.count, running > 0 {
+            if showsAgents, let running = insights?.runningAgents.count, running > 0 {
                 HStack(spacing: 3) {
                     AgentDots(count: running)
                     Text(running == 1 ? "1 agent" : "\(running) agents")
@@ -144,8 +146,18 @@ struct SessionMetaLine: View {
             || session.live?.kind == .background
     }
 
-    private var activitySymbol: String {
-        switch session.detail {
+    private var activitySymbol: String { ActivitySymbol.name(for: session.detail) }
+}
+
+/// Plain numbers, usable outside the main actor for row-height estimates.
+enum SessionMetaLineMetrics {
+    static let height: CGFloat = 17
+}
+
+enum ActivitySymbol {
+    /// The symbol for a live activity label from the hooks.
+    static func name(for detail: String) -> String {
+        switch detail {
         case ToolActivityKind.reading.label: "doc.text"
         case ToolActivityKind.writing.label: "pencil"
         case ToolActivityKind.executing.label: "terminal"
@@ -153,6 +165,43 @@ struct SessionMetaLine: View {
         case ToolActivityKind.delegating.label: "person.2"
         case ToolActivityKind.browsing.label: "globe"
         default: "sparkle"
+        }
+    }
+}
+
+/// What the closed notch's right wing shows when nothing needs the owner:
+/// the layout decides which of activity, context and agents appear, and each
+/// appears only when its data is real.
+struct CompactWingIndicators: View {
+    @ObservedObject var model: ApplicationModel
+
+    var body: some View {
+        let spec = model.layoutSpec
+        let session = model.sessions.first(where: { $0.mood == .working && !$0.isDemo })
+            ?? model.sessions.first(where: { !$0.isDemo })
+        let insights = session?.insights
+        let running = insights?.runningAgents.count ?? 0
+        HStack(spacing: 3) {
+            if spec.showsActivityLabel, let session, session.mood == .working {
+                Image(systemName: ActivitySymbol.name(for: session.detail))
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(ChimloTheme.providerOrange)
+                    .accessibilityLabel(session.detail)
+            }
+            if spec.showsContextIndicator, let fraction = insights?.contextFraction {
+                ContextRing(
+                    fraction: fraction,
+                    health: ContextHealth.classify(
+                        fraction: fraction,
+                        attentionAt: model.contextAttentionThreshold,
+                        criticalAt: model.contextCriticalThreshold
+                    ),
+                    size: 11
+                )
+            }
+            if spec.showsAgentIndicator, running > 0 {
+                AgentDots(count: running, maximum: spec.compactWingWidthScale > 1.3 ? 3 : 2)
+            }
         }
     }
 }

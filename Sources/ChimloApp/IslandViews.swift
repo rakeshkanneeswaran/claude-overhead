@@ -109,8 +109,8 @@ struct IslandRootView: View {
     private func completionGlow<S: Shape>(in shape: S) -> some View {
         Group {
             if model.animatesCompletionGlow {
-                SpectrumWaveFill(shape: shape, flows: !model.accessibility.reduceMotion)
-                    .opacity(model.showsCompletionGlow ? 1 : 0)
+                SpectrumWaveFill(shape: shape, flows: !model.reducesMotion)
+                    .opacity(model.showsCompletionGlow ? max(0.25, model.glowIntensity) : 0)
                     .animation(
                         .easeInOut(duration: model.showsCompletionGlow
                             ? 0.35
@@ -325,7 +325,13 @@ private struct ExpandedStatusBand: View {
                 let wingWidth = max(0, (geometry.size.width - cameraWidth) / 2)
 
                 HStack(spacing: 0) {
-                    InlineCapacityView(model: model)
+                    Group {
+                        if model.layoutSpec.expandedShowsUsage {
+                            InlineCapacityView(model: model)
+                        } else {
+                            Color.clear
+                        }
+                    }
                         .padding(.leading, expandedHorizontalGutter)
                         .frame(width: wingWidth, height: geometry.size.height, alignment: .leading)
                         .clipped()
@@ -335,6 +341,20 @@ private struct ExpandedStatusBand: View {
                         .accessibilityHidden(true)
 
                     HStack(spacing: 0) {
+                        if let toggleFocusMode = model.toggleFocusMode {
+                            Button(action: toggleFocusMode) {
+                                Image(systemName: model.isFocusModeActive ? "moon.fill" : "moon")
+                                    .font(.system(size: 11, weight: .semibold))
+                            }
+                            .buttonStyle(
+                                ExpandedControlButtonStyle(
+                                    color: model.isFocusModeActive ? ChimloTheme.providerOrange : ChimloTheme.quietPaper
+                                )
+                            )
+                            .help(model.isFocusModeActive ? "Turn off Focus mode" : "Turn on Focus mode")
+                            .accessibilityLabel(model.isFocusModeActive ? "Turn off Focus mode" : "Turn on Focus mode")
+                        }
+
                         Button {
                             model.soundsEnabled.toggle()
                         } label: {
@@ -422,14 +442,7 @@ private struct CompactIslandView: View {
 
     private var notchContent: some View {
         HStack(spacing: 0) {
-            PixelAvatar(
-                mood: model.activeMood,
-                seed: model.sessions.first?.id.hashValue ?? 0,
-                size: 17,
-                pixelUnit: 1.4,
-                reduceMotion: model.accessibility.reduceMotion
-            )
-            .offset(x: 1.5)
+            leadingWing
             .frame(
                 width: model.islandLayout.activityWingWidth,
                 height: model.islandLayout.compactHeight,
@@ -458,6 +471,37 @@ private struct CompactIslandView: View {
         }
     }
 
+    /// The avatar, or in the Focus layout a still dot that only changes
+    /// colour, so nothing moves at the edge of the owner's vision.
+    @ViewBuilder
+    private var leadingWing: some View {
+        if model.layoutSpec.showsAvatar {
+            PixelAvatar(
+                mood: model.activeMood,
+                seed: model.sessions.first?.id.hashValue ?? 0,
+                size: 17,
+                pixelUnit: 1.4,
+                reduceMotion: model.reducesMotion
+            )
+            .offset(x: 1.5)
+        } else {
+            Circle()
+                .fill(focusDotColor)
+                .frame(width: 6, height: 6)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var focusDotColor: Color {
+        switch model.activeMood {
+        case .working: ChimloTheme.providerOrange
+        case .waiting, .question: ChimloTheme.attention
+        case .failed: ChimloTheme.clayText
+        case .success: ChimloTheme.liveGreen
+        case .idle: ChimloTheme.mutedPaper
+        }
+    }
+
     @ViewBuilder
     private var compactTrailingSignal: some View {
         if model.pendingDecision != nil || model.sessions.contains(where: { $0.mood == .waiting }) {
@@ -466,6 +510,8 @@ private struct CompactIslandView: View {
             compactSignalText("?", color: ChimloTheme.attention)
         } else if model.sessions.contains(where: { $0.mood == .failed }) {
             compactSignalText("×", color: ChimloTheme.clayText)
+        } else {
+            CompactWingIndicators(model: model)
         }
     }
 
@@ -893,8 +939,13 @@ private struct SessionListView: View {
                             SessionRow(
                                 session: session,
                                 seed: index,
-                                reduceMotion: model.accessibility.reduceMotion,
+                                reduceMotion: model.reducesMotion,
                                 increasedContrast: model.accessibility.increaseContrast,
+                                showsMetaLine: model.showsMetaLine(for: session),
+                                isSelected: model.selectedSessionID == session.id,
+                                contextAttentionAt: model.contextAttentionThreshold,
+                                contextCriticalAt: model.contextCriticalThreshold,
+                                showsAgents: model.layoutSpec.expandedShowsAgents || model.layoutSpec.showsAgentIndicator,
                                 onOpen: session.jumpURL == nil ? nil : { model.open(session) },
                                 onArchive: session.needsAttention || session.isDemo
                                     ? nil
@@ -1011,6 +1062,11 @@ struct SessionRow: View {
     let seed: Int
     let reduceMotion: Bool
     let increasedContrast: Bool
+    var showsMetaLine = false
+    var isSelected = false
+    var contextAttentionAt = 0.7
+    var contextCriticalAt = 0.9
+    var showsAgents = true
     var onOpen: (() -> Void)? = nil
     var onArchive: (() -> Void)? = nil
     var onPermissionDecision: ((ProviderPermissionOutcome) -> Void)? = nil
@@ -1075,7 +1131,9 @@ struct SessionRow: View {
         .overlay {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .strokeBorder(
-                    isHovering ? ChimloTheme.rowHoverEdge : .clear,
+                    isSelected
+                        ? ChimloTheme.providerOrange.opacity(0.8)
+                        : isHovering ? ChimloTheme.rowHoverEdge : .clear,
                     lineWidth: 1
                 )
                 .allowsHitTesting(false)
@@ -1177,6 +1235,16 @@ struct SessionRow: View {
                         .foregroundStyle(statusDetailColor)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if showsMetaLine {
+                    SessionMetaLine(
+                        session: session,
+                        attentionAt: contextAttentionAt,
+                        criticalAt: contextCriticalAt,
+                        showsAgents: showsAgents
+                    )
+                    .frame(height: SessionMetaLine.height - 3)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
