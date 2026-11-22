@@ -34,3 +34,6 @@ pages/.thumbnail
 # Environment
 .env
 .env.local
+
+# Agent worktrees used during development
+.claude/worktrees/

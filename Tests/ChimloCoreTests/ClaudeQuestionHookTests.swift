@@ -48,11 +48,34 @@ struct ClaudeQuestionHookTests {
     func failsBackToProvider() throws {
         let hook = try ClaudeQuestionHook(data: payload)
         #expect(hook.output(for: .unavailable(for: hook.request.id)) == ClaudeQuestionHook.fallbackOutput)
+        // A typed answer is allowed (Claude Code offers "Other"), but an empty,
+        // blank, oversized, or missing one is never sent.
+        for invalid in ["", "   \n", String(repeating: "x", count: 1_001)] {
+            #expect(hook.output(for: ProviderQuestionResponse(
+                requestID: hook.request.id,
+                outcome: .answered,
+                answers: ["Which target?": invalid]
+            )) == ClaudeQuestionHook.fallbackOutput)
+        }
         #expect(hook.output(for: ProviderQuestionResponse(
             requestID: hook.request.id,
             outcome: .answered,
-            answers: ["Which target?": "Production"]
+            answers: [:]
         )) == ClaudeQuestionHook.fallbackOutput)
+    }
+
+    @Test("A typed answer, like Claude Code's own Other, reaches Claude as written")
+    func passesCustomAnswer() throws {
+        let hook = try ClaudeQuestionHook(data: payload)
+        let output = hook.output(for: ProviderQuestionResponse(
+            requestID: hook.request.id,
+            outcome: .answered,
+            answers: ["Which target?": "Production, but only after the backup"]
+        ))
+        #expect(output != ClaudeQuestionHook.fallbackOutput)
+        let root = try #require(JSONSerialization.jsonObject(with: output) as? [String: Any])
+        let updated = try #require((root["hookSpecificOutput"] as? [String: Any])?["updatedInput"] as? [String: Any])
+        #expect((updated["answers"] as? [String: String])?["Which target?"] == "Production, but only after the backup")
     }
 
     @Test("The observer ignores AskUserQuestion so it cannot clear the blocking state")

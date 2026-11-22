@@ -44,9 +44,12 @@ public struct IslandLayout: Equatable, Sendable {
     public let activityWingWidth: CGFloat
     public let hasCameraHousing: Bool
 
+    /// `wingWidthScale` widens the compact activity wings for layouts that
+    /// show more than the avatar and a signal (1 = the classic 32-point wings).
     public static func make(
         for display: IslandDisplayMetrics,
-        expandedWidthFraction: CGFloat = 0.3
+        expandedWidthFraction: CGFloat = 0.3,
+        wingWidthScale: CGFloat = 1
     ) -> IslandLayout {
         let expandedWidth = display.screenWidth > 0
             ? display.screenWidth * expandedWidthFraction
@@ -68,7 +71,7 @@ public struct IslandLayout: Equatable, Sendable {
         // The physical camera housing occupies the middle of this window. Claude Overhead
         // paints one interactive activity wing on either side, then grows from
         // that exact silhouette below the hardware when expanded.
-        let activityWingWidth: CGFloat = 32
+        let activityWingWidth = (32 * min(max(wingWidthScale, 0.8), 1.8)).rounded()
         let neckWidth = min(expandedWidth, display.cameraHousingWidth + activityWingWidth * 2)
         return IslandLayout(
             compactWidth: neckWidth,

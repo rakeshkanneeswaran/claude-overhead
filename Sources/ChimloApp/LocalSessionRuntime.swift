@@ -100,7 +100,7 @@ final class LocalAgentProcessDiscovery: @unchecked Sendable {
         }
     }
 
-    private struct ProcessLine {
+    struct ProcessLine {
         let processID: Int32
         let parentID: Int32
         let tty: String?

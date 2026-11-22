@@ -82,7 +82,8 @@ struct SessionDisplayModel: Identifiable, Equatable, Sendable {
                 height + (option.detail == nil ? 34 : 50)
             }
             let selectionFooter: CGFloat = question.question.allowsMultipleSelections ? 36 : 20
-            return 70 + 50 + optionHeight + selectionFooter
+            let customAnswer: CGFloat = question.isEnteringCustomAnswer ? 66 : 34
+            return 70 + 50 + optionHeight + customAnswer + selectionFooter
         }
         guard showsCompletedConversation,
               let latestUserPrompt,
@@ -149,6 +150,8 @@ struct SessionQuestionPresentation: Identifiable, Equatable, Sendable {
     let questionCount: Int
     let question: ProviderQuestion
     let selectedLabels: [String]
+    /// The owner chose "Other…" and is typing their own answer.
+    var isEnteringCustomAnswer = false
 
     var id: UUID { requestID }
 }
@@ -833,6 +836,36 @@ final class ApplicationModel: ObservableObject {
             flow.selectedLabels.contains(option.label) ? option.label : nil
         }
         flow.answers[flow.currentQuestion.prompt] = ordered.joined(separator: ", ")
+        advanceOrFinish(flow)
+    }
+
+    /// Opens the "Other…" field, like Claude Code's own prompt offers.
+    func beginCustomAnswer(sessionID: String) {
+        guard let presentation = sessionQuestions[sessionID],
+              var flow = questionFlows[presentation.requestID] else { return }
+        cancelCollapse()
+        flow.isEnteringCustomAnswer = true
+        questionFlows[flow.request.id] = flow
+        publishQuestion(flow)
+    }
+
+    func cancelCustomAnswer(sessionID: String) {
+        guard let presentation = sessionQuestions[sessionID],
+              var flow = questionFlows[presentation.requestID] else { return }
+        flow.isEnteringCustomAnswer = false
+        questionFlows[flow.request.id] = flow
+        publishQuestion(flow)
+    }
+
+    /// Sends the owner's own words as the answer. Empty or oversized text is
+    /// ignored rather than sent, so nothing reaches Claude by accident.
+    func submitCustomAnswer(sessionID: String, text: String) {
+        let answer = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ClaudeQuestionHook.isValidCustomAnswer(answer),
+              let presentation = sessionQuestions[sessionID],
+              var flow = questionFlows[presentation.requestID] else { return }
+        flow.answers[flow.currentQuestion.prompt] = answer
+        flow.isEnteringCustomAnswer = false
         advanceOrFinish(flow)
     }
 
@@ -1535,6 +1568,7 @@ final class ApplicationModel: ObservableObject {
             var next = flow
             next.questionIndex += 1
             next.selectedLabels.removeAll()
+            next.isEnteringCustomAnswer = false
             showsAllSessionsDuringOwnerInteraction = false
             questionFlows[next.request.id] = next
             publishQuestion(next)
@@ -1558,7 +1592,8 @@ final class ApplicationModel: ObservableObject {
             question: flow.currentQuestion,
             selectedLabels: flow.currentQuestion.options.compactMap { option in
                 flow.selectedLabels.contains(option.label) ? option.label : nil
-            }
+            },
+            isEnteringCustomAnswer: flow.isEnteringCustomAnswer
         )
         syncSessionProjections()
     }
@@ -1752,6 +1787,7 @@ final class ApplicationModel: ObservableObject {
         var questionIndex = 0
         var answers: [String: String] = [:]
         var selectedLabels: Set<String> = []
+        var isEnteringCustomAnswer = false
 
         var currentQuestion: ProviderQuestion {
             request.questions[questionIndex]

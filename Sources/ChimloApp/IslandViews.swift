@@ -913,6 +913,13 @@ private struct SessionListView: View {
                                 },
                                 onAnswerInClaude: {
                                     model.answerQuestionInClaudeCode(sessionID: session.id)
+                                },
+                                onCustomAnswer: { action in
+                                    switch action {
+                                    case .begin: model.beginCustomAnswer(sessionID: session.id)
+                                    case .cancel: model.cancelCustomAnswer(sessionID: session.id)
+                                    case let .submit(text): model.submitCustomAnswer(sessionID: session.id, text: text)
+                                    }
                                 }
                             )
                         }
@@ -1010,6 +1017,7 @@ struct SessionRow: View {
     var onQuestionOption: ((String) -> Void)? = nil
     var onSubmitQuestion: (() -> Void)? = nil
     var onAnswerInClaude: (() -> Void)? = nil
+    var onCustomAnswer: ((CustomAnswerAction) -> Void)? = nil
     @State private var isHovering = false
 
     var body: some View {
@@ -1028,7 +1036,8 @@ struct SessionRow: View {
                     presentation: question,
                     select: { onQuestionOption?($0) },
                     submit: { onSubmitQuestion?() },
-                    answerInClaude: { onAnswerInClaude?() }
+                    answerInClaude: { onAnswerInClaude?() },
+                    customAnswer: { onCustomAnswer?($0) }
                 )
             }
 
@@ -1430,13 +1439,70 @@ private struct PermissionActionButtonStyle: ButtonStyle {
     }
 }
 
+enum CustomAnswerAction {
+    case begin
+    case cancel
+    case submit(String)
+}
+
 private struct SessionQuestionView: View {
     let presentation: SessionQuestionPresentation
     let select: (String) -> Void
     let submit: () -> Void
     let answerInClaude: () -> Void
+    let customAnswer: (CustomAnswerAction) -> Void
+    @State private var draft = ""
+    @FocusState private var draftFocused: Bool
 
     private var question: ProviderQuestion { presentation.question }
+
+    /// Claude Code's own prompt always offers "Other" with free text; this
+    /// is the same choice, answered in the notch.
+    @ViewBuilder
+    private var otherAnswer: some View {
+        if presentation.isEnteringCustomAnswer {
+            HStack(spacing: 6) {
+                TextField("Type your answer", text: $draft)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(ChimloTheme.paper)
+                    .focused($draftFocused)
+                    .onSubmit { customAnswer(.submit(draft)) }
+                    .padding(.horizontal, 9)
+                    .frame(height: 30)
+                    .background(ChimloTheme.raisedAttentionInk)
+                    .clipShape(SteppedPanelShape())
+                    .accessibilityLabel("Your own answer")
+                Button("Send") { customAnswer(.submit(draft)) }
+                    .buttonStyle(ChimloButtonStyle(kind: .primary, compact: true))
+                    .disabled(!ClaudeQuestionHook.isValidCustomAnswer(draft))
+                Button {
+                    draft = ""
+                    customAnswer(.cancel)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .buttonStyle(ProviderFallbackButtonStyle())
+                .keyboardShortcut(.cancelAction)
+                .accessibilityLabel("Cancel your own answer")
+            }
+            .onAppear { draftFocused = true }
+        } else {
+            Button {
+                customAnswer(.begin)
+            } label: {
+                Text("Other…")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(ChimloTheme.quietPaper)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(QuestionOptionButtonStyle(selected: false))
+            .accessibilityHint("Type your own answer instead")
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -1501,6 +1567,7 @@ private struct SessionQuestionView: View {
                             : "Sends this answer to Claude Code"
                     )
                 }
+                otherAnswer
             }
 
             HStack(spacing: 10) {

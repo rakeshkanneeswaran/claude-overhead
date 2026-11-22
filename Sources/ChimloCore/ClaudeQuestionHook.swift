@@ -93,13 +93,18 @@ public struct ClaudeQuestionHook: Sendable {
               request.questions.allSatisfy({ question in
                   guard let answer = response.answers[question.prompt] else { return false }
                   let labels = question.options.map(\.label)
+                  if labels.contains(answer) { return true }
                   if question.allowsMultipleSelections {
                       let selections = answer.components(separatedBy: ", ")
-                      return !selections.isEmpty
-                          && Set(selections).count == selections.count
-                          && selections.allSatisfy(labels.contains)
+                      if !selections.isEmpty,
+                         Set(selections).count == selections.count,
+                         selections.allSatisfy(labels.contains) {
+                          return true
+                      }
                   }
-                  return labels.contains(answer)
+                  // Claude Code's own prompt offers "Other" with free text; an
+                  // answer typed by the owner is passed through as written.
+                  return Self.isValidCustomAnswer(answer)
               }),
               let originalQuestions = try? JSONSerialization.jsonObject(with: originalQuestionsJSON)
         else { return Self.fallbackOutput }
@@ -120,6 +125,12 @@ public struct ClaudeQuestionHook: Sendable {
             options: [.sortedKeys, .withoutEscapingSlashes]
         ) else { return Self.fallbackOutput }
         return data + Data("\n".utf8)
+    }
+
+    /// A typed answer: non-empty after trimming and at most 1,000 characters.
+    public static func isValidCustomAnswer(_ answer: String) -> Bool {
+        let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && trimmed.count <= 1_000
     }
 
     private static func boundedString(_ value: Any?, maximumBytes: Int) -> String? {
