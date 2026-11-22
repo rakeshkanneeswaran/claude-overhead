@@ -247,9 +247,29 @@ struct CompactWingIndicators: View {
             if spec.showsAgentIndicator, running > 0 {
                 AgentDots(count: running, maximum: spec.compactWingWidthScale > 1.3 ? 3 : 2)
             }
+            // Lock Mode is visible without opening the notch: red and closed
+            // while locked, a plain open lock otherwise.
+            NotchLockGlyph(isLocked: model.isNotchLocked, size: 9)
             if model.github.showsInClosedNotch, let badge = GitHubBadge.from(model.github.indicator) {
                 GitHubClosedNotchBadge(model: model, badge: badge)
             }
         }
+    }
+}
+
+/// The lock's look, shared by the closed notch and the open notch's button.
+struct NotchLockGlyph: View {
+    let isLocked: Bool
+    var size: CGFloat = 11
+
+    static func color(isLocked: Bool) -> Color {
+        isLocked ? ChimloTheme.signalRed : ChimloTheme.paper
+    }
+
+    var body: some View {
+        Image(systemName: isLocked ? "lock.fill" : "lock.open")
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(Self.color(isLocked: isLocked))
+            .accessibilityLabel(isLocked ? "Notch locked" : "Notch unlocked")
     }
 }

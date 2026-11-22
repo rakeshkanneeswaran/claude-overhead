@@ -39,6 +39,11 @@ enum ChimloTheme {
         nsColor: NSColor(calibratedRed: 0.90, green: 0.42, blue: 0.34, alpha: 1)
     )
     static let amber = attention
+    /// A clear red that reads on the black notch (macOS's dark-mode system
+    /// red), for state the owner must notice at a glance, such as Lock Mode.
+    static let signalRed = Color(
+        nsColor: NSColor(calibratedRed: 1.0, green: 0.27, blue: 0.23, alpha: 1)
+    )
     static let moss = liveGreen
     static let focusRing = Color(nsColor: .keyboardFocusIndicatorColor)
 

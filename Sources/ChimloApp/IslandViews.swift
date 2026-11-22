@@ -446,12 +446,11 @@ private struct ExpandedStatusBand: View {
                         Button {
                             model.isNotchLocked.toggle()
                         } label: {
-                            Image(systemName: model.isNotchLocked ? "lock.fill" : "lock.open")
-                                .font(.system(size: 11, weight: .semibold))
+                            NotchLockGlyph(isLocked: model.isNotchLocked)
                         }
                         .buttonStyle(
                             ExpandedControlButtonStyle(
-                                color: model.isNotchLocked ? ChimloTheme.providerOrange : ChimloTheme.quietPaper
+                                color: NotchLockGlyph.color(isLocked: model.isNotchLocked)
                             )
                         )
                         .help(model.isNotchLocked
