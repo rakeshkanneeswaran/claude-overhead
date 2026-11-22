@@ -23,6 +23,10 @@ struct SessionDisplayModel: Identifiable, Equatable, Sendable {
     var latestResponseReceivedAt: Date?
     var permission: SessionPermissionPresentation?
     var question: SessionQuestionPresentation?
+    /// Context, cache, agents, branch, PRs and cost from the session file.
+    var insights: TranscriptInsights?
+    /// Claude Code's own live listing, when it knows this session.
+    var live: ClaudeLiveSession?
 
     var hasActiveOwnerInteraction: Bool {
         permission != nil || question != nil
@@ -193,6 +197,8 @@ final class ApplicationModel: ObservableObject {
     /// on through the fade-out so the colours keep flowing until it is gone.
     @Published private(set) var showsCompletionGlow = false
     @Published private(set) var animatesCompletionGlow = false
+    @Published private(set) var sessionInsights: [String: TranscriptInsights] = [:]
+    @Published private(set) var liveSessions: [String: ClaudeLiveSession] = [:]
 
     let isUpdateTestMode: Bool
 
@@ -217,6 +223,7 @@ final class ApplicationModel: ObservableObject {
     private var onboardingTask: Task<Void, Never>?
     private var collapseTask: Task<Void, Never>?
     private var completionGlowTask: Task<Void, Never>?
+    private var liveSessionTask: Task<Void, Never>?
     private var pointerInsideIsland = false
     private var decisionExpiryTask: Task<Void, Never>?
     private var decisionContinuation: CheckedContinuation<ChimloDecisionResponse, Never>?
@@ -437,6 +444,7 @@ final class ApplicationModel: ObservableObject {
         }
         configureSessionRuntime()
         startCapacityMonitoring()
+        startLiveSessionMonitoring()
         localSessionRuntime.start()
         refreshAgentConnections()
 
@@ -469,6 +477,8 @@ final class ApplicationModel: ObservableObject {
         completionDetailExpiryTasks.removeAll()
         completionGlowTask?.cancel()
         completionGlowTask = nil
+        liveSessionTask?.cancel()
+        liveSessionTask = nil
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -1095,7 +1105,9 @@ final class ApplicationModel: ObservableObject {
                 latestAgentResponse: session.latestAgentResponse,
                 latestResponseReceivedAt: latestResponseReceivedAt[session.id],
                 permission: sessionPermissions[session.id],
-                question: sessionQuestions[session.id]
+                question: sessionQuestions[session.id],
+                insights: sessionInsights[session.id],
+                live: liveSessions[session.id]
             )
         }
 
@@ -1146,6 +1158,48 @@ final class ApplicationModel: ObservableObject {
         }
         localSessionRuntime.onInitialScanCompleted = { [weak self] in
             self?.isScanningSessions = false
+        }
+        localSessionRuntime.onInsights = { [weak self] insights in
+            self?.receiveInsights(insights)
+        }
+    }
+
+    private func receiveInsights(_ insights: [String: TranscriptInsights]) {
+        var merged = sessionInsights
+        merged.merge(insights) { _, newer in newer }
+        guard merged != sessionInsights else { return }
+        sessionInsights = merged
+        syncSessionProjections()
+    }
+
+    /// Claude Code's own list of live sessions (`claude agents --json`, about
+    /// 0.1 s): it shows background sessions and exact pids. Every 15 s, and
+    /// only when the command line is installed.
+    private func startLiveSessionMonitoring() {
+        liveSessionTask?.cancel()
+        let environment = ProcessInfo.processInfo.environment
+        guard let executable = ClaudeCodeLocator.executableCandidates(
+            home: FileManager.default.homeDirectoryForCurrentUser.path,
+            path: environment["PATH"]
+        ).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { return }
+
+        liveSessionTask = Task { [weak self] in
+            while !Task.isCancelled {
+                let listing = await Task.detached(priority: .utility) { () -> [ClaudeLiveSession] in
+                    guard let output = LocalAgentProcessDiscovery.commandOutput(
+                        executable: executable,
+                        arguments: ["agents", "--json"]
+                    ) else { return [] }
+                    return ClaudeAgentsListing.parse(Data(output.utf8))
+                }.value
+                guard !Task.isCancelled, let self else { return }
+                let byID = Dictionary(listing.map { ($0.sessionID, $0) }, uniquingKeysWith: { first, _ in first })
+                if byID != liveSessions {
+                    liveSessions = byID
+                    syncSessionProjections()
+                }
+                try? await Task.sleep(for: .seconds(15))
+            }
         }
     }
 

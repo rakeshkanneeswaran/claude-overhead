@@ -90,12 +90,16 @@ public enum PrivacySafeHookMapper {
         case "SessionStart":
             return Mapping(kind: .sessionStarted, detail: "Connected locally")
         case "UserPromptSubmit", "PostToolUse", "SubagentStart":
-            return Mapping(kind: .activity, detail: "Working")
+            // Between tools Claude is reasoning about what to do next.
+            return Mapping(kind: .activity, detail: "Thinking")
         case "PreToolUse":
             // AskUserQuestion has a separate blocking bridge. The asynchronous
             // observer must not race it and clear the pending question state.
             guard toolName != "AskUserQuestion" else { return nil }
-            return Mapping(kind: .activity, detail: "Working")
+            // The tool name says what Claude is doing right now: reading,
+            // writing, running a command. Only its category is kept.
+            let activity = toolName.map(ToolActivityKind.init(toolName:)) ?? .other
+            return Mapping(kind: .activity, detail: activity.label)
         case "PermissionRequest":
             // Claude permissions have a separate blocking bridge. An
             // asynchronous observer would race the explicit response and

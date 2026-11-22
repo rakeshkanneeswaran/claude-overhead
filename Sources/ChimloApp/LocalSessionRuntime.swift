@@ -205,6 +205,8 @@ final class LocalTranscriptDiscovery: @unchecked Sendable {
     private let maximumAge: TimeInterval
     private let maximumFilesPerProvider: Int
     private var cursors: [String: TranscriptCursor] = [:]
+    /// The latest insights per session, read by the same pass that finds sessions.
+    private var insightsBySessionID: [String: TranscriptInsights] = [:]
 
     init(
         homeURL: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -277,7 +279,7 @@ final class LocalTranscriptDiscovery: @unchecked Sendable {
             || fileSize < (existingCursor?.offset ?? 0)
         var cursor: TranscriptCursor
         if needsColdStart {
-            cursor = TranscriptCursor(scanner: PrivacySafeSessionMetadataScanner())
+            cursor = TranscriptCursor(scanner: PrivacySafeSessionMetadataScanner(), insights: TranscriptInsightsScanner())
             scanColdStart(handle, fileSize: fileSize, cursor: &cursor)
         } else if let existingCursor {
             cursor = existingCursor
@@ -290,6 +292,7 @@ final class LocalTranscriptDiscovery: @unchecked Sendable {
             fallbackUpdatedAt: modifiedAt
         )
         cursors[key] = cursor
+        if let id = candidate?.id { insightsBySessionID[id] = cursor.insights.insights }
         return candidate
     }
 
@@ -354,11 +357,18 @@ final class LocalTranscriptDiscovery: @unchecked Sendable {
             let line = Data(cursor.buffer.prefix(upTo: index))
             cursor.buffer.removeSubrange(...index)
             cursor.scanner.consume(line: line)
+            cursor.insights.consume(line: line)
         }
-        if cursor.buffer.count > PrivacySafeSessionMetadataScanner.maximumLineBytes {
+        // Large Write results still carry the file paths receipts need, so
+        // allow the insights scanner's larger line limit before dropping.
+        if cursor.buffer.count > TranscriptInsightsScanner.maximumLineBytes {
             cursor.buffer.removeAll(keepingCapacity: true)
         }
     }
+
+    /// Insights for the sessions the last `discover()` saw. Call it from the
+    /// same task, right after `discover()`, like the candidates themselves.
+    func latestInsights() -> [String: TranscriptInsights] { insightsBySessionID }
 
     private func newestBySessionID(_ candidates: [SessionCandidate]) -> [SessionCandidate] {
         var byID: [String: SessionCandidate] = [:]
@@ -371,6 +381,7 @@ final class LocalTranscriptDiscovery: @unchecked Sendable {
 
     private struct TranscriptCursor {
         var scanner: PrivacySafeSessionMetadataScanner
+        var insights: TranscriptInsightsScanner
         var buffer = Data()
         var offset: UInt64 = 0
     }
@@ -450,6 +461,8 @@ final class LocalSessionRuntime {
     var onCandidate: ((SessionCandidate) -> Void)?
     var onSessionEnded: ((String) -> Void)?
     var onInitialScanCompleted: (() -> Void)?
+    /// Context, cache, activity, agents, branch, PRs and cost per session.
+    var onInsights: (([String: TranscriptInsights]) -> Void)?
 
     private let processDiscovery: LocalAgentProcessDiscovery
     private let transcriptDiscovery: LocalTranscriptDiscovery
@@ -493,31 +506,33 @@ final class LocalSessionRuntime {
             let processTask = Task.detached(priority: .utility) {
                 processDiscovery.discover()
             }
-            let quickTranscripts = await Task.detached(priority: .utility) {
-                transcriptDiscovery.discover(maximumFilesPerProvider: 1)
+            let (quickTranscripts, quickInsights) = await Task.detached(priority: .utility) {
+                (transcriptDiscovery.discover(maximumFilesPerProvider: 1), transcriptDiscovery.latestInsights())
             }.value
             guard !Task.isCancelled else {
                 processTask.cancel()
                 return
             }
             reconcileTranscripts(quickTranscripts, processes: [])
+            onInsights?(quickInsights)
             onInitialScanCompleted?()
 
             let processes = await processTask.value
             guard !Task.isCancelled else { return }
             applyProcesses(processes, enrichingWith: cache + quickTranscripts)
 
-            let transcripts = await Task.detached(priority: .utility) {
-                transcriptDiscovery.discover()
+            let (transcripts, insights) = await Task.detached(priority: .utility) {
+                (transcriptDiscovery.discover(), transcriptDiscovery.latestInsights())
             }.value
             guard !Task.isCancelled else { return }
             reconcileTranscripts(transcripts, processes: processes)
+            onInsights?(insights)
 
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(8))
                 guard !Task.isCancelled else { return }
                 let transcriptTask = Task.detached(priority: .utility) {
-                    transcriptDiscovery.discover()
+                    (transcriptDiscovery.discover(), transcriptDiscovery.latestInsights())
                 }
                 let processes = await Task.detached(priority: .utility) {
                     processDiscovery.discover()
@@ -528,9 +543,10 @@ final class LocalSessionRuntime {
                 }
                 reconcileProcesses(processes)
 
-                let transcripts = await transcriptTask.value
+                let (transcripts, insights) = await transcriptTask.value
                 guard !Task.isCancelled else { return }
                 reconcileTranscripts(transcripts, processes: processes)
+                onInsights?(insights)
             }
         }
     }
