@@ -348,6 +348,9 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
     public var notifications: NotificationPreferences
 
     public var showAgents: Bool
+    /// The closed notch's one line of live activity under the camera. Only
+    /// layouts with an activity label show it, and Focus can hide it.
+    public var showClosedNotchActivity: Bool
 
     /// Fractions of the context window, attention < critical, within 0.3...0.99.
     public var contextAttentionThreshold: Double
@@ -387,6 +390,7 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         storeConversationPreviews = true
         notifications = NotificationPreferences()
         showAgents = true
+        showClosedNotchActivity = true
         contextAttentionThreshold = 0.7
         contextCriticalThreshold = 0.9
         usageWarningThreshold = 0.8
@@ -451,6 +455,13 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         )
     }
 
+    /// Whether the closed notch shows its live activity line right now: the
+    /// setting is on, the layout has an activity label, and Focus is not
+    /// hiding activity labels.
+    public func showsClosedNotchActivity(at date: Date = .now, calendar: Calendar = .current) -> Bool {
+        showClosedNotchActivity && resolvedLayoutSpec(at: date, calendar: calendar).showsActivityLabel
+    }
+
     private static func clamp(_ value: Double, to range: ClosedRange<Double>, fallback: Double) -> Double {
         let finite = value.isFinite ? value : fallback
         return min(max(finite, range.lowerBound), range.upperBound)
@@ -464,7 +475,7 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         case theme, accent, appearance, animationIntensity, glowIntensity, layout, density
         case sessionSort, groupByProject, historyRetentionDays, storeConversationPreviews
         case notifications
-        case showAgents
+        case showAgents, showClosedNotchActivity
         case contextAttentionThreshold, contextCriticalThreshold, usageWarningThreshold
         case showResetCountdowns, showCacheMetrics
         case github, focus
@@ -496,6 +507,7 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         storeConversationPreviews = c.lenient(Bool.self, .storeConversationPreviews) ?? d.storeConversationPreviews
         notifications = c.lenient(NotificationPreferences.self, .notifications) ?? d.notifications
         showAgents = c.lenient(Bool.self, .showAgents) ?? d.showAgents
+        showClosedNotchActivity = c.lenient(Bool.self, .showClosedNotchActivity) ?? d.showClosedNotchActivity
         contextAttentionThreshold = c.lenient(Double.self, .contextAttentionThreshold) ?? d.contextAttentionThreshold
         contextCriticalThreshold = c.lenient(Double.self, .contextCriticalThreshold) ?? d.contextCriticalThreshold
         usageWarningThreshold = c.lenient(Double.self, .usageWarningThreshold) ?? d.usageWarningThreshold
@@ -530,6 +542,7 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         try c.encode(storeConversationPreviews, forKey: .storeConversationPreviews)
         try c.encode(notifications, forKey: .notifications)
         try c.encode(showAgents, forKey: .showAgents)
+        try c.encode(showClosedNotchActivity, forKey: .showClosedNotchActivity)
         try c.encode(contextAttentionThreshold, forKey: .contextAttentionThreshold)
         try c.encode(contextCriticalThreshold, forKey: .contextCriticalThreshold)
         try c.encode(usageWarningThreshold, forKey: .usageWarningThreshold)

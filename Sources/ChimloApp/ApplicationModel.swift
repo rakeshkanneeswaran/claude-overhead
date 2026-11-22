@@ -243,7 +243,9 @@ final class ApplicationModel: ObservableObject {
     @Published private(set) var onboardingStep: OnboardingStep = .working
     @Published private(set) var accessibility = AccessibilityEnvironment.current
     @Published private(set) var serverState: LocalServerState = .stopped
-    @Published private(set) var pendingDecision: ChimloDecisionRequest?
+    @Published private(set) var pendingDecision: ChimloDecisionRequest? {
+        didSet { updateCompactActivity() }
+    }
     @Published private(set) var sessionPermissions: [String: SessionPermissionPresentation] = [:]
     @Published private(set) var sessionQuestions: [String: SessionQuestionPresentation] = [:]
     @Published private(set) var showsAllSessionsDuringOwnerInteraction = false
@@ -268,6 +270,11 @@ final class ApplicationModel: ObservableObject {
     @Published private(set) var selectedSessionID: String?
     /// The session whose activity feed the open notch shows, if any.
     @Published private(set) var inspectedSessionID: String?
+    /// The closed notch's activity strip. Shown at once, hidden after a short
+    /// hold, so the notch does not resize between two turns.
+    @Published private(set) var compactActivity: CompactActivityLine?
+    /// Whether the strip may show at all (`OverheadSettings.showsClosedNotchActivity`).
+    private var showsClosedNotchActivity = true
     @Published private(set) var isFocusModeActive = false
     @Published private(set) var contextAttentionThreshold = 0.7
     @Published private(set) var contextCriticalThreshold = 0.9
@@ -322,6 +329,7 @@ final class ApplicationModel: ObservableObject {
     private let claudeUsageProbe = ClaudeUsageProbe()
     private var sessionRemovalTasks: [String: Task<Void, Never>] = [:]
     private var sessionActivityExpiryTask: Task<Void, Never>?
+    private var compactActivityHideTask: Task<Void, Never>?
     private var sessionsArmedForCompletion: Set<String> = []
     private var latestResponseReceivedAt: [String: Date] = [:]
     private var completionDetailExpiryTasks: [String: Task<Void, Never>] = [:]
@@ -344,7 +352,14 @@ final class ApplicationModel: ObservableObject {
     var panelSize: CGSize {
         switch panelMode {
         case .compact:
-            return CGSize(width: islandLayout.compactWidth, height: islandLayout.compactHeight)
+            guard compactActivity != nil else {
+                return CGSize(width: islandLayout.compactWidth, height: islandLayout.compactHeight)
+            }
+            // The strip sits under the camera housing on notched displays,
+            // and widens the pill elsewhere; one fixed size either way.
+            return islandLayout.hasCameraHousing
+                ? CGSize(width: islandLayout.compactWidth, height: islandLayout.compactHeight + CompactActivityStrip.height)
+                : CGSize(width: max(islandLayout.compactWidth, CompactActivityStrip.standardWidth), height: islandLayout.compactHeight)
         case .sessions where notchContent == .github:
             return CGSize(
                 width: islandLayout.expandedWidth,
@@ -813,10 +828,23 @@ final class ApplicationModel: ObservableObject {
     /// Applies the owner's settings that the notch itself reads.
     func applySettings(_ settings: OverheadSettings, now: Date = .now) {
         let spec = settings.resolvedLayoutSpec(at: now, calendar: .current)
-        if spec != layoutSpec {
+        let layoutChanged = spec != layoutSpec
+        if layoutChanged {
             layoutSpec = spec
             rebuildIslandLayout()
         }
+        let showsStrip = settings.showsClosedNotchActivity(at: now, calendar: .current)
+        let stripChanged = showsStrip != showsClosedNotchActivity
+        if stripChanged {
+            showsClosedNotchActivity = showsStrip
+            if !showsStrip {
+                // Turned off: go at once, not after the between-turns hold.
+                compactActivityHideTask?.cancel()
+                compactActivityHideTask = nil
+                compactActivity = nil
+            }
+        }
+        if layoutChanged || stripChanged { updateCompactActivity() }
         let focus = settings.focus.isActive(at: now, calendar: .current)
         if focus != isFocusModeActive { isFocusModeActive = focus }
         if soundsEnabled != settings.notifications.soundsEnabled {
@@ -1524,7 +1552,47 @@ final class ApplicationModel: ObservableObject {
             self.inspectedSessionID = nil
         }
         resetSessionRevealIfNoOwnerInteraction()
+        updateCompactActivity()
         scheduleSessionActivityExpiry(now: now)
+    }
+
+    /// The closed notch's strip: the session that needs the owner, else the
+    /// selected or newest running one. Appears at once; disappears only after
+    /// a short hold, so two back-to-back turns do not resize the notch.
+    private func updateCompactActivity() {
+        let line = currentCompactActivityLine()
+        if let line {
+            compactActivityHideTask?.cancel()
+            compactActivityHideTask = nil
+            if compactActivity != line { compactActivity = line }
+            return
+        }
+        guard compactActivity != nil, compactActivityHideTask == nil else { return }
+        compactActivityHideTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(CompactActivityStrip.hideDelaySeconds))
+            guard !Task.isCancelled, let self else { return }
+            compactActivityHideTask = nil
+            if currentCompactActivityLine() == nil { compactActivity = nil }
+        }
+    }
+
+    private func currentCompactActivityLine() -> CompactActivityLine? {
+        guard showsClosedNotchActivity else { return nil }
+        if pendingDecision != nil {
+            return CompactActivityLine(tool: nil, text: "Needs your decision", tone: .attention, kind: nil)
+        }
+        let candidates = sessions.filter { !$0.isDemo }.map {
+            NotchActivityFocus.Candidate(id: $0.id, state: $0.runState, updatedAt: $0.updatedAt)
+        }
+        guard let id = NotchActivityFocus.sessionID(among: candidates, selected: selectedSessionID),
+              let session = sessions.first(where: { $0.id == id }) else { return nil }
+        return CompactActivityLine.make(
+            permissionTool: session.permission?.request.toolName,
+            hasQuestion: session.question != nil,
+            latest: session.insights?.currentTurnActivity,
+            isWorking: session.isRunning,
+            fallback: session.detail
+        )
     }
 
     private func scheduleSessionActivityExpiry(now: Date) {

@@ -376,3 +376,94 @@ public enum SessionOrdering {
         }
     }
 }
+
+/// Which session the closed notch speaks for: the one that needs the owner,
+/// else the selected one while it runs, else the most recent running one.
+/// `nil` when nothing runs, and the notch falls back to its plain status.
+public enum NotchActivityFocus {
+    public struct Candidate: Equatable, Sendable {
+        public let id: String
+        public let state: SessionRunState
+        public let updatedAt: Date
+
+        public init(id: String, state: SessionRunState, updatedAt: Date) {
+            self.id = id
+            self.state = state
+            self.updatedAt = updatedAt
+        }
+    }
+
+    public static func sessionID(among candidates: [Candidate], selected: String?) -> String? {
+        if let needsYou = newest(candidates.filter { $0.state == .needsYou }) { return needsYou.id }
+        let running = candidates.filter { $0.state == .running }
+        if let selected, running.contains(where: { $0.id == selected }) { return selected }
+        return newest(running)?.id
+    }
+
+    private static func newest(_ candidates: [Candidate]) -> Candidate? {
+        candidates.min { lhs, rhs in
+            if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
+            return lhs.id < rhs.id
+        }
+    }
+}
+
+/// The closed notch's one line of activity, with the most important thing
+/// first. Built from data only; when nothing specific is known it falls back
+/// to the session's plain status.
+public struct CompactActivityLine: Equatable, Sendable {
+    public enum Tone: String, Equatable, Sendable {
+        case attention, working, failed, quiet
+    }
+
+    public let tool: String?
+    public let text: String
+    public let tone: Tone
+    public let kind: ToolActivityKind?
+    /// The text is a path, so truncate in the middle and keep the file name.
+    public let truncatesMiddle: Bool
+
+    public init(tool: String?, text: String, tone: Tone, kind: ToolActivityKind?, truncatesMiddle: Bool = false) {
+        self.tool = tool
+        self.text = text
+        self.tone = tone
+        self.kind = kind
+        self.truncatesMiddle = truncatesMiddle
+    }
+
+    /// - Parameters:
+    ///   - permissionTool: the tool a pending permission is for.
+    ///   - hasQuestion: Claude is asking the owner something.
+    ///   - latest: the session's newest activity, if any.
+    ///   - fallback: the plain status, for example "Running a command".
+    public static func make(
+        permissionTool: String?,
+        hasQuestion: Bool,
+        latest: SessionActivity?,
+        isWorking: Bool,
+        fallback: String
+    ) -> CompactActivityLine {
+        if let permissionTool {
+            return CompactActivityLine(
+                tool: SessionActivity.displayName(forTool: permissionTool),
+                text: "Needs your permission",
+                tone: .attention,
+                kind: ToolActivityKind(toolName: permissionTool)
+            )
+        }
+        if hasQuestion {
+            return CompactActivityLine(tool: nil, text: "Claude has a question for you", tone: .attention, kind: .asking)
+        }
+        guard isWorking, let latest else {
+            return CompactActivityLine(tool: nil, text: fallback, tone: isWorking ? .working : .quiet, kind: nil)
+        }
+        let status = latest.presentedStatus(sessionIsWorking: isWorking)
+        return CompactActivityLine(
+            tool: latest.toolDisplayName,
+            text: latest.headline,
+            tone: status == .failed ? .failed : .working,
+            kind: latest.kind,
+            truncatesMiddle: latest.summary == nil && latest.targetIsPath
+        )
+    }
+}

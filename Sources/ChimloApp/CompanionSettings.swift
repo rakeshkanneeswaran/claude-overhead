@@ -236,9 +236,23 @@ private struct LayoutsPane: View {
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(settings.settings.layout == layout ? .isSelected : [])
                 }
+                Divider().padding(.vertical, 4)
+                Toggle("Show live activity in the closed notch", isOn: settings.binding(\.showClosedNotchActivity))
+                    .disabled(!settings.settings.layout.spec.showsActivityLabel)
+                Text(closedNotchActivityNote)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(24)
         }
+    }
+
+    private var closedNotchActivityNote: String {
+        guard settings.settings.layout.spec.showsActivityLabel else {
+            return "\(settings.settings.layout.displayName) keeps the closed notch still. Classic, Expanded and Agent View can show live activity."
+        }
+        return "One line under the camera with what Claude is doing right now, such as Bash · Run tests. Focus mode hides it while Focus is on, if Hide activity labels is set."
     }
 }
 

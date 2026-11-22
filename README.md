@@ -42,13 +42,14 @@ Overhead, and move it to the Trash.
   closed notch for a moment. The notch does not pop open.
 - **Five notch layouts.** Minimal, Classic, Expanded (activity, context ring
   and agent dots), Focus (still, opens only on click) and Agent View.
-- **Live activity.** The open notch lists every session (needs-you first,
-  then running, waiting for you, recently finished) with what Claude is doing
-  right now in its own words, such as `Bash · Run tests and commit the logo
-  change`. Click one to open its live feed: every tool call with its
-  description, the command or file, the time, and whether it finished,
-  failed, or never reported back. Nothing is summarized by a model, and
-  commands have tokens and assignment values redacted.
+- **Live activity.** The closed notch shows what Claude is doing right now in
+  its own words, such as `Bash · Run tests and commit the logo change` (turn
+  it off in **Settings → Notch Layouts**). The open notch lists every session
+  (needs-you first, then running, waiting for you, recently finished), and
+  clicking one opens its live feed: every tool call with its description, the
+  command or file, the time, and whether it finished, failed, or never
+  reported back. Nothing is summarized by a model, and commands have tokens
+  and assignment values redacted.
 - **Session rows** show the latest tool call, the project, running subagents
   and the linked pull request, wherever that data really exists.
 - **Works without a notch.** On external displays it shows as a small pill

@@ -170,6 +170,7 @@ struct OverheadSettingsTests {
         settings.notifications.quietHoursEnabled = true
         settings.notifications.groupCompletions = false
         settings.showAgents = false
+        settings.showClosedNotchActivity = false
         settings.contextAttentionThreshold = 0.6
         settings.contextCriticalThreshold = 0.85
         settings.usageWarningThreshold = 0.75
@@ -208,6 +209,7 @@ struct OverheadSettingsTests {
         #expect(decoded.github.enabled)
         #expect(decoded.github.refreshSeconds == 30)
         #expect(decoded.github.monitorActions)
+        #expect(decoded.showClosedNotchActivity)
         #expect(decoded.layout == defaults.layout)
         #expect(decoded.accent == defaults.accent)
         #expect(decoded.historyRetentionDays == 90)

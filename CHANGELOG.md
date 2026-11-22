@@ -9,9 +9,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-- The closed notch no longer shows a line of live activity under the camera;
-  it is back to Claude, its signals and the GitHub badge. The open notch keeps
-  every session's latest activity and the live feed.
+- The closed notch's line of live activity under the camera can be turned off
+  in **Settings → Notch Layouts → Show live activity in the closed notch**.
+  It stays on by default.
 - Running GitHub workflows show a turning green ring instead of a blue dotted
   circle, and running is green throughout GitHub Mode. Queued runs keep their
   clock.

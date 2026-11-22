@@ -464,12 +464,29 @@ private struct CompactIslandView: View {
                 size: 31,
                 reduceMotion: model.accessibility.reduceMotion
             )
-            PixelText(text: model.compactLabel, pixelSize: 1.7, spacing: 1)
-            Spacer(minLength: 5)
+            if let line = model.compactActivity {
+                CompactActivityStripView(line: line, reduceMotion: model.reducesMotion, fontSize: 11)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                PixelText(text: model.compactLabel, pixelSize: 1.7, spacing: 1)
+                Spacer(minLength: 5)
+            }
         }
     }
 
     private var notchContent: some View {
+        VStack(spacing: 0) {
+            wings
+            if let line = model.compactActivity {
+                CompactActivityStripView(line: line, reduceMotion: model.reducesMotion)
+                    .padding(.horizontal, 12)
+                    .frame(width: model.islandLayout.compactWidth, height: CompactActivityStrip.height, alignment: .top)
+            }
+        }
+        .frame(width: model.islandLayout.compactWidth, alignment: .top)
+    }
+
+    private var wings: some View {
         HStack(spacing: 0) {
             leadingWing
             .frame(

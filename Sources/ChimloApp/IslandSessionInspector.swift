@@ -1,6 +1,67 @@
 import ChimloCore
 import SwiftUI
 
+// MARK: - Compact strip
+
+/// The closed notch's one line of live activity, under the camera housing.
+enum CompactActivityStrip {
+    /// One fixed height, so the notch never resizes with the text.
+    static let height: CGFloat = 20
+    /// The pill's width on displays without a camera housing.
+    static let standardWidth: CGFloat = 300
+    /// How long the strip stays after the last running session stops, so two
+    /// back-to-back turns do not resize the notch.
+    static let hideDelaySeconds: Double = 2.5
+}
+
+/// "Bash · Run tests and commit the logo change". The tool name never
+/// truncates; the text truncates at its end, or in the middle for a path so
+/// the file name stays readable.
+struct CompactActivityStripView: View {
+    let line: CompactActivityLine
+    let reduceMotion: Bool
+    var fontSize: CGFloat = 10.5
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: ActivitySymbol.name(for: line.kind))
+                .font(.system(size: fontSize - 1.5, weight: .semibold))
+                .foregroundStyle(accent)
+                .frame(width: 11)
+            if let tool = line.tool {
+                Text(tool)
+                    .font(.system(size: fontSize, weight: .semibold))
+                    .foregroundStyle(accent)
+                    .lineLimit(1)
+                    .fixedSize()
+                Text("·")
+                    .font(.system(size: fontSize, weight: .bold))
+                    .foregroundStyle(ChimloTheme.mutedPaper)
+            }
+            Text(line.text)
+                .font(.system(size: fontSize, weight: .medium))
+                .foregroundStyle(line.tone == .attention ? ChimloTheme.attention : ChimloTheme.paper.opacity(0.92))
+                .lineLimit(1)
+                .truncationMode(line.truncatesMiddle ? .middle : .tail)
+        }
+        .frame(maxWidth: .infinity)
+        .id(line.text)
+        .transition(.opacity)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: line)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([line.tool, line.text].compactMap(\.self).joined(separator: ", "))
+    }
+
+    private var accent: Color {
+        switch line.tone {
+        case .attention: ChimloTheme.attention
+        case .failed: ChimloTheme.clayText
+        case .working: ChimloTheme.providerOrange
+        case .quiet: ChimloTheme.quietPaper
+        }
+    }
+}
+
 // MARK: - Inspector
 
 /// One session's live activity feed inside the open notch: every tool call

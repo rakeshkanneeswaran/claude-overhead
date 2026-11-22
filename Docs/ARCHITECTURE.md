@@ -25,7 +25,9 @@ without AppKit:
   repeat; results seen before their call are held briefly.
 - **Session standing** (`SessionActivity.swift`): `SessionRunState` (needs
   you, failed, running, waiting for input, recently completed, older; stale
-  work is never "running") and `SessionOrdering`.
+  work is never "running"), `SessionOrdering`, `NotchActivityFocus` and
+  `CompactActivityLine` for the closed notch's activity strip, which
+  `OverheadSettings.showsClosedNotchActivity` can turn off.
 - **Settings** (`OverheadSettings`, `SettingsStore`): one versioned, lenient
   `Codable` value with normalisation, plus themes (`ThemeLibrary`, with WCAG
   contrast checks), notch layouts (`NotchLayoutSpec`) and shortcuts

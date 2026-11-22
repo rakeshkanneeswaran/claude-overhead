@@ -203,6 +203,32 @@ struct NotchLayoutTests {
         #expect(focused.animationScale <= AnimationIntensity.minimal.scale)
         #expect(focused.expandsOnHover == NotchLayout.expanded.spec.expandsOnHover)
     }
+
+    @Test("The closed notch's activity line follows its setting, the layout and Focus")
+    func closedNotchActivity() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var settings = OverheadSettings()
+        #expect(settings.showClosedNotchActivity)
+        #expect(settings.showsClosedNotchActivity(at: now))
+
+        settings.showClosedNotchActivity = false
+        #expect(!settings.showsClosedNotchActivity(at: now))
+        #expect(settings.resolvedLayoutSpec(at: now).showsActivityLabel, "the wing glyph stays")
+
+        settings.showClosedNotchActivity = true
+        for layout in NotchLayout.allCases {
+            settings.layout = layout
+            #expect(settings.showsClosedNotchActivity(at: now) == layout.spec.showsActivityLabel, "\(layout)")
+        }
+        #expect(!NotchLayout.minimal.spec.showsActivityLabel && !NotchLayout.focus.spec.showsActivityLabel)
+
+        settings.layout = .classic
+        settings.focus.isOn = true
+        settings.focus.hideActivityLabels = true
+        #expect(!settings.showsClosedNotchActivity(at: now))
+        settings.focus.hideActivityLabels = false
+        #expect(settings.showsClosedNotchActivity(at: now))
+    }
 }
 
 @Suite("Shortcuts")
