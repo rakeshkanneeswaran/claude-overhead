@@ -27,8 +27,15 @@ history and GitHub in one companion window.
   closed notch for a moment. The notch does not pop open.
 - **Five notch layouts.** Minimal, Classic, Expanded (activity, context ring
   and agent dots), Focus (still, opens only on click) and Agent View.
-- **Session rows** show the git branch, context meter, running subagents and
-  the linked pull request, wherever that data really exists.
+- **Live activity.** The closed notch shows what Claude is doing right now in
+  its own words, such as `Bash · Run tests and commit the logo change`. The
+  open notch lists every session (needs-you first, then running, waiting for
+  you, recently finished), and clicking one opens its live feed: every tool
+  call with its description, the command or file, the time, and whether it
+  finished, failed, or never reported back. Nothing is summarized by a model,
+  and commands have tokens and assignment values redacted.
+- **Session rows** show the latest tool call, the project, running subagents
+  and the linked pull request, wherever that data really exists.
 - **Works without a notch.** On external displays it shows as a small pill
   below the menu bar.
 
@@ -51,8 +58,12 @@ what is happening to your code after it reaches GitHub. Click it again, or
   and branch first, and only goes ahead if nobody pushed since you looked.
 - **Repository switcher:** monitor as many repositories as you like, across
   organizations, and switch the focused one from the notch.
-- The GitHub button carries a quiet dot: red for a failed workflow, amber when
-  something waits on you, blue while workflows run. A Claude permission
+- One GitHub status mark: a small badge on the GitHub icon, red for a failed
+  workflow, amber when something waits on you, and no badge otherwise. It
+  shows in the closed notch only while an alert is outstanding. Dismiss an
+  alert with its ×, or **Clear all**; dismissals are remembered across
+  restarts, a genuinely new failure alerts again, and nothing is ever changed
+  on GitHub. The mark turns blue while workflows run. A Claude permission
   request or question always takes the notch first.
 
 ### In the companion window

@@ -17,7 +17,16 @@ without AppKit:
 - **Transcript insights** (`TranscriptInsightsScanner`): context tokens and
   window, compactions, prompt-cache counters, the current tool activity,
   subagents, git branch, linked PRs, reported cost, touched files and test
-  runs, read from the same JSONL lines the session scanner sees.
+  runs, read from the same JSONL lines the session scanner sees. It also keeps
+  a bounded activity log (`SessionActivity`, newest 120 main-chain tool calls)
+  with Claude's own description, a redacted target (`ActivityText`), and a
+  status from the matching `tool_result`: running, completed, failed, or
+  unknown once the turn ends without one. Lines may arrive out of order or
+  repeat; results seen before their call are held briefly.
+- **Session standing** (`SessionActivity.swift`): `SessionRunState` (needs
+  you, failed, running, waiting for input, recently completed, older; stale
+  work is never "running"), `SessionOrdering`, `NotchActivityFocus` and
+  `CompactActivityLine` for the closed notch's activity strip.
 - **Settings** (`OverheadSettings`, `SettingsStore`): one versioned, lenient
   `Codable` value with normalisation, plus themes (`ThemeLibrary`, with WCAG
   contrast checks), notch layouts (`NotchLayoutSpec`) and shortcuts
@@ -44,6 +53,11 @@ without AppKit:
   `GitHubIndicator`, pull request filters, run status, per-repository alert
   levels, notice grouping, the polling budget, and `GitHubNavigation`, which
   keeps GitHub Mode's tab and detail apart from every Claude property.
+  `GitHubAlerts.swift` gives every alert a stable id (a run attempt, a pull
+  request, or a pull request's head commit for failing checks) and keeps
+  `GitHubAlertDismissals`: dismissed alerts stop raising `GitHubBadge`, an
+  alert that clears is marked resolved and alerts again if it recurs, and an
+  absence only counts as cleared where the data could have shown it.
 
 ## ChimloProtocol
 
@@ -89,8 +103,11 @@ focus.
 - `LocalSessionRuntime` restores its small cache, publishes the newest Claude
   transcript first, then enriches recent history. Cold transcript reads are
   bounded to a 128 KB head plus a 2 MB tail and continue incrementally from
-  EOF. When one session has transcripts in two project folders, the most
-  recently written file is current.
+  EOF. A full pass runs every 8 seconds; between passes, transcripts written
+  in the last 10 minutes are tailed every second (one `stat` each, bytes read
+  only when a file grew, a fresh cold start when one shrank). When one session
+  has transcripts in two project folders, the most recently written file is
+  current.
 - `claude agents --json`, polled every 15 seconds, lists live interactive and
   background sessions with exact process ids.
 - `SessionHostService` resolves, on demand, which terminal tab or editor window
@@ -152,6 +169,14 @@ session remains open.
   only while **Keep your last prompt and Claude's last reply** is on, capped at
   2,000 characters, and test commands with environment assignments removed.
   It never copies transcripts, tool inputs or outputs, or file contents.
+- The live activity feed is held in memory only. It keeps Claude's own tool
+  call descriptions and what each call acts on (a command's first line with
+  credentials and assignment values redacted, a file path, a search pattern
+  or query, a URL without its query), never tool output, file contents,
+  prompts, or MCP tool inputs.
+- GitHub alert dismissals are stored locally under
+  `overhead.github.dismissedAlerts` as alert ids and dates. Dismissing sends
+  nothing to GitHub.
 - The GitHub token, when one is pasted, lives only in the Keychain
   (`com.rakesh.overhead.github`). Tokens borrowed from `gh` stay in memory.
   Neither is logged, and `GitHubCredential` redacts itself in descriptions.
