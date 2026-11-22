@@ -699,6 +699,8 @@ private struct ReceiptCard: View {
     @EnvironmentObject private var services: OverheadServices
     @Environment(\.overheadPalette) private var palette
     @State private var receipt: SessionReceipt?
+    @State private var pendingFolder: String?
+    @State private var isReadingGit = false
     @State private var note: String?
 
     var body: some View {
@@ -726,6 +728,12 @@ private struct ReceiptCard: View {
                                     value: "\(receipt.files.count) files, +\(insertions) / -\(deletions)")
                     }
                     KeyValueRow(key: "Reported cost", value: CompanionFormat.cost(receipt.costUSD))
+                    if let pendingFolder {
+                        Text("The project is in your \(FolderAccessModel.displayName(for: pendingFolder)) folder. Overhead can read git's own record of the changes, but macOS will ask you first.")
+                            .font(.system(size: 11)).foregroundStyle(palette.textSecondary)
+                        Button(isReadingGit ? "Waiting for macOS…" : "Include git changes", action: includeGit)
+                            .disabled(isReadingGit)
+                    }
                     if !receipt.commits.isEmpty {
                         Text("Commits in this window").font(.system(size: 11, weight: .semibold)).foregroundStyle(palette.textTertiary)
                         ForEach(receipt.commits.prefix(10), id: \.sha) { commit in
@@ -771,8 +779,28 @@ private struct ReceiptCard: View {
                 Text("Building receipt…").font(.system(size: 12)).foregroundStyle(palette.textSecondary)
             }
         }
-        .task(id: record) {
-            receipt = await history.receipt(for: record)
+        // Keyed on what changes the receipt's git window, not the whole
+        // record: a live session's record changes every few seconds, which
+        // would restart the git read before it finishes.
+        .task(id: "\(record.id)|\(record.status.rawValue)|\(record.endedAt?.timeIntervalSince1970 ?? 0)") {
+            await load(allowFolderPrompt: false)
+        }
+    }
+
+    private func load(allowFolderPrompt: Bool) async {
+        let result = await history.receipt(for: record, allowFolderPrompt: allowFolderPrompt)
+        receipt = result.receipt
+        pendingFolder = result.pendingFolder
+        if allowFolderPrompt, !result.receipt.usesGit {
+            note = "Git could not be read. If you chose Don't Allow, change it in System Settings → Privacy & Security → Files and Folders."
+        }
+    }
+
+    private func includeGit() {
+        isReadingGit = true
+        Task {
+            await load(allowFolderPrompt: true)
+            isReadingGit = false
         }
     }
 
@@ -890,6 +918,13 @@ private struct GitHubPage: View {
                 if !github.reviewRequests.isEmpty {
                     Card("Review requested from you") {
                         ForEach(github.reviewRequests) { pr in PullRequestLine(pr: pr) }
+                    }
+                }
+                if !github.foldersAwaitingAccess.isEmpty {
+                    Card("Projects in protected folders") {
+                        Text("\(github.foldersAwaitingAccess.count) project folders are in Documents, Desktop, Downloads or iCloud Drive. Overhead reads their git remotes only when you ask, because macOS will ask you first.")
+                            .font(.system(size: 12)).foregroundStyle(palette.textSecondary)
+                        Button("Look for repositories there") { github.readProtectedFolders() }
                     }
                 }
                 Toggle("Only my pull requests", isOn: $onlyMine).toggleStyle(.checkbox)

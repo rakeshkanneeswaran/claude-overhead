@@ -91,6 +91,13 @@ permission.
   in **Settings → Privacy & Data**, where you can also set retention, export,
   or delete history. Claude Code's own transcripts are never copied or
   changed.
+- **Permissions.** Claude Overhead needs no Accessibility or Screen Recording
+  permission. For a project in Documents, Desktop, Downloads or iCloud Drive,
+  macOS asks before any app can read it, so git-backed receipts and GitHub
+  repository discovery there wait until you click **Include git changes** or
+  **Look for repositories there**. Until then they use Claude Code's own
+  numbers. Focusing a Terminal or iTerm tab asks macOS for Automation
+  permission the first time.
 - If the app is closed or anything fails, Claude Code simply asks in the
   terminal as usual. A failure never counts as an approval.
 

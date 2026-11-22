@@ -25,7 +25,10 @@ final class HistoryModel: ObservableObject {
             .appendingPathComponent("sessions.json")
     }
 
-    init(fileURL: URL = HistoryModel.defaultFileURL, settings: OverheadSettings) {
+    private let folderAccess: FolderAccessModel
+
+    init(fileURL: URL = HistoryModel.defaultFileURL, settings: OverheadSettings, folderAccess: FolderAccessModel) {
+        self.folderAccess = folderAccess
         store = SessionHistoryStore(
             fileURL: fileURL,
             storesConversationPreviews: settings.storeConversationPreviews,
@@ -123,12 +126,31 @@ final class HistoryModel: ObservableObject {
 
     /// A receipt built from the history record and, when the project is a git
     /// repository, git's own view of what changed during the session.
-    func receipt(for record: SessionHistoryRecord) async -> SessionReceipt {
-        guard let path = record.projectPath,
-              let info = await gitReader.info(for: path),
-              let summary = await gitReader.changes(in: info.root, since: record.startedAt) else {
-            return SessionReceiptBuilder.build(record: record, git: nil)
+    struct ReceiptResult {
+        let receipt: SessionReceipt
+        /// The protected folder git could not read without the owner's
+        /// go-ahead ("Documents", …), when that is why git is missing.
+        let pendingFolder: String?
+    }
+
+    /// A receipt built from the history record and, when the project is a git
+    /// repository, git's own view of what changed during the session. In a
+    /// protected folder the owner has not allowed yet, git runs only when
+    /// `allowFolderPrompt` is true, because macOS will ask first.
+    func receipt(for record: SessionHistoryRecord, allowFolderPrompt: Bool = false) async -> ReceiptResult {
+        guard let path = record.projectPath else {
+            return ReceiptResult(receipt: SessionReceiptBuilder.build(record: record, git: nil), pendingFolder: nil)
         }
+        let pending = folderAccess.pendingRoot(for: path)
+        if pending != nil, !allowFolderPrompt {
+            return ReceiptResult(receipt: SessionReceiptBuilder.build(record: record, git: nil), pendingFolder: pending)
+        }
+        let reader = pending == nil ? gitReader : GitRepositoryReader(timeout: FolderAccessModel.promptTimeout)
+        guard let info = await reader.info(for: path),
+              let summary = await reader.changes(in: info.root, since: record.startedAt) else {
+            return ReceiptResult(receipt: SessionReceiptBuilder.build(record: record, git: nil), pendingFolder: nil)
+        }
+        folderAccess.recordSuccess(for: path)
         let git = ReceiptGitInput(
             branch: info.branch,
             files: summary.files.map { ReceiptFileChange(path: $0.path, added: $0.added, removed: $0.removed) },
@@ -136,7 +158,7 @@ final class HistoryModel: ObservableObject {
             insertions: summary.insertions,
             deletions: summary.deletions
         )
-        return SessionReceiptBuilder.build(record: record, git: git)
+        return ReceiptResult(receipt: SessionReceiptBuilder.build(record: record, git: git), pendingFolder: nil)
     }
 
     func recap(for day: Date, github: RecapGitHubInput?) -> DailyRecap {

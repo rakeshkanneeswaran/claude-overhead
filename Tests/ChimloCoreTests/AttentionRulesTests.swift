@@ -90,3 +90,38 @@ struct AttentionRulesTests {
         }
     }
 }
+
+@Suite("Folder access")
+struct FolderAccessTests {
+    private let home = "/Users/me"
+
+    @Test("Documents, Desktop, Downloads, iCloud and other volumes are protected")
+    func protectedFolders() {
+        #expect(FolderAccess.isProtected(path: "/Users/me/Documents/repo", home: home))
+        #expect(FolderAccess.isProtected(path: "/Users/me/Documents", home: home))
+        #expect(FolderAccess.isProtected(path: "/Users/me/Desktop/x", home: home))
+        #expect(FolderAccess.isProtected(path: "/Users/me/Downloads/x", home: home))
+        #expect(FolderAccess.isProtected(path: "/Users/me/Library/Mobile Documents/com~apple~CloudDocs/x", home: home))
+        #expect(FolderAccess.isProtected(path: "/Volumes/External/repo", home: home))
+    }
+
+    @Test("Ordinary folders, and look-alike names, are not protected")
+    func ordinaryFolders() {
+        #expect(!FolderAccess.isProtected(path: "/Users/me/code/repo", home: home))
+        #expect(!FolderAccess.isProtected(path: "/Users/me/Developer/repo", home: home))
+        #expect(!FolderAccess.isProtected(path: "/Users/me/DocumentsArchive/repo", home: home))
+        #expect(!FolderAccess.isProtected(path: "/Users/other/Documents/repo", home: home))
+        #expect(!FolderAccess.isProtected(path: "/Users/me/Documents/../code/repo", home: home))
+    }
+}
+
+@Suite("Folder access roots")
+struct FolderAccessRootTests {
+    @Test("Each protected folder is remembered separately")
+    func roots() {
+        #expect(FolderAccess.protectedRoot(for: "/Users/me/Documents/a/b", home: "/Users/me") == "Documents")
+        #expect(FolderAccess.protectedRoot(for: "/Users/me/Desktop/a", home: "/Users/me") == "Desktop")
+        #expect(FolderAccess.protectedRoot(for: "/Volumes/Disk/a", home: "/Users/me") == "Volumes")
+        #expect(FolderAccess.protectedRoot(for: "/Users/me/src/a", home: "/Users/me") == nil)
+    }
+}

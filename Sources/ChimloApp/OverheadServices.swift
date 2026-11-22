@@ -13,6 +13,7 @@ final class OverheadServices: ObservableObject {
     let history: HistoryModel
     let github: GitHubModel
     let attention: AttentionRouter
+    let folderAccess = FolderAccessModel()
     let notifier = SystemNotifier()
     private let hotKeys = GlobalHotKeys()
 
@@ -31,8 +32,8 @@ final class OverheadServices: ObservableObject {
     init(model: ApplicationModel, settings: SettingsModel = SettingsModel()) {
         self.model = model
         self.settings = settings
-        history = HistoryModel(settings: settings.settings)
-        github = GitHubModel()
+        history = HistoryModel(settings: settings.settings, folderAccess: folderAccess)
+        github = GitHubModel(folderAccess: folderAccess)
         let settingsModel = settings
         attention = AttentionRouter(notifier: notifier, settings: { settingsModel.settings })
     }

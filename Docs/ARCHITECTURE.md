@@ -135,6 +135,11 @@ session remains open.
   Neither is logged, and `GitHubCredential` redacts itself in descriptions.
 - GitHub URLs from the API are opened only when they are `https` on
   github.com; repository metadata never runs as code or reaches a shell.
+- Git never runs in a macOS-protected folder (Documents, Desktop, Downloads,
+  iCloud Drive, other volumes) until the owner asks (`FolderAccess`,
+  `FolderAccessModel`). macOS's folder prompt blocks the git process until it
+  is answered, so a background read there would surface a prompt with no
+  context. Each folder is remembered once git has succeeded in it.
 - Claude question text, option descriptions, and selected answers exist only in
   memory for the lifetime of the blocking hook request.
 - Claude permission paths and bounded tool previews also exist only in memory.

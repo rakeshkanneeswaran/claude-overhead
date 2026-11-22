@@ -41,6 +41,9 @@ final class GitHubModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     /// Counts for today's recap, from events seen while Overhead ran.
     @Published private(set) var todayCounts = RecapGitHubInput()
+    /// Project folders skipped because they are in a protected folder the
+    /// owner has not let Overhead into yet.
+    @Published private(set) var foldersAwaitingAccess: [String] = []
 
     /// GitHub changes worth announcing, already mapped to Overhead events.
     var onEvent: ((AttentionEvent) -> Void)?
@@ -49,6 +52,11 @@ final class GitHubModel: ObservableObject {
 
     private let tokenStore = KeychainTokenStore()
     private let gitReader = GitRepositoryReader()
+    private let folderAccess: FolderAccessModel
+
+    init(folderAccess: FolderAccessModel) {
+        self.folderAccess = folderAccess
+    }
     private var client: GitHubClient?
     private var preferences = GitHubPreferences()
     private var pollTask: Task<Void, Never>?
@@ -244,10 +252,16 @@ final class GitHubModel: ObservableObject {
         var byName: [String: Repository] = [:]
         for repository in repositories { byName[repository.id] = repository }
         var seenPaths = Set<String>()
+        var awaiting: [String] = []
         for path in projectPaths() where seenPaths.insert(path).inserted {
             let info: GitRepositoryInfo?
             if let cached = repositoryInfo[path] {
                 info = cached
+            } else if folderAccess.needsConfirmation(for: path) {
+                // Reading git here would make macOS prompt mid-poll; wait for
+                // the owner to ask (`readProtectedFolders`).
+                awaiting.append(path)
+                continue
             } else {
                 info = await gitReader.info(for: path)
                 repositoryInfo[path] = info
@@ -267,6 +281,23 @@ final class GitHubModel: ObservableObject {
         }
         let sorted = byName.values.sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
         if sorted != repositories { repositories = sorted }
+        if awaiting != foldersAwaitingAccess { foldersAwaitingAccess = awaiting }
+    }
+
+    /// Reads git remotes in protected folders after the owner asked to;
+    /// macOS may show its folder prompt now, once per folder.
+    func readProtectedFolders() {
+        let paths = foldersAwaitingAccess
+        guard !paths.isEmpty else { return }
+        let reader = GitRepositoryReader(timeout: FolderAccessModel.promptTimeout)
+        Task {
+            for path in paths {
+                let info = await reader.info(for: path)
+                repositoryInfo[path] = info
+                if info != nil { folderAccess.recordSuccess(for: path) }
+            }
+            refreshNow()
+        }
     }
 
     private func handle(_ error: GitHubError) -> TimeInterval? {
