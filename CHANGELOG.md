@@ -9,6 +9,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+- A session you rename (in VS Code, or with `/rename`) shows its new name in
+  the notch. Claude Code writes the name as `custom-title`, which was never
+  read, so the notch kept Claude's automatic title. Your name now wins, the
+  latest rename counts, and clearing it brings Claude's title back.
+
 - Usage stays current. Claude Code's status line, the main source, may never
   run for sessions in an editor extension such as VS Code, and the `/usage`
   fallback ran only when the usage details were opened, so the notch could

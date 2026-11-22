@@ -150,6 +150,9 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
     private var workingDirectory: String?
     private var model: String?
     private var taskTitle: String?
+    /// The name the owner gave the session (VS Code's rename, `/rename`). It
+    /// beats Claude's own `ai-title`, which keeps being written after a rename.
+    private var customTitle: String?
     private var latestUserPrompt: String?
     private var latestAgentResponse: String?
     private var latestConversationUpdatedAt: Date?
@@ -174,12 +177,13 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
 
         let workspace = URL(fileURLWithPath: workingDirectory).lastPathComponent
         let safeWorkspace = workspace.isEmpty ? "Workspace" : workspace
-        let title = taskTitle ?? safeWorkspace
+        let named = customTitle ?? taskTitle
+        let title = named ?? safeWorkspace
         return SessionCandidate(
             id: sessionID,
             agent: .claude,
             title: title,
-            titleKind: taskTitle == nil ? .workspace : .task,
+            titleKind: named == nil ? .workspace : .task,
             detail: Self.detail(for: phase, displayName: "Claude"),
             model: Self.bounded(model, maximumUTF8Bytes: 128),
             projectPath: workingDirectory,
@@ -211,6 +215,10 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
         switch line.type?.lowercased() {
         case "ai-title":
             taskTitle = Self.previewText(line.aiTitle) ?? taskTitle
+        case "custom-title":
+            // The latest rename wins; renaming to nothing brings back the
+            // automatic title.
+            if line.customTitle != nil { customTitle = Self.previewText(line.customTitle) }
         case "last-prompt":
             if let prompt = Self.previewText(line.lastPrompt) {
                 latestUserPrompt = prompt
@@ -321,6 +329,7 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
         let type: String?
         let message: Message?
         let aiTitle: String?
+        let customTitle: String?
         let lastPrompt: String?
         let isSidechain: Bool?
 
@@ -374,6 +383,7 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
             case type
             case message
             case aiTitle
+            case customTitle
             case lastPrompt
             case isSidechain
         }

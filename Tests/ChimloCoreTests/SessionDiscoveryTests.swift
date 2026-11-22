@@ -49,6 +49,28 @@ struct SessionDiscoveryTests {
         #expect(candidate.latestUserPrompt == "Run the tests")
     }
 
+    @Test("A session renamed in VS Code (or with /rename) shows its new name, over Claude's own title")
+    func customTitleWins() throws {
+        func title(_ lines: [String]) throws -> String {
+            var scanner = PrivacySafeSessionMetadataScanner()
+            for line in lines { scanner.consume(line: Data(line.utf8)) }
+            return try #require(scanner.candidate(transcriptPath: "/tmp/c.jsonl", fallbackUpdatedAt: .distantPast)).title
+        }
+        let start = #"{"sessionId":"c1","cwd":"/Users/me/Projects/overhead","timestamp":"2026-07-20T10:00:00Z","type":"user","message":{"role":"user","content":"Hi"}}"#
+        let ai = #"{"sessionId":"c1","type":"ai-title","aiTitle":"MacBook app ideas"}"#
+        let renamed = #"{"sessionId":"c1","type":"custom-title","customTitle":"MacBook app ideas final"}"#
+        let renamedAgain = #"{"sessionId":"c1","type":"custom-title","customTitle":"Notch v2"}"#
+        let cleared = #"{"sessionId":"c1","type":"custom-title","customTitle":""}"#
+
+        #expect(try title([start, ai]) == "MacBook app ideas")
+        #expect(try title([start, ai, renamed]) == "MacBook app ideas final")
+        // Claude keeps writing ai-title after a rename; the owner's name stays.
+        #expect(try title([start, renamed, ai, ai]) == "MacBook app ideas final")
+        #expect(try title([start, ai, renamed, ai, renamedAgain]) == "Notch v2", "the latest rename wins")
+        #expect(try title([start, ai, renamed, cleared]) == "MacBook app ideas", "clearing the name restores Claude's")
+        #expect(try title([start, renamed]) == "MacBook app ideas final", "a name without any ai-title")
+    }
+
     @Test("Claude transcript exposes title and visible conversation previews")
     func claudeConversationPreview() throws {
         var scanner = PrivacySafeSessionMetadataScanner()
