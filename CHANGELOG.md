@@ -9,6 +9,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-11-23
+
 - Questions and permission requests in the notch have a × too. It hands the
   request back to Claude Code's own prompt in the terminal: nothing is
   answered, approved or dropped, so Claude is never left waiting unseen.
@@ -182,7 +184,8 @@ controls in the MacBook notch.
 - Accessibility permission is needed for Chimlo's volume and brightness
   controls. Agent activity remains available without it.
 
-[Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.4
 [1.0.3]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.3
 [1.0.2]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.2
 [1.0.1]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.1
