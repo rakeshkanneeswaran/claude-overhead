@@ -1,14 +1,17 @@
 # Releasing Claude Overhead
 
-Every release is a GitHub release with one DMG, built and checked by GitHub
-Actions from a version tag. The website and the README link to
+Every release is a GitHub release built and checked by GitHub Actions from a
+version tag. People install it with one command, which the website and the
+README show:
 
-```text
-https://github.com/rakeshkanneeswaran/claude-overhead/releases/latest/download/Claude-Overhead.dmg
+```sh
+curl -fsSL https://github.com/rakeshkanneeswaran/claude-overhead/releases/latest/download/install.sh | bash
 ```
 
-which GitHub always resolves to the newest release's `Claude-Overhead.dmg`, so
-the link never changes between versions. Nobody needs a GitHub account to use it.
+GitHub always resolves `releases/latest/download/…` to the newest release, so
+the command never changes between versions, and nobody needs a GitHub account.
+`install.sh` (from `Scripts/install.sh`) downloads that release's
+`Claude-Overhead.dmg`, checks it against `SHA256SUMS.txt`, and installs the app.
 
 ## Publish a release
 
@@ -32,9 +35,10 @@ The **Release DMG** workflow (`.github/workflows/release.yml`) then:
   app, its signature, its version and its bundle id before anything is
   uploaded;
 - creates the GitHub release with `Claude-Overhead.dmg` (the stable name),
-  `Claude-Overhead-<version>.dmg` (the same bytes) and `SHA256SUMS.txt`;
-- downloads the stable link anonymously and fails unless it serves exactly
-  the DMG it just uploaded.
+  `Claude-Overhead-<version>.dmg` (the same bytes), `SHA256SUMS.txt` and
+  `install.sh`;
+- downloads the stable DMG and installer links anonymously and fails unless
+  they serve exactly what it just uploaded.
 
 The release appears only with its DMG attached, so the stable link never points
 at a release without one. To rebuild an existing tag, run the workflow by hand
@@ -57,10 +61,14 @@ anything; the files land in `dist/public/`.
 ## Signing and notarization
 
 Releases are currently **ad-hoc signed and not notarized**. `build-public-dmg.sh`
-prints the signature it made, and the release notes tell people how to approve
-the first launch (**System Settings > Privacy & Security > Open Anyway**).
+prints the signature it made. The Terminal installer is unaffected: macOS only
+checks notarization for files a browser downloaded (they carry the quarantine
+flag), and a copy made with `curl` has none. Someone who downloads the DMG from
+the releases page in a browser would still need **System Settings > Privacy &
+Security > Open Anyway** on first launch.
 
-Opening without that step needs an Apple Developer Program membership and:
+Notarizing, so that a browser download opens without that step too, needs an
+Apple Developer Program membership and:
 
 1. A **Developer ID Application** certificate, exported as a `.p12`.
 2. Hardened runtime and the Apple Events entitlement

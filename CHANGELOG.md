@@ -9,6 +9,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+- Install from Terminal with one command, which checks the download's checksum
+  and needs no Gatekeeper approval:
+  `curl -fsSL https://github.com/rakeshkanneeswaran/claude-overhead/releases/latest/download/install.sh | bash`
+
 ## [1.0.0] - 2026-11-22
 
 Claude Overhead's first public release: a notch companion for Claude Code.
@@ -34,9 +38,10 @@ Claude Overhead's first public release: a notch companion for Claude Code.
 ### Before you install
 
 - Requires macOS 14 or newer on an Apple silicon Mac.
-- This build is ad-hoc signed, not notarized by Apple. On first launch, macOS
-  asks you to approve it with **Open Anyway** in **System Settings > Privacy &
-  Security**.
+- Install it with the Terminal command in the README. This build is ad-hoc
+  signed, not notarized by Apple: the Terminal install opens without any
+  prompt, but a DMG downloaded in a browser needs **Open Anyway** in **System
+  Settings > Privacy & Security** on first launch.
 - Claude Overhead runs locally. It has no telemetry and sends your prompts,
   transcripts and activity nowhere.
 

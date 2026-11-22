@@ -8,21 +8,23 @@ history and GitHub in one companion window.
 > Claude Overhead is an independent open-source project. It is not affiliated
 > with, endorsed by, or sponsored by Anthropic.
 
-## Download
+## Install
 
-**[Download Claude Overhead for macOS](https://github.com/rakeshkanneeswaran/claude-overhead/releases/latest/download/Claude-Overhead.dmg)**
-(latest release, Apple silicon, macOS 14 or newer). All versions are on the
-[releases page](https://github.com/rakeshkanneeswaran/claude-overhead/releases).
+Paste this into Terminal (macOS 14 or newer, Apple silicon):
 
-1. Open **Claude-Overhead.dmg** and drag **Claude Overhead** into
-   **Applications**.
-2. Open it from Applications. Releases are not notarized by Apple yet, so the
-   first time macOS says it cannot verify the app: open **System Settings >
-   Privacy & Security**, scroll down, and click **Open Anyway** next to Claude
-   Overhead. You only do this once.
-3. Claude Overhead walks you through connecting Claude Code. It shows exactly
-   what it adds to `~/.claude/settings.json` before changing anything, and
-   keeps a backup.
+```sh
+curl -fsSL https://github.com/rakeshkanneeswaran/claude-overhead/releases/latest/download/install.sh | bash
+```
+
+[`install.sh`](Scripts/install.sh) downloads the latest release, checks it
+against the release's SHA-256 checksums, copies Claude Overhead into
+Applications (or `~/Applications` if Applications is not writable), and opens
+it. Run the same command again to update. Then Claude Overhead walks you
+through connecting Claude Code: it shows exactly what it adds to
+`~/.claude/settings.json` before changing anything, and keeps a backup.
+
+To remove it, click **Disconnect** in **Settings > Agents**, quit Claude
+Overhead, and move it to the Trash.
 
 ## Features
 
@@ -176,9 +178,6 @@ Claude Overhead shows exactly what it will add to `~/.claude/settings.json`
 before writing anything, keeps a backup of the original
 (`settings.json.overhead-backup`), and **Disconnect** removes only its own
 entries. See [Docs/AGENT_HOOKS.md](Docs/AGENT_HOOKS.md) for the details.
-
-The app is not notarized yet. If macOS blocks the first launch, open
-**System Settings → Privacy & Security** and click **Open Anyway**.
 
 To quit, right-click the notch and choose **Quit Claude Overhead**, or use
 **Settings → General → Quit**.

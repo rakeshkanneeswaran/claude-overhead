@@ -23,7 +23,8 @@ OUTPUT_DIR="$PROJECT_DIR/dist/public"
 VERSIONED_DMG="$OUTPUT_DIR/Claude-Overhead-$VERSION.dmg"
 STABLE_DMG="$OUTPUT_DIR/Claude-Overhead.dmg"
 SUMS="$OUTPUT_DIR/SHA256SUMS.txt"
-for file in "$VERSIONED_DMG" "$STABLE_DMG" "$SUMS"; do
+INSTALLER="$PROJECT_DIR/Scripts/install.sh"
+for file in "$VERSIONED_DMG" "$STABLE_DMG" "$SUMS" "$INSTALLER"; do
   [[ -f "$file" ]] || { print -u2 "Missing $file. Run Scripts/build-public-dmg.sh $VERSION first."; exit 1; }
 done
 (cd "$OUTPUT_DIR" && /usr/bin/shasum -a 256 -c SHA256SUMS.txt >/dev/null) \
@@ -42,19 +43,22 @@ if [[ ! -s "$NOTES" ]]; then
   print -u2 "CHANGELOG.md has no section for [$VERSION]."
   exit 1
 fi
-cat >> "$NOTES" <<NOTES_END
+cat >> "$NOTES" <<'NOTES_END'
 
 ### Install
 
-1. Download **Claude-Overhead.dmg** below and open it.
-2. Drag **Claude Overhead** into **Applications**.
-3. Open it from Applications. This build is not notarized by Apple yet, so the
-   first time macOS says it cannot verify the app: open **System Settings >
-   Privacy & Security**, scroll down, and click **Open Anyway** next to Claude
-   Overhead. You only need to do this once.
+Paste this into Terminal:
 
-Requires macOS 14 or newer on an Apple silicon Mac. \`SHA256SUMS.txt\` lists
-the checksums of both DMGs, which are the same file.
+```sh
+curl -fsSL https://github.com/rakeshkanneeswaran/claude-overhead/releases/latest/download/install.sh | bash
+```
+
+It downloads `Claude-Overhead.dmg` from the latest release, checks it against
+`SHA256SUMS.txt`, installs Claude Overhead into Applications, and opens it.
+Read [`install.sh`](https://github.com/rakeshkanneeswaran/claude-overhead/blob/main/Scripts/install.sh)
+first if you like.
+
+Requires macOS 14 or newer on an Apple silicon Mac.
 NOTES_END
 
 if gh release view "$TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
@@ -62,9 +66,9 @@ if gh release view "$TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
     print -u2 "Release $TAG already exists. Set CHIMLO_REPLACE_ASSETS=1 to replace its files."
     exit 1
   fi
-  gh release upload "$TAG" "$STABLE_DMG" "$VERSIONED_DMG" "$SUMS" --repo "$REPOSITORY" --clobber
+  gh release upload "$TAG" "$STABLE_DMG" "$VERSIONED_DMG" "$SUMS" "$INSTALLER" --repo "$REPOSITORY" --clobber
 else
-  gh release create "$TAG" "$STABLE_DMG" "$VERSIONED_DMG" "$SUMS" \
+  gh release create "$TAG" "$STABLE_DMG" "$VERSIONED_DMG" "$SUMS" "$INSTALLER" \
     --repo "$REPOSITORY" \
     --verify-tag \
     --title "Claude Overhead $VERSION" \
@@ -90,6 +94,12 @@ if [[ "$ACTUAL" != "$EXPECTED" ]]; then
   print -u2 "If $TAG is not the newest version, that is expected: $LATEST serves the newest release."
   exit 1
 fi
+# The installer must be reachable at its stable address too.
+INSTALL_URL="https://github.com/$REPOSITORY/releases/latest/download/install.sh"
+env -u GH_TOKEN -u GITHUB_TOKEN /usr/bin/curl -fsSL --retry 3 -o "$CHECK" "$INSTALL_URL" \
+  && /usr/bin/cmp -s "$CHECK" "$INSTALLER" \
+  || { print -u2 "$INSTALL_URL does not serve this release's install.sh."; exit 1; }
 print "Published $TAG"
+print "Install:         curl -fsSL $INSTALL_URL | bash"
 print "Stable download: $LATEST"
 print "This version:    https://github.com/$REPOSITORY/releases/download/$TAG/${VERSIONED_DMG:t}"
