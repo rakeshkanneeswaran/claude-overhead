@@ -108,7 +108,7 @@ public struct ClaudeQuestionHook: Sendable {
             "hookSpecificOutput": [
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "allow",
-                "permissionDecisionReason": "Answered in Chimlo",
+                "permissionDecisionReason": "Answered in Claude Overhead",
                 "updatedInput": [
                     "questions": originalQuestions,
                     "answers": response.answers,

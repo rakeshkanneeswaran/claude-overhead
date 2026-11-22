@@ -5,7 +5,7 @@ import Testing
 @Suite("Claude question hook")
 struct ClaudeQuestionHookTests {
     private let payload = Data(
-        #"{"session_id":"claude-1","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_use_id":"tool-1","cwd":"/Users/me/Projects/chimlo","transcript_path":"/private/secret.jsonl","tool_input":{"questions":[{"question":"Which target?","header":"Target","options":[{"label":"Local","description":"Run only on this Mac"},{"label":"Staging","description":"Use the shared test environment"}],"multiSelect":false}]}}"#.utf8
+        #"{"session_id":"claude-1","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_use_id":"tool-1","cwd":"/Users/me/Projects/overhead","transcript_path":"/private/secret.jsonl","tool_input":{"questions":[{"question":"Which target?","header":"Target","options":[{"label":"Local","description":"Run only on this Mac"},{"label":"Staging","description":"Use the shared test environment"}],"multiSelect":false}]}}"#.utf8
     )
 
     @Test("Question text and choices are projected without transcript context")
@@ -14,7 +14,7 @@ struct ClaudeQuestionHookTests {
 
         #expect(hook.request.sessionID == "claude-1")
         #expect(hook.request.agent == .claude)
-        #expect(hook.request.title == "chimlo")
+        #expect(hook.request.title == "overhead")
         #expect(hook.request.questions.first?.prompt == "Which target?")
         #expect(hook.request.questions.first?.options.map(\.label) == ["Local", "Staging"])
         #expect(hook.request.questions.first?.options.first?.detail == "Run only on this Mac")

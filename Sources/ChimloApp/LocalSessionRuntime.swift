@@ -15,10 +15,7 @@ struct AgentProcessSnapshot: Equatable, Sendable {
             .flatMap { $0.isEmpty ? nil : $0 }
             ?? "Workspace"
         let id = sessionID ?? "process-\(agent.rawValue)-\(processID)"
-        let displayName = agent == .codex ? "Codex" : "Claude"
-        let jumpURL = agent == .codex && sessionID != nil
-            ? URL(string: "codex://threads/\(id)")
-            : nil
+        let displayName = "Claude"
 
         return SessionCandidate(
             id: id,
@@ -27,7 +24,7 @@ struct AgentProcessSnapshot: Equatable, Sendable {
             detail: "\(displayName) session detected",
             terminal: terminal,
             projectPath: workingDirectory,
-            jumpURL: jumpURL,
+            jumpURL: nil,
             phase: .working,
             updatedAt: now,
             evidence: .process
@@ -54,9 +51,7 @@ final class LocalAgentProcessDiscovery: @unchecked Sendable {
         for process in processes.prefix(4_096) {
             guard process.tty != nil else { continue }
             let agent: AgentKind
-            if Self.isCodex(command: process.command) {
-                agent = .codex
-            } else if Self.isClaude(command: process.command) {
+            if Self.isClaude(command: process.command) {
                 agent = .claude
             } else {
                 continue
@@ -125,18 +120,16 @@ final class LocalAgentProcessDiscovery: @unchecked Sendable {
         }
     }
 
-    private static func isCodex(command: String) -> Bool {
-        let value = command.lowercased()
-        guard !value.contains("chimlo"), !value.contains(" app-server") else { return false }
-        return value == "codex"
-            || value.hasPrefix("codex ")
-            || value.contains("/codex ")
-            || value.hasSuffix("/codex")
+    /// Our helper runs as `…/overhead hook claude …`, so it looks like a Claude
+    /// process. Match the helper invocation, not the bare word: "overhead" is
+    /// common enough to appear in the path of a real Claude process.
+    private static func isOwnHelper(_ value: String) -> Bool {
+        value.contains("overhead hook ")
     }
 
     private static func isClaude(command: String) -> Bool {
         let value = command.lowercased()
-        guard !value.contains("chimlo") else { return false }
+        guard !isOwnHelper(value) else { return false }
         return value == "claude"
             || value.hasPrefix("claude ")
             || value.contains("/claude ")
@@ -152,7 +145,7 @@ final class LocalAgentProcessDiscovery: @unchecked Sendable {
     }
 
     private static func transcriptPath(in output: String?, agent: AgentKind) -> String? {
-        let fragment = agent == .codex ? "/.codex/sessions/" : "/.claude/projects/"
+        let fragment = "/.claude/projects/"
         return output?.split(whereSeparator: \.isNewline).compactMap { line -> String? in
             guard line.first == "n" else { return nil }
             let path = String(line.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -229,29 +222,19 @@ final class LocalTranscriptDiscovery: @unchecked Sendable {
         now: Date = .now,
         maximumFilesPerProvider requestedLimit: Int? = nil
     ) -> [SessionCandidate] {
-        let codexRoot = homeURL.appendingPathComponent(".codex/sessions", isDirectory: true)
         let claudeRoot = homeURL.appendingPathComponent(".claude/projects", isDirectory: true)
         let fileLimit = max(0, min(requestedLimit ?? maximumFilesPerProvider, maximumFilesPerProvider))
-        let codex = discover(
-            root: codexRoot,
-            provider: .codex,
-            now: now,
-            maximumFiles: fileLimit,
-            shouldInclude: { $0.lastPathComponent.hasPrefix("rollout-") }
-        )
         let claude = discover(
             root: claudeRoot,
-            provider: .claude,
             now: now,
             maximumFiles: fileLimit,
             shouldInclude: { !$0.path.contains("/subagents/") }
         )
-        return newestBySessionID(codex + claude)
+        return newestBySessionID(claude)
     }
 
     private func discover(
         root: URL,
-        provider: PrivacySafeSessionMetadataScanner.Provider,
         now: Date,
         maximumFiles: Int,
         shouldInclude: (URL) -> Bool
@@ -278,12 +261,11 @@ final class LocalTranscriptDiscovery: @unchecked Sendable {
 
         let selected = files.sorted { $0.modifiedAt > $1.modifiedAt }
             .prefix(maximumFiles)
-        return selected.compactMap { scan($0.url, provider: provider, modifiedAt: $0.modifiedAt) }
+        return selected.compactMap { scan($0.url, modifiedAt: $0.modifiedAt) }
     }
 
     private func scan(
         _ url: URL,
-        provider: PrivacySafeSessionMetadataScanner.Provider,
         modifiedAt: Date
     ) -> SessionCandidate? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
@@ -292,14 +274,10 @@ final class LocalTranscriptDiscovery: @unchecked Sendable {
         let fileSize = (try? handle.seekToEnd()) ?? 0
         let existingCursor = cursors[key]
         let needsColdStart = existingCursor == nil
-            || existingCursor?.provider != provider
             || fileSize < (existingCursor?.offset ?? 0)
         var cursor: TranscriptCursor
         if needsColdStart {
-            cursor = TranscriptCursor(
-                provider: provider,
-                scanner: PrivacySafeSessionMetadataScanner(provider: provider)
-            )
+            cursor = TranscriptCursor(scanner: PrivacySafeSessionMetadataScanner())
             scanColdStart(handle, fileSize: fileSize, cursor: &cursor)
         } else if let existingCursor {
             cursor = existingCursor
@@ -392,7 +370,6 @@ final class LocalTranscriptDiscovery: @unchecked Sendable {
     }
 
     private struct TranscriptCursor {
-        let provider: PrivacySafeSessionMetadataScanner.Provider
         var scanner: PrivacySafeSessionMetadataScanner
         var buffer = Data()
         var offset: UInt64 = 0
@@ -405,7 +382,7 @@ final class LocalSessionRegistry: @unchecked Sendable {
 
     init(
         fileURL: URL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Chimlo", isDirectory: true)
+            .appendingPathComponent("Library/Application Support/Overhead", isDirectory: true)
             .appendingPathComponent("sessions.json"),
         fileManager: FileManager = .default
     ) {

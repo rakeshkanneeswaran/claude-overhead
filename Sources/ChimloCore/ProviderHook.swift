@@ -1,19 +1,16 @@
 import Foundation
 
 public enum ProviderHookSource: String, Codable, Sendable {
-    case codex
     case claude
 
     public var agent: AgentKind {
         switch self {
-        case .codex: .codex
         case .claude: .claude
         }
     }
 
     public var displayName: String {
         switch self {
-        case .codex: "Codex"
         case .claude: "Claude Code"
         }
     }
@@ -34,7 +31,7 @@ public enum ProviderHookMappingError: Error, LocalizedError, Sendable {
 }
 
 /// Converts provider hook JSON into the deliberately small status vocabulary
-/// Chimlo needs. Unknown JSON fields are never decoded, which prevents prompts,
+/// Claude Overhead needs. Unknown JSON fields are never decoded, which prevents prompts,
 /// transcripts, tool inputs, outputs, and file contents from entering app state.
 public enum PrivacySafeHookMapper {
     public static let maximumPayloadBytes = 64 * 1024
@@ -100,11 +97,10 @@ public enum PrivacySafeHookMapper {
             guard toolName != "AskUserQuestion" else { return nil }
             return Mapping(kind: .activity, detail: "Working")
         case "PermissionRequest":
-            // Claude permissions have a separate blocking bridge. Keeping the
-            // old asynchronous observer would race the explicit response and
+            // Claude permissions have a separate blocking bridge. An
+            // asynchronous observer would race the explicit response and
             // could restore a permission card after it was resolved.
-            guard source != .claude else { return nil }
-            return permissionMapping(toolName: toolName, source: source)
+            return nil
         case "PermissionDenied":
             return Mapping(kind: .activity, detail: "Approval handled in \(source.displayName)")
         case "Stop", "SubagentStop", "TaskCompleted":
@@ -116,8 +112,8 @@ public enum PrivacySafeHookMapper {
         case "Notification":
             switch notification {
             case "permission_prompt":
-                guard source != .claude else { return nil }
-                return permissionMapping(toolName: toolName, source: source)
+                // Same reason as PermissionRequest: the blocking bridge owns it.
+                return nil
             case "agent_needs_input", "idle_prompt":
                 return Mapping(
                     kind: .questionRequested,
@@ -137,20 +133,6 @@ public enum PrivacySafeHookMapper {
         default:
             return nil
         }
-    }
-
-    private static func permissionMapping(toolName: String?, source: ProviderHookSource) -> Mapping {
-        let category = toolName.map { " for \($0)" } ?? ""
-        return Mapping(
-            kind: .permissionRequested,
-            detail: "Approval needed in \(source.displayName)",
-            request: .approval(
-                ApprovalRequest(
-                    id: "\(source.rawValue)-permission",
-                    summary: "Approval requested\(category)"
-                )
-            )
-        )
     }
 
     private static func safeToolName(_ value: String?) -> String? {

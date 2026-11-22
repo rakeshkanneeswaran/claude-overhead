@@ -13,7 +13,7 @@ TRUST_KEYCHAIN="${CHIMLO_RELEASE_SIGNING_TRUST_KEYCHAIN:-$HOME/Library/Keychains
 PUBLIC_CERTIFICATE_PATH="${CHIMLO_RELEASE_PUBLIC_CERTIFICATE_PATH:-$PROJECT_DIR/Packaging/Signing/ChimloRelease.cer}"
 CERTIFICATE_DAYS="${CHIMLO_RELEASE_CERTIFICATE_DAYS:-7300}"
 P12_PASSWORD_KEYCHAIN="${CHIMLO_RELEASE_P12_PASSWORD_KEYCHAIN:-$HOME/Library/Keychains/login.keychain-db}"
-P12_PASSWORD_SERVICE="${CHIMLO_RELEASE_P12_PASSWORD_SERVICE:-dev.chimlo.release-signing-backup}"
+P12_PASSWORD_SERVICE="${CHIMLO_RELEASE_P12_PASSWORD_SERVICE:-com.rakesh.overhead.release-signing-backup}"
 P12_PASSWORD_ACCOUNT="${CHIMLO_RELEASE_P12_PASSWORD_ACCOUNT:-$(/usr/bin/id -un)}"
 BACKUP_ONE="${1:-}"
 BACKUP_TWO="${2:-}"
@@ -26,7 +26,7 @@ if [[ -z "$BACKUP_ONE" || -z "$BACKUP_TWO" ]]; then
 fi
 
 if [[ -z "$OPENSSL_BIN" ]]; then
-  print -u2 "OpenSSL is required to create Chimlo's release signing identity."
+  print -u2 "OpenSSL is required to create Claude Overhead's release signing identity."
   exit 1
 fi
 
@@ -70,7 +70,7 @@ if [[ "$FIRST_DEVICE" == "$SECOND_DEVICE" ]]; then
 fi
 
 if [[ -e "$KEYCHAIN_PATH" || -e "$PASSWORD_FILE" ]]; then
-  print -u2 "A Chimlo Release signing setup already exists. Nothing was changed."
+  print -u2 "A Claude Overhead Release signing setup already exists. Nothing was changed."
   print -u2 "$KEYCHAIN_PATH"
   print -u2 "$PASSWORD_FILE"
   exit 1
@@ -113,7 +113,7 @@ if (( ${#P12_PASSWORD} < 16 )); then
 fi
 
 umask 077
-TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/chimlo-release-signing.XXXXXX")"
+TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/overhead-release-signing.XXXXXX")"
 SETUP_COMPLETE=0
 TRUST_ADDED=0
 GENERATED_PASSWORD_STORED=0
@@ -143,7 +143,7 @@ trap cleanup_setup EXIT
 
 PRIVATE_KEY_PATH="$TEMP_DIR/release-key.pem"
 CERTIFICATE_PATH="$TEMP_DIR/release-certificate.pem"
-PKCS12_PATH="$TEMP_DIR/Chimlo-Release.p12"
+PKCS12_PATH="$TEMP_DIR/Overhead-Release.p12"
 P12_PASSWORD_FILE="$TEMP_DIR/p12-password"
 KEYCHAIN_PASSWORD="$($OPENSSL_BIN rand -hex 32)"
 typeset -a PKCS12_COMPATIBILITY_ARGS
@@ -163,7 +163,7 @@ fi
   -x509 \
   -sha256 \
   -days "$CERTIFICATE_DAYS" \
-  -subj "/CN=$IDENTITY/O=Chimlo/OU=Release Code Signing" \
+  -subj "/CN=$IDENTITY/O=Claude Overhead/OU=Release Code Signing" \
   -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
   -addext "keyUsage=critical,digitalSignature,keyCertSign,cRLSign" \
   -addext "extendedKeyUsage=critical,codeSigning" \
@@ -236,7 +236,7 @@ TRUST_ADDED=1
 
 if ! /usr/bin/security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
   | /usr/bin/grep -Fq "\"$IDENTITY\""; then
-  print -u2 "The Chimlo Release identity was created but is not valid for code signing."
+  print -u2 "The Claude Overhead Release identity was created but is not valid for code signing."
   exit 1
 fi
 
@@ -267,7 +267,7 @@ unset P12_PASSWORD_CONFIRM 2>/dev/null || true
 
 SETUP_COMPLETE=1
 
-print "Created the exportable Chimlo Release signing identity."
+print "Created the exportable Claude Overhead Release signing identity."
 print "Identity: $IDENTITY"
 print "Keychain: $KEYCHAIN_PATH"
 print "Public certificate: $PUBLIC_CERTIFICATE_PATH"

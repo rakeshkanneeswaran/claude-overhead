@@ -25,7 +25,7 @@ final class ChimloUpdater: NSObject, SPUUserDriver {
             try updater.start()
             started = true
         } catch {
-            NSLog("Chimlo updater failed to start: %@", error.localizedDescription)
+            NSLog("Claude Overhead updater failed to start: %@", error.localizedDescription)
         }
     }
 

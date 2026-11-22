@@ -22,53 +22,49 @@ struct SessionDiscoveryTests {
         }
     }
 
-    @Test("Codex rollout exposes visible conversation previews without persisting them")
-    func codexConversationPreview() throws {
-        var scanner = PrivacySafeSessionMetadataScanner(provider: .codex)
-        scanner.consume(line: Data(#"{"type":"session_meta","payload":{"id":"codex-1","cwd":"/Users/me/Projects/chimlo","model":"gpt-5.6","timestamp":"2026-07-20T10:00:00Z"}}"#.utf8))
-        scanner.consume(line: Data(#"{"timestamp":"2026-07-20T10:01:00Z","type":"event_msg","payload":{"type":"task_started","prompt":"DO NOT RETAIN"}}"#.utf8))
-        scanner.consume(line: Data(#"{"timestamp":"2026-07-20T10:01:01Z","type":"event_msg","payload":{"type":"user_message","message":"Polish the expanded session row"}}"#.utf8))
-        scanner.consume(line: Data(#"{"timestamp":"2026-07-20T10:01:02Z","type":"event_msg","payload":{"type":"agent_message","message":"Implemented the compact three-line layout."}}"#.utf8))
-        scanner.consume(line: Data(#"{"timestamp":"2026-07-20T10:02:00Z","type":"event_msg","payload":{"type":"task_complete","last_agent_message":"DO NOT RETAIN"}}"#.utf8))
+    @Test("A transcript says when Claude is running and when it is idle")
+    func transcriptTurnState() throws {
+        func phase(after lines: [String]) throws -> SessionPhase {
+            var scanner = PrivacySafeSessionMetadataScanner()
+            for line in lines { scanner.consume(line: Data(line.utf8)) }
+            return try #require(scanner.candidate(
+                transcriptPath: "/tmp/claude-1.jsonl",
+                fallbackUpdatedAt: .distantPast
+            )).phase
+        }
+        let prompt = #"{"sessionId":"claude-1","cwd":"/tmp/p","type":"user","message":{"role":"user","content":"Run the tests"}}"#
+        let toolUse = #"{"sessionId":"claude-1","type":"assistant","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"text","text":"Running them."}]}}"#
+        let endTurn = #"{"sessionId":"claude-1","type":"assistant","message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"All green."}]}}"#
+        let interrupt = #"{"sessionId":"claude-1","type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}"#
 
-        let candidate = try #require(scanner.candidate(
-            transcriptPath: "/Users/me/.codex/sessions/rollout-codex-1.jsonl",
-            fallbackUpdatedAt: .distantPast
-        ))
-        #expect(candidate.id == "codex-1")
-        #expect(candidate.title == "chimlo")
-        #expect(candidate.phase == .completed)
-        #expect(candidate.jumpURL?.absoluteString == "codex://threads/codex-1")
-        #expect(candidate.latestUserPrompt == "Polish the expanded session row")
-        #expect(candidate.latestAgentResponse == "Implemented the compact three-line layout.")
-        #expect(candidate.latestConversationUpdatedAt == Date(timeIntervalSince1970: 1_784_541_662))
+        #expect(try phase(after: [prompt]) == .working)
+        #expect(try phase(after: [prompt, toolUse]) == .working)
+        #expect(try phase(after: [prompt, toolUse, endTurn]) == .completed)
+        #expect(try phase(after: [prompt, toolUse, endTurn, prompt]) == .working)
+        #expect(try phase(after: [prompt, toolUse, interrupt]) == .completed)
 
-        let data = try JSONEncoder().encode(candidate)
-        let encoded = String(decoding: data, as: UTF8.self)
-        #expect(!encoded.contains("DO NOT RETAIN"))
-        #expect(!encoded.contains("Polish the expanded session row"))
-        #expect(!encoded.contains("Implemented the compact three-line layout."))
-        #expect(!encoded.contains("rollout-codex-1"))
-        let restored = try JSONDecoder().decode(SessionCandidate.self, from: data)
-        #expect(restored.latestConversationUpdatedAt == nil)
+        var scanner = PrivacySafeSessionMetadataScanner()
+        for line in [prompt, interrupt] { scanner.consume(line: Data(line.utf8)) }
+        let candidate = try #require(scanner.candidate(transcriptPath: "/tmp/claude-1.jsonl", fallbackUpdatedAt: .distantPast))
+        #expect(candidate.latestUserPrompt == "Run the tests")
     }
 
     @Test("Claude transcript exposes title and visible conversation previews")
     func claudeConversationPreview() throws {
-        var scanner = PrivacySafeSessionMetadataScanner(provider: .claude)
-        scanner.consume(line: Data(#"{"sessionId":"claude-1","cwd":"/Users/me/Projects/chimlo","timestamp":"2026-07-20T10:00:00Z","type":"user","message":{"role":"user","content":"Polish the expanded session row"}}"#.utf8))
-        scanner.consume(line: Data(#"{"sessionId":"claude-1","timestamp":"2026-07-20T10:00:01Z","type":"ai-title","aiTitle":"Polish Chimlo expanded UI"}"#.utf8))
+        var scanner = PrivacySafeSessionMetadataScanner()
+        scanner.consume(line: Data(#"{"sessionId":"claude-1","cwd":"/Users/me/Projects/overhead","timestamp":"2026-07-20T10:00:00Z","type":"user","message":{"role":"user","content":"Polish the expanded session row"}}"#.utf8))
+        scanner.consume(line: Data(#"{"sessionId":"claude-1","timestamp":"2026-07-20T10:00:01Z","type":"ai-title","aiTitle":"Polish Claude Overhead expanded UI"}"#.utf8))
         scanner.consume(line: Data(#"{"sessionId":"claude-1","timestamp":"2026-07-20T10:00:02Z","type":"assistant","message":{"role":"assistant","model":"claude-sonnet","content":[{"type":"text","text":"Implemented the compact three-line layout."}]}}"#.utf8))
 
         let candidate = try #require(scanner.candidate(
-            transcriptPath: "/Users/me/.claude/projects/chimlo/claude-1.jsonl",
+            transcriptPath: "/Users/me/.claude/projects/overhead/claude-1.jsonl",
             fallbackUpdatedAt: .distantPast
         ))
         #expect(candidate.id == "claude-1")
         #expect(candidate.phase == .working)
         #expect(candidate.model == "claude-sonnet")
         #expect(candidate.jumpURL == nil)
-        #expect(candidate.title == "Polish Chimlo expanded UI")
+        #expect(candidate.title == "Polish Claude Overhead expanded UI")
         #expect(candidate.latestUserPrompt == "Polish the expanded session row")
         #expect(candidate.latestAgentResponse == "Implemented the compact three-line layout.")
         #expect(candidate.latestConversationUpdatedAt == Date(timeIntervalSince1970: 1_784_541_602))

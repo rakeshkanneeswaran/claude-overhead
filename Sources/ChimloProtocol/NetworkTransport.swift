@@ -14,7 +14,7 @@ public final class ChimloServer: @unchecked Sendable {
     private let permissionHandler: PermissionHandler
     private let questionHandler: QuestionHandler
     private let authenticationToken: String
-    private let queue = DispatchQueue(label: "dev.chimlo.protocol.server", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "com.rakesh.overhead.protocol.server", qos: .userInitiated)
     private let lock = NSLock()
     private var listener: NWListener?
     private var publishedDescriptor: RuntimeDescriptor?
@@ -241,7 +241,7 @@ public struct ChimloClient: Sendable {
             let message = try await exchange(.decisionRequest(request), messageID: UUID())
             guard case let .decisionResponse(response) = message,
                   response.requestID == request.id else {
-                return .unavailable(for: request.id, reason: "Chimlo returned an invalid decision response")
+                return .unavailable(for: request.id, reason: "Claude Overhead returned an invalid decision response")
             }
             return response
         } catch {
@@ -257,7 +257,7 @@ public struct ChimloClient: Sendable {
             let message = try await exchange(.permissionRequest(request), messageID: UUID())
             guard case let .permissionResponse(response) = message,
                   response.requestID == request.id else {
-                return .unavailable(for: request.id, reason: "Chimlo returned an invalid permission response")
+                return .unavailable(for: request.id, reason: "Claude Overhead returned an invalid permission response")
             }
             return response
         } catch {
@@ -266,13 +266,13 @@ public struct ChimloClient: Sendable {
     }
 
     /// Question transport also fails back to the provider. A missing or stale
-    /// Chimlo process never fabricates an answer.
+    /// Claude Overhead process never fabricates an answer.
     public func requestQuestion(_ request: ProviderQuestionRequest) async -> ProviderQuestionResponse {
         do {
             let message = try await exchange(.questionRequest(request), messageID: UUID())
             guard case let .questionResponse(response) = message,
                   response.requestID == request.id else {
-                return .unavailable(for: request.id, reason: "Chimlo returned an invalid question response")
+                return .unavailable(for: request.id, reason: "Claude Overhead returned an invalid question response")
             }
             return response
         } catch {

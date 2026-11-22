@@ -2,7 +2,6 @@ import Foundation
 
 public enum AgentKind: String, Codable, CaseIterable, Sendable {
     case claude
-    case codex
     case gemini
     case cursor
     case openCode = "opencode"
@@ -73,7 +72,7 @@ public struct AgentQuestion: Codable, Equatable, Sendable {
 }
 
 /// A provider-authored choice shown transiently while the provider is blocked
-/// for input. Question content is intentionally excluded from Chimlo's session
+/// for input. Question content is intentionally excluded from Claude Overhead's session
 /// archive and local registry.
 public struct ProviderQuestionOption: Codable, Equatable, Sendable {
     public let label: String
@@ -162,7 +161,7 @@ public struct ProviderQuestionResponse: Codable, Equatable, Sendable {
 }
 
 /// A provider-authored tool permission shown only while the provider is
-/// blocked. The action preview is transient and is never added to Chimlo's
+/// blocked. The action preview is transient and is never added to Claude Overhead's
 /// archived session model.
 public struct ProviderPermissionRequest: Codable, Equatable, Sendable, Identifiable {
     public let id: UUID

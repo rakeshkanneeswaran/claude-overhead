@@ -11,8 +11,8 @@ let package = Package(
         .library(name: "ChimloCore", targets: ["ChimloCore"]),
         .library(name: "ChimloProtocol", targets: ["ChimloProtocol"]),
         .executable(name: "ChimloApp", targets: ["ChimloApp"]),
-        .executable(name: "chimlo", targets: ["ChimloCLI"]),
-        .executable(name: "chimlo-check", targets: ["ChimloChecks"]),
+        .executable(name: "overhead", targets: ["ChimloCLI"]),
+        .executable(name: "overhead-check", targets: ["ChimloChecks"]),
     ],
     dependencies: [
         .package(

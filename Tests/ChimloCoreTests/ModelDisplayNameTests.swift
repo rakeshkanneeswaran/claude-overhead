@@ -14,27 +14,6 @@ struct ModelDisplayNameTests {
         #expect(ModelDisplayName.resolve(modelID: modelID, agent: .claude) == expected)
     }
 
-    @Test("Codex model families are compact beside the provider badge", arguments: [
-        ("gpt-5.6-sol", "5.6 Sol"),
-        ("gpt-5.6-terra", "5.6 Terra"),
-        ("gpt-5.6-luna", "5.6 Luna"),
-        ("gpt-5.5", "5.5"),
-        ("gpt-5.4-mini", "5.4 Mini"),
-        ("gpt-5.3-codex-spark", "5.3 Codex Spark"),
-    ])
-    func codexNames(modelID: String, expected: String) {
-        #expect(ModelDisplayName.resolve(modelID: modelID, agent: .codex) == expected)
-    }
-
-    @Test("The provider catalog wins while keeping the compact row treatment")
-    func providerCatalogName() {
-        #expect(ModelDisplayName.resolve(
-            modelID: "gpt-5.6-sol",
-            agent: .codex,
-            providerDisplayName: "GPT-5.6-Sol"
-        ) == "5.6 Sol")
-    }
-
     @Test("Unknown provider model identifiers remain unchanged")
     func unknownModelName() {
         #expect(ModelDisplayName.resolve(

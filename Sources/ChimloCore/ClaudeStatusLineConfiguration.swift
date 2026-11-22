@@ -30,12 +30,12 @@ public struct ClaudeStatusLineConfigurationPlan: Equatable, Sendable {
     }
 }
 
-/// Marker-scoped configuration for Chimlo's capacity-only Claude status-line
+/// Marker-scoped configuration for Claude Overhead's capacity-only Claude status-line
 /// bridge. The original status-line object is retained verbatim at the JSON
 /// value level and restored on removal.
 public enum ClaudeStatusLineConfiguration {
-    public static let managedKey = "_chimloStatusLineManaged"
-    public static let originalKey = "_chimloOriginalStatusLine"
+    public static let managedKey = "_overheadStatusLineManaged"
+    public static let originalKey = "_overheadOriginalStatusLine"
     public static let refreshIntervalSeconds = 60
 
     public static func installationState(
@@ -73,7 +73,7 @@ public enum ClaudeStatusLineConfiguration {
                 root[originalKey] = object
             }
         } else if wasManaged {
-            // If another tool deliberately removed Chimlo's wrapper, do not
+            // If another tool deliberately removed Claude Overhead's wrapper, do not
             // resurrect the status line that predated that external change.
             root.removeValue(forKey: originalKey)
         }
@@ -92,7 +92,7 @@ public enum ClaudeStatusLineConfiguration {
         )
     }
 
-    /// Produces the capacity-bridge migration only when Claude's Chimlo hooks
+    /// Produces the capacity-bridge migration only when Claude's Claude Overhead hooks
     /// are already connected. This lets existing users receive new bridge
     /// capabilities without treating an unrelated Claude installation as
     /// connected or taking ownership of its status line.

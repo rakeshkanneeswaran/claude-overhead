@@ -1,209 +1,5 @@
 import Foundation
 
-public enum CodexHookConfigurationError: Error, LocalizedError, Sendable {
-    case malformedRoot
-    case malformedHooks
-    case malformedEvent(String)
-
-    public var errorDescription: String? {
-        switch self {
-        case .malformedRoot:
-            "Codex hooks must be a JSON object"
-        case .malformedHooks:
-            "The Codex hooks field must be a JSON object"
-        case let .malformedEvent(event):
-            "The Codex \(event) hook must be a JSON array"
-        }
-    }
-}
-
-public enum CodexHookInstallationState: Equatable, Sendable {
-    case missing
-    case current
-    case needsRepair
-}
-
-public struct CodexHookConfigurationPlan: Equatable, Sendable {
-    public let data: Data
-    public let changed: Bool
-
-    public init(data: Data, changed: Bool) {
-        self.data = data
-        self.changed = changed
-    }
-}
-
-/// Creates a marker-scoped merge for Codex's documented command hooks. Unknown
-/// top-level fields, events, matchers, and observers survive round-tripping.
-public enum CodexHookConfiguration {
-    public static let marker = "# chimlo-codex-observer"
-    public static let observedEvents = [
-        "SessionStart",
-        "UserPromptSubmit",
-        "PreToolUse",
-        "PostToolUse",
-        "PermissionRequest",
-        "Stop",
-        "SubagentStop",
-    ]
-
-    public static func observerCommand(helperPath: String) -> String {
-        "\(shellQuoted(helperPath)) hook codex observe \(marker)"
-    }
-
-    public static func installationState(
-        in data: Data?,
-        helperPath: String
-    ) throws -> CodexHookInstallationState {
-        guard let data, !data.isEmpty else { return .missing }
-        let root = try decodeRoot(data)
-        guard let hooks = root["hooks"] else { return .missing }
-        guard let hooks = hooks as? [String: Any] else {
-            throw CodexHookConfigurationError.malformedHooks
-        }
-
-        let expectedCommand = observerCommand(helperPath: helperPath)
-        var foundMarkedObserver = false
-        var allEventsAreCurrent = true
-
-        for event in observedEvents {
-            guard let rawEntries = hooks[event] else {
-                allEventsAreCurrent = false
-                continue
-            }
-            guard let entries = rawEntries as? [[String: Any]] else {
-                throw CodexHookConfigurationError.malformedEvent(event)
-            }
-            let commands = observerCommands(in: entries)
-            foundMarkedObserver = foundMarkedObserver || commands.contains(where: { $0.contains(marker) })
-            if !commands.contains(expectedCommand) { allEventsAreCurrent = false }
-        }
-
-        if allEventsAreCurrent { return .current }
-        return foundMarkedObserver ? .needsRepair : .missing
-    }
-
-    public static func merging(
-        existingData: Data?,
-        helperPath: String
-    ) throws -> CodexHookConfigurationPlan {
-        var root = try existingData.flatMap { $0.isEmpty ? nil : try decodeRoot($0) } ?? [:]
-        var hooks: [String: Any]
-        if let existingHooks = root["hooks"] {
-            guard let decodedHooks = existingHooks as? [String: Any] else {
-                throw CodexHookConfigurationError.malformedHooks
-            }
-            hooks = decodedHooks
-        } else {
-            hooks = [:]
-        }
-
-        let command = observerCommand(helperPath: helperPath)
-        var changed = false
-        for event in observedEvents {
-            var entries: [[String: Any]]
-            if let rawEntries = hooks[event] {
-                guard let decodedEntries = rawEntries as? [[String: Any]] else {
-                    throw CodexHookConfigurationError.malformedEvent(event)
-                }
-                entries = decodedEntries
-            } else {
-                entries = []
-            }
-
-            let markedCommands = observerCommands(in: entries).filter { $0.contains(marker) }
-            if markedCommands != [command] {
-                entries = removingMarkedObservers(from: entries)
-                var registration: [String: Any] = [
-                    "hooks": [[
-                        "type": "command",
-                        "command": command,
-                        "timeout": 2,
-                    ]],
-                ]
-                if event == "SessionStart" {
-                    registration["matcher"] = "startup|resume|clear|compact"
-                }
-                entries.append(registration)
-                changed = true
-            }
-            hooks[event] = entries
-        }
-
-        root["hooks"] = hooks
-        let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
-        return CodexHookConfigurationPlan(data: data + Data("\n".utf8), changed: changed)
-    }
-
-    public static func removing(existingData: Data) throws -> CodexHookConfigurationPlan {
-        var root = try decodeRoot(existingData)
-        guard let rawHooks = root["hooks"] else {
-            return CodexHookConfigurationPlan(data: existingData, changed: false)
-        }
-        guard var hooks = rawHooks as? [String: Any] else {
-            throw CodexHookConfigurationError.malformedHooks
-        }
-
-        var changed = false
-        for (event, rawEntries) in hooks {
-            guard let entries = rawEntries as? [[String: Any]] else { continue }
-            let filtered = removingMarkedObservers(from: entries)
-            if filtered.count != entries.count || observerCommands(in: filtered) != observerCommands(in: entries) {
-                changed = true
-                if filtered.isEmpty {
-                    hooks.removeValue(forKey: event)
-                } else {
-                    hooks[event] = filtered
-                }
-            }
-        }
-        guard changed else {
-            return CodexHookConfigurationPlan(data: existingData, changed: false)
-        }
-
-        root["hooks"] = hooks
-        let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
-        return CodexHookConfigurationPlan(data: data + Data("\n".utf8), changed: true)
-    }
-
-    private static func decodeRoot(_ data: Data) throws -> [String: Any] {
-        let object: Any
-        do {
-            object = try JSONSerialization.jsonObject(with: data)
-        } catch {
-            throw CodexHookConfigurationError.malformedRoot
-        }
-        guard let root = object as? [String: Any] else {
-            throw CodexHookConfigurationError.malformedRoot
-        }
-        return root
-    }
-
-    private static func observerCommands(in entries: [[String: Any]]) -> [String] {
-        entries.flatMap { entry in
-            (entry["hooks"] as? [[String: Any]] ?? []).compactMap { $0["command"] as? String }
-        }
-    }
-
-    private static func removingMarkedObservers(from entries: [[String: Any]]) -> [[String: Any]] {
-        entries.compactMap { entry in
-            guard let observers = entry["hooks"] as? [[String: Any]] else { return entry }
-            let retained = observers.filter { observer in
-                guard let command = observer["command"] as? String else { return true }
-                return !command.contains(marker)
-            }
-            guard !retained.isEmpty else { return nil }
-            var copy = entry
-            copy["hooks"] = retained
-            return copy
-        }
-    }
-
-    private static func shellQuoted(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
-    }
-}
-
 public enum ClaudeHookConfigurationError: Error, LocalizedError, Sendable {
     case malformedRoot
     case malformedHooks
@@ -241,9 +37,9 @@ public struct ClaudeHookConfigurationPlan: Equatable, Sendable {
 /// hook groups, and user-authored commands are preserved exactly at the JSON
 /// value level.
 public enum ClaudeHookConfiguration {
-    public static let marker = "# chimlo-claude-observer"
-    public static let questionMarker = "# chimlo-claude-question"
-    public static let permissionMarker = "# chimlo-claude-permission"
+    public static let marker = "# overhead-claude-observer"
+    public static let questionMarker = "# overhead-claude-question"
+    public static let permissionMarker = "# overhead-claude-permission"
 
     private struct EventSpec {
         let name: String
@@ -419,7 +215,7 @@ public enum ClaudeHookConfiguration {
             permissionGroups = []
         }
 
-        // Older Chimlo builds observed PermissionRequest asynchronously. The
+        // Older Claude Overhead builds observed PermissionRequest asynchronously. The
         // blocking bridge owns this event now, so remove only that marked
         // observer before installing the exact replacement.
         let withoutLegacyObserver = removingManagedCommands(

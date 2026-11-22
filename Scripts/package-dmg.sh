@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
-APP_PATH="${CHIMLO_PACKAGE_APP_PATH:-$PROJECT_DIR/dist/Chimlo.app}"
+APP_PATH="${CHIMLO_PACKAGE_APP_PATH:-$PROJECT_DIR/dist/Claude Overhead.app}"
 if [[ "$APP_PATH" != /* ]]; then
   APP_PATH="$PROJECT_DIR/$APP_PATH"
 fi
@@ -22,8 +22,8 @@ if ! /usr/bin/codesign --verify --deep --strict "$APP_PATH"; then
 fi
 
 APP_VERSION="$(/usr/bin/plutil -extract CFBundleShortVersionString raw "$INFO_PLIST")"
-VOLUME_NAME="Chimlo $APP_VERSION"
-OUTPUT_PATH="${1:-$PROJECT_DIR/dist/Chimlo-$APP_VERSION.dmg}"
+VOLUME_NAME="Claude Overhead $APP_VERSION"
+OUTPUT_PATH="${1:-$PROJECT_DIR/dist/Claude-Overhead-$APP_VERSION.dmg}"
 
 if [[ "$OUTPUT_PATH" != /* ]]; then
   OUTPUT_PATH="$PROJECT_DIR/$OUTPUT_PATH"
@@ -34,9 +34,9 @@ if [[ "${OUTPUT_PATH:e:l}" != "dmg" ]]; then
   exit 1
 fi
 
-STAGING_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/chimlo-dmg.XXXXXX")"
+STAGING_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/overhead-dmg.XXXXXX")"
 VOLUME_ROOT="$STAGING_ROOT/$VOLUME_NAME"
-TEMP_DMG="$STAGING_ROOT/Chimlo.dmg"
+TEMP_DMG="$STAGING_ROOT/Overhead.dmg"
 MOUNT_POINT="$STAGING_ROOT/mount"
 MOUNTED=0
 

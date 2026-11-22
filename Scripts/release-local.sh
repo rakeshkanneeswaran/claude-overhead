@@ -7,8 +7,8 @@ TAG="${1:-}"
 BUILD_NUMBER="${2:-}"
 ARTIFACT_ROOT="${CHIMLO_RELEASE_ARTIFACT_ROOT:-$PROJECT_DIR/dist/releases}"
 PUBLIC_CERTIFICATE_PATH="${CHIMLO_RELEASE_PUBLIC_CERTIFICATE_PATH:-$PROJECT_DIR/Packaging/Signing/ChimloRelease.cer}"
-REQUIREMENT_PATH="${CHIMLO_RELEASE_REQUIREMENT_PATH:-$PROJECT_DIR/Packaging/Signing/ChimloRelease.designated-requirement}"
-SPARKLE_ACCOUNT="${SPARKLE_KEY_ACCOUNT:-dev.chimlo.mac}"
+REQUIREMENT_PATH="${CHIMLO_RELEASE_REQUIREMENT_PATH:-$PROJECT_DIR/Packaging/Signing/OverheadRelease.designated-requirement}"
+SPARKLE_ACCOUNT="${SPARKLE_KEY_ACCOUNT:-com.rakesh.overhead}"
 SIGN_UPDATE="$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/bin/sign_update"
 
 if [[ ! "$TAG" =~ '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$' ]] \
@@ -64,12 +64,12 @@ CHIMLO_BUILD_NUMBER="$BUILD_NUMBER" \
 CHIMLO_PACKAGE_VARIANT=release \
   "$SCRIPT_DIR/package-app.sh"
 
-APP_PATH="$PROJECT_DIR/dist/Chimlo.app"
+APP_PATH="$PROJECT_DIR/dist/Claude Overhead.app"
 CHIMLO_RELEASE_REQUIREMENT_PATH="$REQUIREMENT_PATH" \
   "$SCRIPT_DIR/verify-release-identity.sh" "$APP_PATH"
 
 mkdir -p "$ARTIFACT_DIR"
-DMG_PATH="$ARTIFACT_DIR/Chimlo-$TAG.dmg"
+DMG_PATH="$ARTIFACT_DIR/Claude-Overhead-$TAG.dmg"
 APPCAST_PATH="$ARTIFACT_DIR/appcast.xml"
 
 "$SCRIPT_DIR/package-dmg.sh" "$DMG_PATH"
@@ -80,7 +80,7 @@ SPARKLE_KEY_ACCOUNT="$SPARKLE_ACCOUNT" \
 /usr/bin/xmllint --noout "$APPCAST_PATH"
 "$SIGN_UPDATE" --account "$SPARKLE_ACCOUNT" --verify "$APPCAST_PATH"
 
-EXPECTED_URL="https://github.com/kraten/chimlo/releases/download/$TAG/${DMG_PATH:t}"
+EXPECTED_URL="https://github.com/rakeshkanneeswaran/claude-overhead/releases/download/$TAG/${DMG_PATH:t}"
 ACTUAL_URL="$(/usr/bin/xmllint --xpath \
   'string(//*[local-name()="enclosure"]/@url)' "$APPCAST_PATH")"
 ARCHIVE_SIGNATURE="$(/usr/bin/xmllint --xpath \

@@ -23,7 +23,7 @@ struct AppUpdatePresentationTests {
     func completedCheckFeedback() {
         let presentation = AppUpdatePresentation(phase: .upToDate)
 
-        #expect(presentation.title == "Chimlo is up to date")
+        #expect(presentation.title == "Claude Overhead is up to date")
         #expect(presentation.actionTitle == "Check Again")
         #expect(presentation.isActionable)
         #expect(!AppUpdatePresentationPolicy.shouldTakeIdlePanel(

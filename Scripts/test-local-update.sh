@@ -4,24 +4,24 @@ set -euo pipefail
 SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
 TEST_ROOT="$PROJECT_DIR/dist/update-test"
-HOST_APP_PATH="$TEST_ROOT/host/Chimlo.app"
-UPDATE_APP_PATH="$TEST_ROOT/update/Chimlo.app"
+HOST_APP_PATH="$TEST_ROOT/host/Claude Overhead.app"
+UPDATE_APP_PATH="$TEST_ROOT/update/Claude Overhead.app"
 FEED_DIR="$TEST_ROOT/feed"
-DMG_PATH="$FEED_DIR/Chimlo-99.0.0.dmg"
+DMG_PATH="$FEED_DIR/Claude-Overhead-99.0.0.dmg"
 APPCAST_PATH="$FEED_DIR/appcast.xml"
 SERVER_LOG_PATH="$TEST_ROOT/server.log"
 PACKAGE_APP="$SCRIPT_DIR/package-app.sh"
 PACKAGE_DMG="$SCRIPT_DIR/package-dmg.sh"
 GENERATE_APPCAST="$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
 SIGN_UPDATE="$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/bin/sign_update"
-SPARKLE_ACCOUNT="${SPARKLE_KEY_ACCOUNT:-dev.chimlo.mac}"
+SPARKLE_ACCOUNT="${SPARKLE_KEY_ACCOUNT:-com.rakesh.overhead}"
 PORT="${CHIMLO_UPDATE_TEST_PORT:-55116}"
 HOST_VERSION="98.0.0"
 HOST_BUILD="9800"
 UPDATE_VERSION="99.0.0"
 UPDATE_BUILD="9900"
 MODE="${1:-}"
-TEST_BUNDLE_IDENTIFIER="dev.chimlo.mac.update-test"
+TEST_BUNDLE_IDENTIFIER="com.rakesh.overhead.update-test"
 
 if [[ -n "$MODE" && "$MODE" != "--prepare-only" ]]; then
   print -u2 "Usage: $0 [--prepare-only]"
@@ -61,10 +61,10 @@ fi
 
 FEED_BASE_URL="http://localhost:$PORT"
 FEED_URL="$FEED_BASE_URL/appcast.xml"
-TEST_PROCESS_PATTERN='dist/update-test/(host|update)/Chimlo\.app/Contents/MacOS/Chimlo'
+TEST_PROCESS_PATTERN='dist/update-test/(host|update)/Claude Overhead\.app/Contents/MacOS/Claude Overhead'
 
 if /usr/bin/pgrep -f "$TEST_PROCESS_PATTERN" >/dev/null 2>&1; then
-  print -u2 "Chimlo Update Test is still running."
+  print -u2 "Claude Overhead Update Test is still running."
   print -u2 "Quit it before starting a fresh local update test."
   exit 1
 fi
@@ -88,7 +88,7 @@ print "Generating the signed local appcast..."
 "$GENERATE_APPCAST" \
   --account "$SPARKLE_ACCOUNT" \
   --download-url-prefix "$FEED_BASE_URL/" \
-  --link "https://github.com/kraten/chimlo" \
+  --link "https://github.com/rakeshkanneeswaran/claude-overhead" \
   --maximum-versions 1 \
   --maximum-deltas 0 \
   -o "$APPCAST_PATH" \
@@ -228,7 +228,7 @@ print
 print "Local update test is running. Nothing has been uploaded."
 print "1. In About > Updates, click 'Check for Updates'."
 print "2. Click 'Update to latest version'."
-print "3. After Chimlo relaunches, confirm it shows Version $UPDATE_VERSION."
+print "3. After Claude Overhead relaunches, confirm it shows Version $UPDATE_VERSION."
 print
 print "Keep this command running while the update downloads."
 print "Press Control-C after the test to stop the local server."

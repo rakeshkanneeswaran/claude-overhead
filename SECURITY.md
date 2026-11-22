@@ -2,12 +2,13 @@
 
 ## Reporting a Vulnerability
 
-Chimlo handles authenticated local protocols and agent approval surfaces, so
+Claude Overhead handles authenticated local protocols and agent approval surfaces, so
 security issues are taken seriously.
 
 **Please do not open a public GitHub issue for security vulnerabilities.**
 
-Instead, report vulnerabilities by emailing **kratenhq@gmail.com** with:
+Instead, report vulnerabilities privately through GitHub: open the repository's
+**Security** tab and choose **Report a vulnerability**. Include:
 
 1. A description of the vulnerability
 2. Steps to reproduce (or a proof of concept)
@@ -45,7 +46,7 @@ The following areas are in scope for security reports:
 
 ## Security Design
 
-Chimlo's security posture is documented in
+Claude Overhead's security posture is documented in
 [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) under "Safety boundaries." Key
 principles:
 

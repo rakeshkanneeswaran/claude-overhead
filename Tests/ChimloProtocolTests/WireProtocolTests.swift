@@ -79,7 +79,7 @@ struct WireProtocolTests {
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000008")!,
             sessionID: "claude-1",
             agent: .claude,
-            title: "chimlo",
+            title: "overhead",
             toolName: "Write",
             prompt: "Do you want Claude to write hello.txt?",
             detail: "/tmp/hello.txt",
@@ -101,7 +101,7 @@ struct WireProtocolTests {
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000009")!,
             sessionID: "claude-1",
             agent: .claude,
-            title: "chimlo",
+            title: "overhead",
             questions: [ProviderQuestion(
                 prompt: "Which target?",
                 header: "Target",

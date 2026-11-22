@@ -2,12 +2,10 @@ import ChimloCore
 import Foundation
 
 enum AgentProvider: String, CaseIterable, Sendable {
-    case codex
     case claude
 
     var displayName: String {
         switch self {
-        case .codex: "Codex"
         case .claude: "Claude Code"
         }
     }
@@ -40,7 +38,6 @@ enum AgentConnectionState: Equatable, Sendable {
 /// deployment, read-only status, full preview, marker-scoped merge, validation,
 /// backup, and removal.
 struct AgentIntegrationManager {
-    let codexHooksURL: URL
     let claudeSettingsURL: URL
     let bundledHelperURL: URL
     let stableHelperURL: URL
@@ -51,24 +48,21 @@ struct AgentIntegrationManager {
     static func live(bundle: Bundle = .main, fileManager: FileManager = .default) -> AgentIntegrationManager {
         let home = fileManager.homeDirectoryForCurrentUser
         let applicationSupport = home
-            .appendingPathComponent("Library/Application Support/Chimlo", isDirectory: true)
+            .appendingPathComponent("Library/Application Support/Overhead", isDirectory: true)
         let binaryDirectory = applicationSupport.appendingPathComponent("bin", isDirectory: true)
         return AgentIntegrationManager(
-            codexHooksURL: home
-                .appendingPathComponent(".codex", isDirectory: true)
-                .appendingPathComponent("hooks.json"),
             claudeSettingsURL: home
                 .appendingPathComponent(".claude", isDirectory: true)
                 .appendingPathComponent("settings.json"),
             bundledHelperURL: bundle.bundleURL
                 .appendingPathComponent("Contents", isDirectory: true)
                 .appendingPathComponent("Helpers", isDirectory: true)
-                .appendingPathComponent("chimlo"),
-            stableHelperURL: binaryDirectory.appendingPathComponent("chimlo"),
+                .appendingPathComponent("overhead"),
+            stableHelperURL: binaryDirectory.appendingPathComponent("overhead"),
             claudeStatusLineWrapperURL: binaryDirectory
-                .appendingPathComponent("chimlo-claude-statusline"),
+                .appendingPathComponent("overhead-claude-statusline"),
             claudeStatusLineDelegateURL: binaryDirectory
-                .appendingPathComponent("chimlo-claude-statusline-delegate"),
+                .appendingPathComponent("overhead-claude-statusline-delegate"),
             claudeCapacityCacheURL: applicationSupport
                 .appendingPathComponent("capacity", isDirectory: true)
                 .appendingPathComponent("claude.json")
@@ -76,7 +70,7 @@ struct AgentIntegrationManager {
     }
 
     /// Copies the signed helper out of the movable app bundle. Hook files only
-    /// reference this stable path, so renaming or relocating Chimlo.app does not
+    /// reference this stable path, so renaming or relocating Claude Overhead.app does not
     /// silently break future events.
     @discardableResult
     func prepareStableHelper(fileManager: FileManager = .default) throws -> URL {
@@ -102,7 +96,7 @@ struct AgentIntegrationManager {
             )
 
         if needsCopy {
-            let stagingURL = directory.appendingPathComponent("chimlo.installing")
+            let stagingURL = directory.appendingPathComponent("overhead.installing")
             if fileManager.fileExists(atPath: stagingURL.path) {
                 try fileManager.removeItem(at: stagingURL)
             }
@@ -129,21 +123,12 @@ struct AgentIntegrationManager {
         fileManager: FileManager = .default
     ) -> AgentConnectionState {
         guard fileManager.isExecutableFile(atPath: stableHelperURL.path) else {
-            return .unavailable("Package Chimlo once to install its local helper")
+            return .unavailable("Package Claude Overhead once to install its local helper")
         }
 
         do {
             let data = try configurationData(for: provider, fileManager: fileManager)
             switch provider {
-            case .codex:
-                switch try CodexHookConfiguration.installationState(
-                    in: data,
-                    helperPath: stableHelperURL.path
-                ) {
-                case .missing: return .disconnected
-                case .needsRepair: return .needsRepair
-                case .current: break
-                }
             case .claude:
                 let hookState = try ClaudeHookConfiguration.installationState(
                     in: data,
@@ -179,11 +164,6 @@ struct AgentIntegrationManager {
         let existing = try configurationData(for: provider, fileManager: fileManager)
         let data: Data
         switch provider {
-        case .codex:
-            data = try CodexHookConfiguration.merging(
-                existingData: existing,
-                helperPath: stableHelperURL.path
-            ).data
         case .claude:
             let hookPlan = try ClaudeHookConfiguration.merging(
                 existingData: existing,
@@ -197,7 +177,16 @@ struct AgentIntegrationManager {
         return String(decoding: data, as: UTF8.self)
     }
 
-    func connect(_ provider: AgentProvider, fileManager: FileManager = .default) throws {
+    /// What a connect actually did, so setup can say so truthfully.
+    struct ConnectionReport: Sendable {
+        /// The settings file was rewritten. False means it was already current.
+        let changedSettings: Bool
+        /// Set when this connect saved the one-time copy of the original file.
+        let createdBackup: URL?
+    }
+
+    @discardableResult
+    func connect(_ provider: AgentProvider, fileManager: FileManager = .default) throws -> ConnectionReport {
         _ = try prepareStableHelper(fileManager: fileManager)
         let destination = configurationURL(for: provider)
         let existing = try configurationData(for: provider, fileManager: fileManager)
@@ -205,13 +194,6 @@ struct AgentIntegrationManager {
         let changed: Bool
 
         switch provider {
-        case .codex:
-            let plan = try CodexHookConfiguration.merging(
-                existingData: existing,
-                helperPath: stableHelperURL.path
-            )
-            plannedData = plan.data
-            changed = plan.changed
         case .claude:
             let hookPlan = try ClaudeHookConfiguration.merging(
                 existingData: existing,
@@ -230,20 +212,21 @@ struct AgentIntegrationManager {
                 fileManager: fileManager
             )
         }
-        guard changed else { return }
+        guard changed else { return ConnectionReport(changedSettings: false, createdBackup: nil) }
 
-        try writeConfiguration(
+        let backup = try writeConfiguration(
             plannedData,
             to: destination,
             existingData: existing,
             provider: provider,
             fileManager: fileManager
         )
+        return ConnectionReport(changedSettings: true, createdBackup: backup)
     }
 
     /// Adds or repairs the capacity bridge for Claude integrations that were
     /// connected before the bridge existed. The current status-line command is
-    /// retained as Chimlo's delegate, so another app keeps receiving the same
+    /// retained as Claude Overhead's delegate, so another app keeps receiving the same
     /// Claude payload after the upgrade.
     @discardableResult
     func upgradeClaudeCapacityBridgeIfConnected(
@@ -285,10 +268,6 @@ struct AgentIntegrationManager {
         let data: Data
         let changed: Bool
         switch provider {
-        case .codex:
-            let plan = try CodexHookConfiguration.removing(existingData: existing)
-            data = plan.data
-            changed = plan.changed
         case .claude:
             let hookPlan = try ClaudeHookConfiguration.removing(existingData: existing)
             let statusLinePlan = try ClaudeStatusLineConfiguration.removing(
@@ -313,7 +292,6 @@ struct AgentIntegrationManager {
 
     private func configurationURL(for provider: AgentProvider) -> URL {
         switch provider {
-        case .codex: codexHooksURL
         case .claude: claudeSettingsURL
         }
     }
@@ -326,13 +304,15 @@ struct AgentIntegrationManager {
         return fileManager.fileExists(atPath: url.path) ? try Data(contentsOf: url) : nil
     }
 
+    /// Returns the backup it saved, if this was the first write.
+    @discardableResult
     private func writeConfiguration(
         _ data: Data,
         to destination: URL,
         existingData: Data?,
         provider: AgentProvider,
         fileManager: FileManager
-    ) throws {
+    ) throws -> URL? {
         let directory = destination.deletingLastPathComponent()
         try fileManager.createDirectory(
             at: directory,
@@ -342,7 +322,7 @@ struct AgentIntegrationManager {
         let permissions = try existingData.flatMap { _ in
             try fileManager.attributesOfItem(atPath: destination.path)[.posixPermissions] as? NSNumber
         }
-        try preserveFirstBackup(existingData, destination: destination, fileManager: fileManager)
+        let backup = try preserveFirstBackup(existingData, destination: destination, fileManager: fileManager)
         try data.write(to: destination, options: .atomic)
         try fileManager.setAttributes(
             [.posixPermissions: permissions ?? NSNumber(value: 0o600)],
@@ -352,11 +332,6 @@ struct AgentIntegrationManager {
         let written = try Data(contentsOf: destination)
         let isCurrent: Bool
         switch provider {
-        case .codex:
-            isCurrent = try CodexHookConfiguration.installationState(
-                in: written,
-                helperPath: stableHelperURL.path
-            ) == .current
         case .claude:
             isCurrent = try ClaudeHookConfiguration.installationState(
                 in: written,
@@ -368,22 +343,24 @@ struct AgentIntegrationManager {
                 ) == .current
         }
         guard isCurrent else { throw IntegrationError.validationFailed(provider.displayName) }
+        return backup
     }
 
     private func preserveFirstBackup(
         _ existingData: Data?,
         destination: URL,
         fileManager: FileManager
-    ) throws {
-        guard let existingData else { return }
-        let backupURL = destination.appendingPathExtension("chimlo-backup")
-        guard !fileManager.fileExists(atPath: backupURL.path) else { return }
+    ) throws -> URL? {
+        guard let existingData else { return nil }
+        let backupURL = destination.appendingPathExtension("overhead-backup")
+        guard !fileManager.fileExists(atPath: backupURL.path) else { return nil }
         try existingData.write(to: backupURL, options: .atomic)
         let permissions = try fileManager.attributesOfItem(atPath: destination.path)[.posixPermissions] as? NSNumber
         try fileManager.setAttributes(
             [.posixPermissions: permissions ?? NSNumber(value: 0o600)],
             ofItemAtPath: backupURL.path
         )
+        return backupURL
     }
 
     private func prepareClaudeStatusLineScripts(
@@ -403,7 +380,7 @@ struct AgentIntegrationManager {
         let delegate = shellQuoted(claudeStatusLineDelegateURL.path)
         let wrapper = """
         #!/bin/sh
-        # Chimlo Claude capacity bridge. Managed by Chimlo.
+        # Claude Overhead status-line bridge. Managed by Claude Overhead.
         input=$(cat)
         printf '%s' "$input" | \(helper) __capture-claude-capacity \(cache) >/dev/null 2>&1 || true
         if [ -x \(delegate) ]; then
@@ -413,7 +390,7 @@ struct AgentIntegrationManager {
         try writeExecutable(wrapper, to: claudeStatusLineWrapperURL, fileManager: fileManager)
 
         if let originalCommand {
-            let delegateScript = "#!/bin/sh\n# Original Claude Code status line preserved by Chimlo.\n\(originalCommand)\n"
+            let delegateScript = "#!/bin/sh\n# Original Claude Code status line preserved by Claude Overhead.\n\(originalCommand)\n"
             try writeExecutable(
                 delegateScript,
                 to: claudeStatusLineDelegateURL,
@@ -451,7 +428,7 @@ struct AgentIntegrationManager {
         var errorDescription: String? {
             switch self {
             case .helperUnavailable:
-                "The packaged Chimlo helper is unavailable"
+                "The packaged Claude Overhead helper is unavailable"
             case let .validationFailed(provider):
                 "The \(provider) hook merge could not be validated"
             }

@@ -3,10 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
-APP_PATH="${1:-$PROJECT_DIR/dist/Chimlo.app}"
+APP_PATH="${1:-$PROJECT_DIR/dist/Claude Overhead.app}"
 MODE="${2:-}"
-REQUIREMENT_PATH="${CHIMLO_RELEASE_REQUIREMENT_PATH:-$PROJECT_DIR/Packaging/Signing/ChimloRelease.designated-requirement}"
-EXPECTED_BUNDLE_IDENTIFIER="dev.chimlo.mac"
+REQUIREMENT_PATH="${CHIMLO_RELEASE_REQUIREMENT_PATH:-$PROJECT_DIR/Packaging/Signing/OverheadRelease.designated-requirement}"
+EXPECTED_BUNDLE_IDENTIFIER="com.rakesh.overhead"
 
 if [[ ! -d "$APP_PATH" ]]; then
   print -u2 "Missing release app: $APP_PATH"
@@ -14,7 +14,7 @@ if [[ ! -d "$APP_PATH" ]]; then
 fi
 
 if [[ -n "$MODE" && "$MODE" != "--initialize" ]]; then
-  print -u2 "Usage: $0 [Chimlo.app] [--initialize]"
+  print -u2 "Usage: $0 [Claude Overhead.app] [--initialize]"
   exit 64
 fi
 
@@ -35,7 +35,7 @@ CDHASH="$(/usr/bin/codesign -d --verbose=4 "$APP_PATH" 2>&1 \
   | /usr/bin/sed -n 's/^CDHash=//p')"
 
 if [[ -z "$DESIGNATED_REQUIREMENT" || -z "$CDHASH" ]]; then
-  print -u2 "Could not read Chimlo's code signing identity."
+  print -u2 "Could not read Claude Overhead's code signing identity."
   exit 1
 fi
 
@@ -63,7 +63,7 @@ else
   exit 1
 fi
 
-print "PASS: Chimlo satisfies the frozen release identity."
+print "PASS: Claude Overhead satisfies the frozen release identity."
 print "Bundle identifier: $BUNDLE_IDENTIFIER"
 print "Designated requirement: $DESIGNATED_REQUIREMENT"
 print "CDHash: $CDHASH"

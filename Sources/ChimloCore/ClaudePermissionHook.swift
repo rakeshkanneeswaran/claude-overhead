@@ -18,7 +18,7 @@ public enum ClaudePermissionHookError: Error, LocalizedError, Sendable {
 
 /// Holds the minimum transient context needed to show and resolve one Claude
 /// Code permission prompt. Tool input and permission rules live only for this
-/// blocking helper invocation and are never written to Chimlo's session store.
+/// blocking helper invocation and are never written to Claude Overhead's session store.
 public struct ClaudePermissionHook: Sendable {
     public static let maximumPayloadBytes = 64 * 1_024
     public static let fallbackOutput = Data("{}\n".utf8)
@@ -91,7 +91,7 @@ public struct ClaudePermissionHook: Sendable {
         case .denied:
             decision = [
                 "behavior": "deny",
-                "message": "Denied in Chimlo",
+                "message": "Denied in Claude Overhead",
                 "interrupt": false,
             ]
         case .cancelled, .unavailable:
@@ -182,7 +182,7 @@ public struct ClaudePermissionHook: Sendable {
     /// Claude-authored rules are preferred, but their destination is narrowed
     /// to this session. File edits fall back to Claude's documented
     /// `acceptEdits` session mode, which is the native "allow all edits"
-    /// behavior. Bypass mode is never forwarded by Chimlo.
+    /// behavior. Bypass mode is never forwarded by Claude Overhead.
     private static func sessionPermissionUpdate(
         from value: Any?,
         currentToolName: String,

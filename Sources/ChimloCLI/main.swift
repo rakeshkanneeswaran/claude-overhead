@@ -9,7 +9,7 @@ enum ChimloCommand {
         do {
             try await run(Array(CommandLine.arguments.dropFirst()))
         } catch {
-            writeError("chimlo: \(error.localizedDescription)\n")
+            writeError("overhead: \(error.localizedDescription)\n")
             exit(EXIT_FAILURE)
         }
     }
@@ -33,7 +33,7 @@ enum ChimloCommand {
         case "ping":
             let client = try ChimloClient()
             _ = try await client.ping()
-            print("chimlo is listening")
+            print("overhead is listening")
         case "decision":
             let options = try Options(Array(arguments.dropFirst()))
             try await requestDecision(options: options)
@@ -45,13 +45,6 @@ enum ChimloCommand {
             print("\(descriptor.host):\(descriptor.port) pid=\(descriptor.processID) protocol=\(descriptor.protocolVersion)")
         case "__capture-claude-capacity":
             captureClaudeCapacity(Array(arguments.dropFirst()))
-        case "__native-overlay-guard":
-            guard arguments.count == 2,
-                  let ownerPID = Int32(arguments[1]),
-                  ownerPID > 0 else {
-                throw CLIError("Invalid overlay owner process")
-            }
-            await restoreNativeOverlayWhenOwnerExits(ownerPID)
         case "help", "--help", "-h":
             print(usage)
         default:
@@ -59,7 +52,7 @@ enum ChimloCommand {
         }
     }
 
-    /// Claude Code invokes this through Chimlo's managed status-line wrapper.
+    /// Claude Code invokes this through Claude Overhead's managed status-line wrapper.
     /// It retains only the provider-owned rate-limit windows and deliberately
     /// emits no stdout so a user without a custom status line gains no terminal
     /// chrome. Every failure is fail-open for Claude Code.
@@ -97,7 +90,7 @@ enum ChimloCommand {
     }
 
     /// Observation hooks never block or break the invoking coding agent. `{}`
-    /// is Claude and Codex's documented no-op response.
+    /// is Claude Code's documented no-op response.
     private static func observeProviderHook(
         _ arguments: [String],
         source: ProviderHookSource
@@ -113,12 +106,12 @@ enum ChimloCommand {
             let client = try ChimloClient(timeout: .seconds(1))
             _ = try await client.sendEvent(event)
         } catch {
-            // Observation is best-effort. Never turn a missing Chimlo process,
+            // Observation is best-effort. Never turn a missing Claude Overhead process,
             // malformed hook, or local transport error into an agent failure.
         }
     }
 
-    /// AskUserQuestion is the one provider hook Chimlo intentionally keeps
+    /// AskUserQuestion is the one provider hook Claude Overhead intentionally keeps
     /// blocking. An explicit answer becomes Claude's updated tool input. Every
     /// failure prints `{}`, which hands the question back to Claude's native UI.
     private static func answerClaudeQuestionHook() async {
@@ -317,29 +310,6 @@ enum ChimloCommand {
         return date
     }
 
-    /// A deliberately tiny crash-recovery companion. Chimlo's app process can
-    /// temporarily pause Apple's visual OSD while it owns media-key handling.
-    /// This independent process survives an app crash and restores that helper.
-    private static func restoreNativeOverlayWhenOwnerExits(_ ownerPID: Int32) async {
-        while processExists(ownerPID) {
-            try? await Task.sleep(for: .milliseconds(250))
-        }
-
-        let resume = Process()
-        resume.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
-        resume.arguments = ["-CONT", "OSDUIHelper"]
-        resume.standardOutput = FileHandle.nullDevice
-        resume.standardError = FileHandle.nullDevice
-        try? resume.run()
-        resume.waitUntilExit()
-    }
-
-    private static func processExists(_ processID: Int32) -> Bool {
-        errno = 0
-        if Darwin.kill(processID, 0) == 0 { return true }
-        return errno == EPERM
-    }
-
     private static func writeError(_ text: String) {
         FileHandle.standardError.write(Data(text.utf8))
     }
@@ -351,19 +321,19 @@ enum ChimloCommand {
 
     private static let usage = """
     Usage:
-      chimlo emit --session ID --sequence N --kind KIND [options]
-      chimlo emit --json '{...}'
-      chimlo emit --file event.json
-      chimlo demo [--instant]
-      chimlo ping
-      chimlo decision --title TEXT --message TEXT [options]
-      chimlo hook codex|claude observe < hook.json
-      chimlo hook claude question < hook.json
-      chimlo hook claude permission < hook.json
-      chimlo descriptor
+      overhead emit --session ID --sequence N --kind KIND [options]
+      overhead emit --json '{...}'
+      overhead emit --file event.json
+      overhead demo [--instant]
+      overhead ping
+      overhead decision --title TEXT --message TEXT [options]
+      overhead hook claude observe < hook.json
+      overhead hook claude question < hook.json
+      overhead hook claude permission < hook.json
+      overhead descriptor
 
     Common emit options:
-      --agent NAME          claude, codex, gemini, cursor, opencode, hermes, other
+      --agent NAME          claude, gemini, cursor, opencode, hermes, other
       --title TEXT          Session title
       --detail TEXT         Current activity or result
       --model TEXT          Model name

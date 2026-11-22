@@ -39,7 +39,14 @@ public struct SessionReducer: Sendable {
                 existing.title = candidate.title
                 existing.titleKind = candidate.titleKind
             }
-            existing.model = existing.model ?? candidate.model
+            // A transcript names the model of its newest reply, so it follows a
+            // mid-session model switch. Hooks only report the model at session
+            // start, and a cached candidate may be stale, so those only fill a gap.
+            if candidate.evidence == .claudeTranscript, let model = candidate.model {
+                existing.model = model
+            } else {
+                existing.model = existing.model ?? candidate.model
+            }
             existing.terminal = existing.terminal ?? candidate.terminal
             existing.projectPath = existing.projectPath ?? candidate.projectPath
             existing.jumpURL = existing.jumpURL ?? candidate.jumpURL

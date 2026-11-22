@@ -72,7 +72,7 @@ public struct RuntimeDescriptorStore: Sendable {
 
         return Self(
             descriptorURL: applicationSupport
-                .appendingPathComponent("Chimlo", isDirectory: true)
+                .appendingPathComponent("Overhead", isDirectory: true)
                 .appendingPathComponent("runtime.json", isDirectory: false)
         )
     }
@@ -116,7 +116,7 @@ public struct RuntimeDescriptorStore: Sendable {
     }
 
     /// Removes only the descriptor owned by the caller. This prevents an older
-    /// Chimlo process from deleting a newer process's runtime descriptor.
+    /// Claude Overhead process from deleting a newer process's runtime descriptor.
     public func remove(ifAuthenticationTokenMatches token: String) throws {
         guard FileManager.default.fileExists(atPath: descriptorURL.path) else { return }
         let descriptor = try read()

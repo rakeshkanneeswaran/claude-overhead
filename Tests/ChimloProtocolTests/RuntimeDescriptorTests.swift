@@ -7,7 +7,7 @@ struct RuntimeDescriptorTests {
     @Test("The protected descriptor store round-trips")
     func descriptorRoundTripsThroughProtectedStore() throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("chimlo-descriptor-tests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("overhead-descriptor-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let store = RuntimeDescriptorStore(descriptorURL: directory.appendingPathComponent("runtime.json"))
@@ -45,7 +45,7 @@ struct RuntimeDescriptorTests {
     @Test("An older owner cannot delete a newer descriptor")
     func olderOwnerCannotDeleteNewDescriptor() throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("chimlo-descriptor-tests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("overhead-descriptor-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let store = RuntimeDescriptorStore(descriptorURL: directory.appendingPathComponent("runtime.json"))

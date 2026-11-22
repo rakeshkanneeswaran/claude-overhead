@@ -39,7 +39,7 @@ let windowInfo = CGWindowListCopyWindowInfo(
 ) as? [[String: Any]] ?? []
 
 let candidates: [WindowSnapshot] = windowInfo.compactMap { item in
-    guard item[kCGWindowOwnerName as String] as? String == "Chimlo",
+    guard item[kCGWindowOwnerName as String] as? String == "Claude Overhead",
           let layer = item[kCGWindowLayer as String] as? Int,
           let rawBounds = item[kCGWindowBounds as String],
           let bounds = CGRect(dictionaryRepresentation: rawBounds as! CFDictionary),
@@ -54,7 +54,7 @@ guard let actual = candidates.min(by: { lhs, rhs in
     let rhsDistance = abs(rhs.bounds.minY - expectedTop) + abs(rhs.bounds.midX - expectedCenter)
     return lhsDistance < rhsDistance
 }) else {
-    fputs("FAIL  no visible Chimlo island window was found\n", stderr)
+    fputs("FAIL  no visible Claude Overhead island window was found\n", stderr)
     exit(EXIT_FAILURE)
 }
 
@@ -77,7 +77,7 @@ case .expanded:
 let widthDelta = expectedWidth.map { abs(actual.bounds.width - $0) }
 
 print("screen=\(displayBounds) cameraCenter=\(expectedCenter)")
-print("chimlo=\(actual.bounds) layer=\(actual.layer) menuBarLayer=\(menuBarLayer) topDelta=\(topDelta) centerDelta=\(centerDelta)")
+print("overhead=\(actual.bounds) layer=\(actual.layer) menuBarLayer=\(menuBarLayer) topDelta=\(topDelta) centerDelta=\(centerDelta)")
 
 var failures: [String] = []
 if topDelta > 1 { failures.append("island does not begin at the camera band") }
@@ -88,7 +88,7 @@ if let widthDelta, widthDelta > 1 {
 }
 
 if failures.isEmpty {
-    print("PASS  Chimlo \(expectedState.rawValue) placement matches the physical camera housing")
+    print("PASS  Claude Overhead \(expectedState.rawValue) placement matches the physical camera housing")
 } else {
     failures.forEach { fputs("FAIL  \($0)\n", stderr) }
     exit(EXIT_FAILURE)

@@ -10,7 +10,7 @@ final class IslandPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
-        // The camera housing is inside AppKit's protected safe area. Chimlo is
+        // The camera housing is inside AppKit's protected safe area. Claude Overhead is
         // intentionally anchored there, so the normal menu-bar constraint must
         // not push this borderless panel below the hardware.
         frameRect
@@ -60,6 +60,16 @@ final class IslandPanel: NSPanel {
     }
 }
 
+private extension CGRect {
+    /// A cursor pushed against the top of the screen reports y == maxY, and
+    /// `contains` leaves maxY out, so the island read it as "pointer left" and
+    /// collapsed while the pointer was still on it. One extra point at the top
+    /// takes that row in; nothing can sit above the screen's top edge anyway.
+    var includingTopEdge: CGRect {
+        CGRect(x: minX, y: minY, width: width, height: height + 1)
+    }
+}
+
 private final class FullBleedHostingView<Content: View>: NSHostingView<Content> {
     var hitTestFrame: () -> NSRect = { .zero }
 
@@ -77,13 +87,6 @@ private final class FullBleedHostingView<Content: View>: NSHostingView<Content> 
     }
 }
 
-private struct FullScreenWindowOwners {
-    let strict: Set<pid_t>
-    let displayContent: Set<pid_t>
-    let displayBounds: CGRect
-    let maximumTopBandHeight: CGFloat
-}
-
 @MainActor
 final class IslandWindowCoordinator {
     private let model: ApplicationModel
@@ -92,9 +95,7 @@ final class IslandWindowCoordinator {
     private var cancellables: Set<AnyCancellable> = []
     private var globalPointerMonitor: Any?
     private var localPointerMonitor: Any?
-    private var fullScreenMediaPollingTask: Task<Void, Never>?
     private var pointerInsideIntendedFrame = false
-    private var fullScreenMediaPresentationMode: FullScreenMediaPresentationMode = .normal
 
     init(model: ApplicationModel, openSettings: @escaping () -> Void) {
         self.model = model
@@ -113,7 +114,6 @@ final class IslandWindowCoordinator {
 
     func show() {
         updateHostFrame()
-        updateFullScreenMediaVisibility()
         refreshPointerPresence()
         panel.orderFrontRegardless()
     }
@@ -123,8 +123,6 @@ final class IslandWindowCoordinator {
         if let localPointerMonitor { NSEvent.removeMonitor(localPointerMonitor) }
         globalPointerMonitor = nil
         localPointerMonitor = nil
-        fullScreenMediaPollingTask?.cancel()
-        fullScreenMediaPollingTask = nil
         cancellables.removeAll()
     }
 
@@ -137,7 +135,7 @@ final class IslandWindowCoordinator {
         // Space transition and can carry/scale it with the outgoing desktop.
         panel.isFloatingPanel = true
         panel.isMovable = false
-        // Keep Chimlo above WindowServer's menu-bar layer so the visible wings
+        // Keep Claude Overhead above WindowServer's menu-bar layer so the visible wings
         // receive real pointer events. isFloatingPanel resets this to 3, so the
         // explicit level assignment must remain after it.
         panel.level = .statusBar
@@ -195,7 +193,6 @@ final class IslandWindowCoordinator {
     }
 
     private func handlePointerEvent(_ event: NSEvent) {
-        guard fullScreenMediaPresentationMode == .normal else { return }
         refreshPointerPresence()
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
@@ -217,8 +214,7 @@ final class IslandWindowCoordinator {
     }
 
     private func updateMouseEventRouting() {
-        panel.ignoresMouseEvents = fullScreenMediaPresentationMode != .normal
-            || !pointerInsideIntendedFrame
+        panel.ignoresMouseEvents = !pointerInsideIntendedFrame
     }
 
     private var interactiveFrameInPanel: CGRect {
@@ -228,7 +224,7 @@ final class IslandWindowCoordinator {
             y: panel.frame.height - size.height,
             width: size.width,
             height: size.height
-        )
+        ).includingTopEdge
     }
 
     private var intendedPanelFrameContainsPointer: Bool {
@@ -238,7 +234,7 @@ final class IslandWindowCoordinator {
             on: screen,
             hasCameraHousing: model.islandLayout.hasCameraHousing
         )
-        return intendedFrame.contains(NSEvent.mouseLocation)
+        return intendedFrame.includingTopEdge.contains(NSEvent.mouseLocation)
     }
 
     private func observeChanges() {
@@ -246,20 +242,6 @@ final class IslandWindowCoordinator {
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateHostFrame() }
-            .store(in: &cancellables)
-
-        model.$systemFeedback
-            .map { $0 != nil }
-            .removeDuplicates()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateFullScreenMediaVisibility() }
-            .store(in: &cancellables)
-
-        model.mediaPlayback.$presentation
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.updateFullScreenMediaVisibility()
-            }
             .store(in: &cancellables)
 
         Publishers.Merge(
@@ -272,7 +254,6 @@ final class IslandWindowCoordinator {
         )
         .receive(on: RunLoop.main)
         .sink { [weak self] _ in
-            self?.updateFullScreenMediaVisibility()
             self?.refreshPointerPresence()
         }
         .store(in: &cancellables)
@@ -281,147 +262,8 @@ final class IslandWindowCoordinator {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.updateHostFrame()
-                self?.updateFullScreenMediaVisibility()
             }
             .store(in: &cancellables)
-
-        startFullScreenMediaPolling()
-    }
-
-    private func startFullScreenMediaPolling() {
-        guard fullScreenMediaPollingTask == nil else { return }
-
-        fullScreenMediaPollingTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled, let self else { return }
-                updateFullScreenMediaVisibility()
-            }
-        }
-    }
-
-    private func updateFullScreenMediaVisibility() {
-        guard let screen = targetScreen else { return }
-        let media = model.mediaPlayback.presentation
-        guard let owners = Self.fullScreenWindowOwners(on: screen) else { return }
-        let activeAudioOwners = ActiveAudioApplicationResolver.processIdentifiers()
-        let frontmostProcessIdentifier = NSWorkspace.shared.frontmostApplication?
-            .processIdentifier
-        let candidates = owners.strict.union(owners.displayContent)
-        let fullScreenMediaIsActive = NSWorkspace.shared.runningApplications.contains {
-            application in
-            let processIdentifier = application.processIdentifier
-            guard candidates.contains(processIdentifier) else { return false }
-
-            let shouldInspectAccessibility = owners.displayContent.contains(processIdentifier)
-                && (activeAudioOwners.contains(processIdentifier)
-                    || frontmostProcessIdentifier == processIdentifier)
-            let accessibility = shouldInspectAccessibility
-                ? FullScreenAccessibilityInspector.inspect(
-                    processIdentifier: processIdentifier,
-                    displayBounds: owners.displayBounds,
-                    maximumTopBandHeight: owners.maximumTopBandHeight
-                )
-                : FullScreenAccessibilityObservation(isFullScreen: false, isPlaying: false)
-
-            return FullScreenMediaVisibilityPolicy.shouldHideIsland(
-                mediaIsPlaying: media?.isPlaying == true,
-                mediaBundleIdentifier: media?.bundleIdentifier,
-                mediaApplicationName: media?.applicationName,
-                windowOwnerBundleIdentifier: application.bundleIdentifier,
-                windowOwnerApplicationName: application.localizedName,
-                windowOwnerHasFullScreenWindow: owners.strict.contains(processIdentifier),
-                windowOwnerHasAccessibleFullScreenPresentation: accessibility.isFullScreen,
-                windowOwnerIsProducingAudio: activeAudioOwners.contains(processIdentifier),
-                windowOwnerAccessibilityIndicatesPlayback: accessibility.isPlaying
-            )
-        }
-        let nextMode = FullScreenMediaPresentationPolicy.mode(
-            fullScreenMediaIsActive: fullScreenMediaIsActive,
-            hasSystemFeedback: model.systemFeedback != nil
-        )
-        guard nextMode != fullScreenMediaPresentationMode else { return }
-
-        fullScreenMediaPresentationMode = nextMode
-        model.updateFullScreenMediaPresentationMode(nextMode)
-        panel.alphaValue = nextMode == .hidden ? 0 : 1
-
-        // Keep the panel ordered while it is transparent. orderOut removes the
-        // replicated all-Spaces window; ordering it again can attach the
-        // restored copy only to the Space where full-screen playback ended.
-        panel.orderFrontRegardless()
-
-        switch nextMode {
-        case .hidden:
-            pointerInsideIntendedFrame = false
-            model.collapsePanelFromOutsideClick()
-            updateMouseEventRouting()
-        case .systemFeedbackOnly:
-            updateMouseEventRouting()
-        case .normal:
-            refreshPointerPresence()
-        }
-    }
-
-    private static func fullScreenWindowOwners(
-        on screen: NSScreen
-    ) -> FullScreenWindowOwners? {
-        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-        guard let windows = CGWindowListCopyWindowInfo(
-            options,
-            kCGNullWindowID
-        ) as? [[String: Any]],
-        let displayBounds = displayBounds(for: screen) else {
-            return nil
-        }
-
-        let ownProcessIdentifier = ProcessInfo.processInfo.processIdentifier
-        var windowsByOwner: [pid_t: [FullScreenWindowFrameObservation]] = [:]
-        for window in windows {
-            guard let owner = window[kCGWindowOwnerPID as String] as? NSNumber,
-                  owner.int32Value != ownProcessIdentifier,
-                  let layer = window[kCGWindowLayer as String] as? NSNumber,
-                  let bounds = window[kCGWindowBounds as String] as? [String: Any],
-                  let frame = CGRect(
-                    dictionaryRepresentation: bounds as CFDictionary
-                  ) else {
-                continue
-            }
-            guard frame.intersects(displayBounds) else { continue }
-            windowsByOwner[owner.int32Value, default: []].append(
-                FullScreenWindowFrameObservation(frame: frame, layer: layer.intValue)
-            )
-        }
-
-        let maximumTopBandHeight = max(screen.safeAreaInsets.top, 44)
-        let strict = Set(windowsByOwner.compactMap { processIdentifier, observations in
-            FullScreenWindowCoveragePolicy.coversDisplay(
-                displayBounds,
-                windows: observations,
-                maximumTopBandHeight: maximumTopBandHeight
-            ) ? processIdentifier : nil
-        })
-        let displayContent = Set(windowsByOwner.compactMap {
-            processIdentifier,
-            observations in
-            FullScreenWindowCoveragePolicy.coversDisplayContent(
-                displayBounds,
-                windows: observations,
-                maximumTopBandHeight: maximumTopBandHeight
-            ) ? processIdentifier : nil
-        })
-        return FullScreenWindowOwners(
-            strict: strict,
-            displayContent: displayContent,
-            displayBounds: displayBounds,
-            maximumTopBandHeight: maximumTopBandHeight
-        )
-    }
-
-    private static func displayBounds(for screen: NSScreen) -> CGRect? {
-        let key = NSDeviceDescriptionKey("NSScreenNumber")
-        guard let screenNumber = screen.deviceDescription[key] as? NSNumber else { return nil }
-        return CGDisplayBounds(CGDirectDisplayID(screenNumber.uint32Value))
     }
 
     private func updateHostFrame() {
@@ -509,7 +351,7 @@ final class SettingsWindowCoordinator: NSObject, NSWindowDelegate {
                 backing: .buffered,
                 defer: false
             )
-            window.title = "Chimlo"
+            window.title = "Claude Overhead"
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
             window.titlebarSeparatorStyle = .none

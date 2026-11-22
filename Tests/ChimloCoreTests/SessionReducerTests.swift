@@ -100,19 +100,43 @@ struct SessionReducerTests {
 
         reducer.merge(SessionCandidate(
             id: "s1",
-            agent: .codex,
+            agent: .claude,
             title: "Recovered title",
             detail: "Recovered status",
             projectPath: "/tmp/project",
-            jumpURL: URL(string: "codex://threads/s1"),
+            jumpURL: URL(string: "https://example.com/sessions/s1"),
             phase: .completed,
             updatedAt: start.addingTimeInterval(20),
-            evidence: .codexAppServer
+            evidence: .process
         ))
 
         #expect(reducer.sessions["s1"]?.phase == .waitingForApproval)
         #expect(reducer.sessions["s1"]?.pendingRequest?.id == "a1")
-        #expect(reducer.sessions["s1"]?.jumpURL?.absoluteString == "codex://threads/s1")
+        #expect(reducer.sessions["s1"]?.jumpURL?.absoluteString == "https://example.com/sessions/s1")
+    }
+
+    @Test("A mid-session model switch follows the transcript, not a stale cache")
+    func modelFollowsTranscript() {
+        var reducer = SessionReducer()
+        func candidate(model: String, evidence: SessionEvidenceSource) -> SessionCandidate {
+            SessionCandidate(
+                id: "s1",
+                agent: .claude,
+                title: "Project",
+                detail: "Working",
+                model: model,
+                phase: .working,
+                updatedAt: start,
+                evidence: evidence
+            )
+        }
+
+        reducer.merge(candidate(model: "claude-opus-5-5", evidence: .claudeTranscript))
+        reducer.merge(candidate(model: "claude-sonnet-5-5", evidence: .claudeTranscript))
+        #expect(reducer.sessions["s1"]?.model == "claude-sonnet-5-5")
+
+        reducer.merge(candidate(model: "claude-opus-5-5", evidence: .cache))
+        #expect(reducer.sessions["s1"]?.model == "claude-sonnet-5-5")
     }
 
     @Test("The onboarding script is deterministic")
@@ -136,7 +160,7 @@ struct SessionReducerTests {
             sessionID: "s1",
             sequence: sequence,
             kind: kind,
-            agent: .codex,
+            agent: .claude,
             title: "A session",
             detail: detail,
             request: request,

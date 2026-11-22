@@ -8,7 +8,7 @@ struct NetworkTransportTests {
     @Test("The loopback server answers ping")
     func loopbackServerAnswersPing() async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("chimlo-network-tests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("overhead-network-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = RuntimeDescriptorStore(descriptorURL: directory.appendingPathComponent("runtime.json"))
         let server = try ChimloServer(descriptorStore: store, eventHandler: { _ in })
@@ -22,7 +22,7 @@ struct NetworkTransportTests {
     @Test("Decision transport failure is unavailable, never approved")
     func decisionFailureIsUnavailableRatherThanApproved() async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("chimlo-network-tests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("overhead-network-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = RuntimeDescriptorStore(descriptorURL: directory.appendingPathComponent("missing.json"))
         let client = try ChimloClient(descriptorStore: store, timeout: .milliseconds(50))
@@ -38,7 +38,7 @@ struct NetworkTransportTests {
     @Test("A server without a decision handler returns unavailable")
     func serverDefaultsDecisionsToUnavailable() async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("chimlo-network-tests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("overhead-network-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = RuntimeDescriptorStore(descriptorURL: directory.appendingPathComponent("runtime.json"))
         let server = try ChimloServer(descriptorStore: store, eventHandler: { _ in })
@@ -56,7 +56,7 @@ struct NetworkTransportTests {
     @Test("Claude permission choices round-trip through the loopback server")
     func providerPermissionRoundTrip() async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("chimlo-network-tests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("overhead-network-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = RuntimeDescriptorStore(descriptorURL: directory.appendingPathComponent("runtime.json"))
         let server = try ChimloServer(
@@ -75,7 +75,7 @@ struct NetworkTransportTests {
         let request = ProviderPermissionRequest(
             sessionID: "claude-1",
             agent: .claude,
-            title: "chimlo",
+            title: "overhead",
             toolName: "Write",
             prompt: "Write hello.txt?",
             allowsSessionApproval: true
@@ -90,7 +90,7 @@ struct NetworkTransportTests {
     @Test("A server without a permission handler never grants access")
     func serverDefaultsPermissionsToUnavailable() async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("chimlo-network-tests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("overhead-network-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = RuntimeDescriptorStore(descriptorURL: directory.appendingPathComponent("runtime.json"))
         let server = try ChimloServer(descriptorStore: store, eventHandler: { _ in })
@@ -100,7 +100,7 @@ struct NetworkTransportTests {
         let request = ProviderPermissionRequest(
             sessionID: "claude-1",
             agent: .claude,
-            title: "chimlo",
+            title: "overhead",
             toolName: "Bash",
             prompt: "Run this command?"
         )
@@ -114,7 +114,7 @@ struct NetworkTransportTests {
     @Test("Question selections round-trip through the loopback server")
     func questionSelectionsRoundTrip() async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("chimlo-network-tests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("overhead-network-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = RuntimeDescriptorStore(descriptorURL: directory.appendingPathComponent("runtime.json"))
         let server = try ChimloServer(
@@ -134,7 +134,7 @@ struct NetworkTransportTests {
         let request = ProviderQuestionRequest(
             sessionID: "claude-1",
             agent: .claude,
-            title: "chimlo",
+            title: "overhead",
             questions: [ProviderQuestion(
                 prompt: "Which target?",
                 options: [
@@ -153,7 +153,7 @@ struct NetworkTransportTests {
     @Test("A server without a question handler returns unavailable")
     func serverDefaultsQuestionsToUnavailable() async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("chimlo-network-tests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("overhead-network-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = RuntimeDescriptorStore(descriptorURL: directory.appendingPathComponent("runtime.json"))
         let server = try ChimloServer(descriptorStore: store, eventHandler: { _ in })
@@ -163,7 +163,7 @@ struct NetworkTransportTests {
         let request = ProviderQuestionRequest(
             sessionID: "claude-1",
             agent: .claude,
-            title: "chimlo",
+            title: "overhead",
             questions: [ProviderQuestion(
                 prompt: "Continue?",
                 options: [

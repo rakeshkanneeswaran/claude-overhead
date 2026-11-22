@@ -4,7 +4,7 @@ import Testing
 
 @Suite("Claude status-line configuration")
 struct ClaudeStatusLineConfigurationTests {
-    private let wrapperPath = "/Users/me/Library/Application Support/Chimlo/bin/chimlo-claude-statusline"
+    private let wrapperPath = "/Users/me/Library/Application Support/Overhead/bin/overhead-claude-statusline"
 
     @Test("Installation preserves an existing status line")
     func preservesExistingStatusLine() throws {
@@ -38,7 +38,7 @@ struct ClaudeStatusLineConfigurationTests {
     @Test("A managed status line without periodic refresh needs repair")
     func staleManagedInstallationNeedsRepair() throws {
         let oldInstallation = Data(
-            #"{"_chimloStatusLineManaged":true,"statusLine":{"type":"command","command":"/Users/me/Library/Application Support/Chimlo/bin/chimlo-claude-statusline"}}"#.utf8
+            #"{"_overheadStatusLineManaged":true,"statusLine":{"type":"command","command":"/Users/me/Library/Application Support/Overhead/bin/overhead-claude-statusline"}}"#.utf8
         )
 
         #expect(try ClaudeStatusLineConfiguration.installationState(
@@ -76,7 +76,7 @@ struct ClaudeStatusLineConfigurationTests {
 
     @Test("An existing Claude connection gains the capacity bridge")
     func upgradesConnectedInstallation() throws {
-        let helperPath = "/Users/me/Library/Application Support/Chimlo/bin/chimlo"
+        let helperPath = "/Users/me/Library/Application Support/Overhead/bin/overhead"
         let existing = Data(
             #"{"statusLine":{"type":"command","command":"/Users/me/.config/status-tools/statusline"}}"#.utf8
         )
@@ -110,12 +110,12 @@ struct ClaudeStatusLineConfigurationTests {
 
         #expect(try ClaudeStatusLineConfiguration.upgradingConnectedInstallation(
             existingData: existing,
-            helperPath: "/Users/me/Library/Application Support/Chimlo/bin/chimlo",
+            helperPath: "/Users/me/Library/Application Support/Overhead/bin/overhead",
             wrapperPath: wrapperPath
         ) == nil)
     }
 
-    @Test("Repair preserves a status line that replaced Chimlo's wrapper")
+    @Test("Repair preserves a status line that replaced Claude Overhead's wrapper")
     func repairPreservesExternalReplacement() throws {
         let installed = try ClaudeStatusLineConfiguration.merging(
             existingData: Data(

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "'/Users/YOU/Library/Application Support/Chimlo/bin/chimlo' hook claude observe # chimlo-claude-observer",
+            "command": "'/Users/YOU/Library/Application Support/Overhead/bin/overhead' hook claude observe # overhead-claude-observer",
             "async": true,
             "timeout": 2
           }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "'/Users/YOU/Library/Application Support/Chimlo/bin/chimlo' hook claude observe # chimlo-claude-observer",
+            "command": "'/Users/YOU/Library/Application Support/Overhead/bin/overhead' hook claude observe # overhead-claude-observer",
             "async": true,
             "timeout": 2
           }
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "'/Users/YOU/Library/Application Support/Chimlo/bin/chimlo' hook claude observe # chimlo-claude-observer",
+            "command": "'/Users/YOU/Library/Application Support/Overhead/bin/overhead' hook claude observe # overhead-claude-observer",
             "async": true,
             "timeout": 2
           }
@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "'/Users/YOU/Library/Application Support/Chimlo/bin/chimlo' hook claude question # chimlo-claude-question",
+            "command": "'/Users/YOU/Library/Application Support/Overhead/bin/overhead' hook claude question # overhead-claude-question",
             "timeout": 600
           }
         ]
@@ -54,7 +54,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "'/Users/YOU/Library/Application Support/Chimlo/bin/chimlo' hook claude observe # chimlo-claude-observer",
+            "command": "'/Users/YOU/Library/Application Support/Overhead/bin/overhead' hook claude observe # overhead-claude-observer",
             "async": true,
             "timeout": 2
           }
@@ -67,7 +67,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "'/Users/YOU/Library/Application Support/Chimlo/bin/chimlo' hook claude permission # chimlo-claude-permission",
+            "command": "'/Users/YOU/Library/Application Support/Overhead/bin/overhead' hook claude permission # overhead-claude-permission",
             "timeout": 600
           }
         ]
@@ -79,7 +79,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "'/Users/YOU/Library/Application Support/Chimlo/bin/chimlo' hook claude observe # chimlo-claude-observer",
+            "command": "'/Users/YOU/Library/Application Support/Overhead/bin/overhead' hook claude observe # overhead-claude-observer",
             "async": true,
             "timeout": 2
           }
@@ -91,7 +91,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "'/Users/YOU/Library/Application Support/Chimlo/bin/chimlo' hook claude observe # chimlo-claude-observer",
+            "command": "'/Users/YOU/Library/Application Support/Overhead/bin/overhead' hook claude observe # overhead-claude-observer",
             "async": true,
             "timeout": 2
           }
@@ -103,7 +103,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "'/Users/YOU/Library/Application Support/Chimlo/bin/chimlo' hook claude observe # chimlo-claude-observer",
+            "command": "'/Users/YOU/Library/Application Support/Overhead/bin/overhead' hook claude observe # overhead-claude-observer",
             "async": true,
             "timeout": 2
           }
@@ -115,7 +115,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "'/Users/YOU/Library/Application Support/Chimlo/bin/chimlo' hook claude observe # chimlo-claude-observer",
+            "command": "'/Users/YOU/Library/Application Support/Overhead/bin/overhead' hook claude observe # overhead-claude-observer",
             "timeout": 2
           }
         ]

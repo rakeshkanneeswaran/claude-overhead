@@ -396,14 +396,10 @@ struct PixelJumpMark: View {
 }
 
 enum PixelSystemGlyphKind: Equatable {
-    case speaker
-    case mutedSpeaker
-    case sun
-    case music
     case warning
 }
 
-/// Chimlo-owned 7x7 system glyphs. These share the avatar's square-pixel
+/// Claude Overhead-owned 7x7 system glyphs. These share the avatar's square-pixel
 /// construction instead of imitating macOS or another notch app's symbols.
 struct PixelSystemGlyph: View {
     let kind: PixelSystemGlyphKind
@@ -440,14 +436,6 @@ struct PixelSystemGlyph: View {
 
     private var spriteRows: [[Character]] {
         let encoded = switch kind {
-        case .speaker:
-            "0010000/0110100/1110010/1110001/1110010/0110100/0010000"
-        case .mutedSpeaker:
-            "0010001/0110010/1110100/1110000/1110100/0110010/0010001"
-        case .sun:
-            "0010100/1001001/0111110/0011100/0111110/1001001/0010100"
-        case .music:
-            "0011110/0010010/0010010/0010010/1110111/1110111/0100010"
         case .warning:
             "0001000/0010100/0011100/0101010/0100010/1001001/1111111"
         }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// A Chimlo-only visibility marker. It records when the owner archived a row,
+/// A Claude Overhead-only visibility marker. It records when the owner archived a row,
 /// never the conversation itself, and cannot mutate the provider session.
 public struct SessionArchiveMarker: Equatable, Sendable {
     public let archivedAt: Date

@@ -244,7 +244,7 @@ public enum ChimloFrameCodec {
         do {
             envelope = try decoder.decode(ChimloEnvelope.self, from: frame.dropFirst(headerBytes))
         } catch {
-            throw ChimloProtocolError.invalidFrame("Payload is not a valid Chimlo envelope")
+            throw ChimloProtocolError.invalidFrame("Payload is not a valid Claude Overhead envelope")
         }
 
         guard envelope.protocolVersion == RuntimeDescriptor.currentProtocolVersion else {

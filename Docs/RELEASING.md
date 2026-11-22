@@ -1,11 +1,11 @@
-# Chimlo release procedure
+# Claude Overhead release procedure
 
-Chimlo's public release is built on one trusted Mac. GitHub stores and serves
+Claude Overhead's public release is built on one trusted Mac. GitHub stores and serves
 the exact DMG and appcast produced there. GitHub Actions does not rebuild or
 re-sign either file.
 
 This procedure uses a long-lived self-signed code-signing certificate because
-Chimlo does not have an Apple Developer Program membership. It preserves a
+Claude Overhead does not have an Apple Developer Program membership. It preserves a
 stable designated requirement across releases, but it does not provide Apple
 notarization or normal Gatekeeper trust. New users may still need **Open
 Anyway** on first launch.
@@ -18,14 +18,14 @@ overwrites an existing backup.
 
 ```sh
 make release-signing-identity \
-  BACKUP_ONE="/Volumes/Backup-A/Chimlo-Release.p12" \
-  BACKUP_TWO="/Volumes/Backup-B/Chimlo-Release.p12"
+  BACKUP_ONE="/Volumes/Backup-A/Overhead-Release.p12" \
+  BACKUP_TWO="/Volumes/Backup-B/Overhead-Release.p12"
 ```
 
 Choose a strong backup password of at least 16 characters when prompted. Store
 that password separately from both backup devices. The command creates:
 
-- one exportable, long-lived `Chimlo Release` identity in a dedicated local
+- one exportable, long-lived `Claude Overhead Release` identity in a dedicated local
   keychain;
 - two encrypted, byte-verified `.p12` backups and SHA-256 sidecars;
 - `Packaging/Signing/ChimloRelease.cer`, the public certificate that must be
@@ -35,7 +35,7 @@ Never commit a `.p12`, private key, keychain password, or Sparkle private key.
 
 If you prefer a generated password, run the setup command with
 `CHIMLO_GENERATE_RELEASE_P12_PASSWORD=1`. The generated value is saved under
-the Keychain service `dev.chimlo.release-signing-backup` and is never printed.
+the Keychain service `com.rakesh.overhead.release-signing-backup` and is never printed.
 Copy it from Keychain Access into a separate password manager. A password kept
 only on the release Mac cannot recover offline backups after that Mac is lost.
 
@@ -55,17 +55,17 @@ Review and commit these two public files before creating the first tag:
 
 ```text
 Packaging/Signing/ChimloRelease.cer
-Packaging/Signing/ChimloRelease.designated-requirement
+Packaging/Signing/OverheadRelease.designated-requirement
 ```
 
-The first update from an older ad-hoc-signed Chimlo build to this stable
-self-signed identity may require the user to grant Accessibility permission
-again. Subsequent builds signed by this same certificate should continue to
+The first update from an older ad-hoc-signed Claude Overhead build to this stable
+self-signed identity may make macOS ask again for permissions the app was
+granted earlier, such as Automation for jumping back to a terminal. Subsequent builds signed by this same certificate should continue to
 satisfy the frozen requirement.
 
 ## Test an update without publishing
 
-Quit any earlier `Chimlo Update Test` app, then run:
+Quit any earlier `Claude Overhead Update Test` app, then run:
 
 ```sh
 make update-test
@@ -85,10 +85,10 @@ Keep the command running while the update downloads. Press Control-C afterward
 to stop the local server. The final interrupted `make` message is expected.
 
 The harness uses the separate bundle identifier
-`dev.chimlo.mac.update-test` and stores generated files under
-`dist/update-test/`. It starts only Settings and Sparkle, so it does not prompt
-for Accessibility access, modify agent integrations, use production Sparkle
-preferences, alter `dist/Chimlo.app`, or change the production feed. Each run
+`com.rakesh.overhead.update-test` and stores generated files under
+`dist/update-test/`. It starts only Settings and Sparkle, so it does not modify
+agent integrations, use production Sparkle
+preferences, alter `dist/Claude Overhead.app`, or change the production feed. Each run
 resets only the update-test preference domain before launch.
 
 The same release certificate and Sparkle EdDSA key used for public artifacts
@@ -103,11 +103,11 @@ from a clean worktree. The tag must already exist and point at the checked-out
 commit.
 
 ```sh
-git tag -a v0.1.0 -m "Chimlo 0.1.0"
+git tag -a v0.1.0 -m "Claude Overhead 0.1.0"
 make release TAG=v0.1.0 BUILD_NUMBER=1
 ```
 
-The command runs checks and tests, builds `dev.chimlo.mac`, verifies the frozen
+The command runs checks and tests, builds `com.rakesh.overhead`, verifies the frozen
 designated requirement, makes the final DMG, generates and verifies the signed
 Sparkle appcast from that exact DMG, and records checksums and a manifest under:
 
@@ -137,7 +137,7 @@ notes. It refuses to overwrite an existing release. Review the notes and exact
 artifacts before publishing it.
 
 The Sparkle private EdDSA key remains in the trusted Mac's Keychain under the
-account `dev.chimlo.mac`. It is not copied to GitHub Actions.
+account `com.rakesh.overhead`. It is not copied to GitHub Actions.
 
 ## Restore on another Mac
 
@@ -145,7 +145,7 @@ Copy one `.p12` backup and its `.sha256` sidecar to the replacement Mac, then
 run:
 
 ```sh
-make release-signing-restore BACKUP="/Volumes/Backup-A/Chimlo-Release.p12"
+make release-signing-restore BACKUP="/Volumes/Backup-A/Overhead-Release.p12"
 ```
 
 On the original release Mac, prefix that command with
@@ -159,8 +159,8 @@ another release.
 
 ## Invariants
 
-- Keep the release bundle identifier fixed at `dev.chimlo.mac`.
-- Sign every public `Chimlo.app` with the same `Chimlo Release` certificate.
+- Keep the release bundle identifier fixed at `com.rakesh.overhead`.
+- Sign every public `Claude Overhead.app` with the same `Claude Overhead Release` certificate.
 - Keep both encrypted `.p12` backups and their password recoverable.
 - Keep the frozen designated requirement under version control.
 - Generate the Sparkle appcast only after the final DMG exists.

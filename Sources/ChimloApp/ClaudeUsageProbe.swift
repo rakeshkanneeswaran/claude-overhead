@@ -17,7 +17,7 @@ enum ClaudeUsageProbeError: Error, LocalizedError {
         case .executableUnavailable:
             "Claude Code is not installed in a known location"
         case .terminalUnavailable:
-            "Chimlo could not create a terminal for Claude Code"
+            "Claude Overhead could not create a terminal for Claude Code"
         case let .launchFailed(reason):
             "Claude Code usage probe could not start: \(reason)"
         case .timedOut:
@@ -34,7 +34,7 @@ enum ClaudeUsageProbeError: Error, LocalizedError {
 /// items, cookies, or private HTTP endpoints are read by this probe.
 actor ClaudeUsageProbe {
     static let workingDirectoryName = "Claude Usage Probe"
-    private static let sessionIDFilename = ".chimlo-session-id"
+    private static let sessionIDFilename = ".overhead-session-id"
 
     private let fileManager: FileManager
     private let environment: [String: String]
@@ -130,6 +130,9 @@ actor ClaudeUsageProbe {
         var answeredSafetyPrompt = false
         var acceptedUsageMenuItem = false
         var lastEnterAt = startedAt
+        var answeredQueries: [String: Int] = [:]
+        var lastReplyAt = Date.distantPast
+        var lastTrustKeyAt = Date.distantPast
 
         while !Task.isCancelled, process.isRunning {
             let chunk = readAvailable(from: primary)
@@ -139,26 +142,52 @@ actor ClaudeUsageProbe {
             }
 
             let text = String(decoding: output, as: UTF8.self)
-            let folded = text.lowercased()
+            let screen = ClaudeProbeScreen.compact(text)
+            let now = Date.now
 
-            if !answeredTrustPrompt,
-               folded.contains("do you trust the files in this folder") {
+            // Claude ignores keys until its terminal queries are answered.
+            for reply in ClaudeProbeScreen.pendingReplies(in: text, answered: &answeredQueries) {
+                write(reply, to: primary)
+                lastReplyAt = now
+            }
+            let repliesSettled = now.timeIntervalSince(lastReplyAt) >= 1
+
+            if !answeredTrustPrompt, screen.contains("doyoutrustthefilesinthisfolder") {
                 write("y\r", to: primary)
                 answeredTrustPrompt = true
             }
-            if !answeredSafetyPrompt,
-               folded.contains("quick safety check")
-                || folded.contains("yes, i trust")
-                || folded.contains("ready to code here")
-                || folded.contains("press enter") {
-                write("\r", to: primary)
-                answeredSafetyPrompt = true
+
+            // The trust dialog highlights "No, exit" first, so a blind Enter
+            // quits. Move to "Yes, I trust this folder" and only then confirm.
+            let trustChoice = ClaudeProbeScreen.highlightedTrustChoice(in: text)
+            switch trustChoice {
+            case .exit?:
+                if repliesSettled, now.timeIntervalSince(lastTrustKeyAt) >= 0.6 {
+                    write("\u{001B}[B", to: primary)
+                    lastTrustKeyAt = now
+                }
+            case .trust?:
+                if repliesSettled, now.timeIntervalSince(lastTrustKeyAt) >= 0.6 {
+                    write("\r", to: primary)
+                    lastTrustKeyAt = now
+                }
+            case nil:
+                if !answeredSafetyPrompt,
+                   screen.contains("readytocodehere") || screen.contains("pressenter") {
+                    write("\r", to: primary)
+                    answeredSafetyPrompt = true
+                }
             }
-            if folded.contains("\u{001B}[6n") {
-                write("\u{001B}[1;1R", to: primary)
+            if trustChoice != nil {
+                // Anything typed into the dialog is lost; type /usage again after it.
+                sentUsageCommand = false
             }
 
-            if !sentUsageCommand, Date.now.timeIntervalSince(startedAt) >= 2 {
+            if !sentUsageCommand,
+               trustChoice == nil,
+               repliesSettled,
+               now.timeIntervalSince(startedAt) >= 2,
+               now.timeIntervalSince(lastTrustKeyAt) >= 1.5 {
                 write("/usage\r", to: primary)
                 sentUsageCommand = true
                 lastOutputAt = .now
@@ -166,8 +195,7 @@ actor ClaudeUsageProbe {
 
             if sentUsageCommand,
                !acceptedUsageMenuItem,
-               (folded.contains("show plan usage limits")
-                || folded.contains("plan usage")) {
+               screen.contains("showplanusagelimits") || screen.contains("planusage") {
                 write("\r", to: primary)
                 acceptedUsageMenuItem = true
                 lastOutputAt = .now
@@ -177,9 +205,10 @@ actor ClaudeUsageProbe {
             // confirms the selected `/usage` palette item and lets the panel
             // settle, matching the provider's own interactive workflow.
             if sentUsageCommand,
-               Date.now.timeIntervalSince(lastEnterAt) >= 0.8 {
+               trustChoice == nil,
+               now.timeIntervalSince(lastEnterAt) >= 0.8 {
                 write("\r", to: primary)
-                lastEnterAt = .now
+                lastEnterAt = now
             }
 
             if sentUsageCommand,
@@ -192,8 +221,16 @@ actor ClaudeUsageProbe {
                 return snapshot
             }
 
-            let now = Date.now
             if now.timeIntervalSince(startedAt) >= timeout {
+                // The usage panel keeps refreshing ("Scanning local sessions"),
+                // so output may never go idle. Use whatever windows it showed.
+                if sentUsageCommand,
+                   let snapshot = ProviderCapacityParser.claudeUsagePanel(
+                       text,
+                       observedAt: observedAt
+                   ) {
+                    return snapshot
+                }
                 throw ClaudeUsageProbeError.timedOut
             }
             if sentUsageCommand,
@@ -223,31 +260,17 @@ actor ClaudeUsageProbe {
 
     static func workingDirectoryURL(fileManager: FileManager = .default) -> URL {
         fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Chimlo", isDirectory: true)
+            .appendingPathComponent("Library/Application Support/Overhead", isDirectory: true)
             .appendingPathComponent(workingDirectoryName, isDirectory: true)
     }
 
     private func resolveExecutable() -> URL? {
-        var candidates: [String] = []
-        if let path = environment["PATH"] {
-            candidates.append(contentsOf: path.split(separator: ":").map {
-                URL(fileURLWithPath: String($0), isDirectory: true)
-                    .appendingPathComponent("claude")
-                    .path
-            })
-        }
-        let home = fileManager.homeDirectoryForCurrentUser
-        candidates.append(contentsOf: [
-            "/opt/homebrew/bin/claude",
-            "/usr/local/bin/claude",
-            home.appendingPathComponent(".local/bin/claude").path,
-            home.appendingPathComponent(".claude/local/claude").path,
-        ])
-
-        var seen = Set<String>()
-        return candidates.first { path in
-            seen.insert(path).inserted && fileManager.isExecutableFile(atPath: path)
-        }.map { URL(fileURLWithPath: $0) }
+        ClaudeCodeLocator.executableCandidates(
+            home: fileManager.homeDirectoryForCurrentUser.path,
+            path: environment["PATH"]
+        )
+        .first { fileManager.isExecutableFile(atPath: $0) }
+        .map { URL(fileURLWithPath: $0) }
     }
 
     private func probeEnvironment() -> [String: String] {

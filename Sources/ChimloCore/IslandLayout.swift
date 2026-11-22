@@ -65,7 +65,7 @@ public struct IslandLayout: Equatable, Sendable {
             )
         }
 
-        // The physical camera housing occupies the middle of this window. Chimlo
+        // The physical camera housing occupies the middle of this window. Claude Overhead
         // paints one interactive activity wing on either side, then grows from
         // that exact silhouette below the hardware when expanded.
         let activityWingWidth: CGFloat = 32
@@ -97,7 +97,8 @@ public struct ExpandedIslandSilhouette: Equatable, Sendable {
 
 public enum IslandCollapsePolicy {
     public static let hoverDelayMilliseconds = 500
-    public static let completionHoldMilliseconds = 5_000
+    public static let completionGlowSeconds: TimeInterval = 2.5
+    public static let completionGlowFadeSeconds: TimeInterval = 0.8
     public static let completionDetailLifetimeSeconds: TimeInterval = 120
 
     public static func shouldCollapse(

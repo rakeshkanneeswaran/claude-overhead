@@ -5,7 +5,7 @@ SCRIPT_DIR="${0:A:h}"
 source "$SCRIPT_DIR/signing-common.sh"
 
 IDENTITY="$CHIMLO_LOCAL_SIGNING_IDENTITY_DEFAULT"
-ROOT_IDENTITY="Chimlo Local Signing Root"
+ROOT_IDENTITY="Claude Overhead Local Signing Root"
 KEYCHAIN_PATH="$CHIMLO_LOCAL_SIGNING_KEYCHAIN_DEFAULT"
 TRUST_KEYCHAIN="${CHIMLO_LOCAL_SIGNING_TRUST_KEYCHAIN:-$HOME/Library/Keychains/login.keychain-db}"
 PASSWORD_FILE="$CHIMLO_LOCAL_SIGNING_PASSWORD_FILE_DEFAULT"
@@ -13,11 +13,11 @@ PASSWORD_DIR="${PASSWORD_FILE:h}"
 OPENSSL_BIN="${CHIMLO_OPENSSL_BIN:-$(command -v openssl)}"
 
 if [[ -z "$OPENSSL_BIN" ]]; then
-  print -u2 "OpenSSL is required to create Chimlo's local signing identity."
+  print -u2 "OpenSSL is required to create Claude Overhead's local signing identity."
   exit 1
 fi
 
-TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/chimlo-local-signing.XXXXXX")"
+TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/overhead-local-signing.XXXXXX")"
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
 repair_trust_and_validate() {
@@ -61,7 +61,7 @@ repair_trust_and_validate() {
 
 if [[ -f "$KEYCHAIN_PATH" || -f "$PASSWORD_FILE" ]]; then
   if [[ ! -f "$KEYCHAIN_PATH" || ! -f "$PASSWORD_FILE" ]]; then
-    print -u2 "Chimlo found an incomplete signing setup."
+    print -u2 "Claude Overhead found an incomplete signing setup."
     print -u2 "Expected both:"
     print -u2 "  $KEYCHAIN_PATH"
     print -u2 "  $PASSWORD_FILE"
@@ -71,12 +71,12 @@ if [[ -f "$KEYCHAIN_PATH" || -f "$PASSWORD_FILE" ]]; then
 
   EXISTING_PASSWORD="$(<"$PASSWORD_FILE")"
   if repair_trust_and_validate "$EXISTING_PASSWORD"; then
-    print "Chimlo's local signing identity is ready."
+    print "Claude Overhead's local signing identity is ready."
     print "$KEYCHAIN_PATH"
     exit 0
   fi
 
-  print -u2 "The existing Chimlo signing keychain could not be repaired."
+  print -u2 "The existing Claude Overhead signing keychain could not be repaired."
   print -u2 "No existing keychain or password file was removed."
   exit 1
 fi
@@ -114,7 +114,7 @@ fi
   -x509 \
   -sha256 \
   -days 3650 \
-  -subj "/CN=$ROOT_IDENTITY/O=Chimlo/OU=Local Code Signing" \
+  -subj "/CN=$ROOT_IDENTITY/O=Claude Overhead/OU=Local Code Signing" \
   -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
   -addext "keyUsage=critical,keyCertSign,cRLSign" \
   -addext "subjectKeyIdentifier=hash" \
@@ -126,12 +126,12 @@ fi
   -newkey rsa:3072 \
   -nodes \
   -sha256 \
-  -subj "/CN=$IDENTITY/O=Chimlo/OU=Local Code Signing" \
+  -subj "/CN=$IDENTITY/O=Claude Overhead/OU=Local Code Signing" \
   -keyout "$PRIVATE_KEY_PATH" \
   -out "$CERTIFICATE_REQUEST_PATH"
 
 printf '%s\n' \
-  '[chimlo_code_signing]' \
+  '[overhead_code_signing]' \
   'basicConstraints=critical,CA:FALSE' \
   'keyUsage=critical,digitalSignature' \
   'extendedKeyUsage=critical,codeSigning' \
@@ -148,7 +148,7 @@ printf '%s\n' \
   -days 3650 \
   -sha256 \
   -extfile "$CERTIFICATE_EXTENSIONS_PATH" \
-  -extensions chimlo_code_signing \
+  -extensions overhead_code_signing \
   -out "$CERTIFICATE_PATH"
 
 "$OPENSSL_BIN" pkcs12 \
@@ -175,5 +175,5 @@ if ! repair_trust_and_validate "$KEYCHAIN_PASSWORD"; then
   exit 1
 fi
 
-print "Created Chimlo's dedicated local signing identity."
+print "Created Claude Overhead's dedicated local signing identity."
 print "$KEYCHAIN_PATH"

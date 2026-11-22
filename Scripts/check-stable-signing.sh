@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
-SOURCE_APP="$PROJECT_DIR/dist/Chimlo Dev.app"
+SOURCE_APP="$PROJECT_DIR/dist/Claude Overhead Dev.app"
 source "$SCRIPT_DIR/signing-common.sh"
 
 if [[ ! -d "$SOURCE_APP" ]]; then
@@ -11,14 +11,14 @@ if [[ ! -d "$SOURCE_APP" ]]; then
   exit 1
 fi
 
-chimlo_configure_signing
+overhead_configure_signing
 if [[ "$CHIMLO_SIGNING_MODE" == "adhoc" ]]; then
   print -u2 "Stable-signing check requires a real signing identity."
   print -u2 "Run: make signing-identity"
   exit 1
 fi
 
-TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/chimlo-signing-check.XXXXXX")"
+TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/overhead-signing-check.XXXXXX")"
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
 FIRST_APP="$TEMP_DIR/First.app"
@@ -29,8 +29,8 @@ cp -R "$SOURCE_APP" "$SECOND_APP"
 mkdir -p "$SECOND_APP/Contents/Resources"
 print -r -- "different signed payload" > "$SECOND_APP/Contents/Resources/signing-check.txt"
 
-chimlo_sign_app_bundle "$FIRST_APP"
-chimlo_sign_app_bundle "$SECOND_APP"
+overhead_sign_app_bundle "$FIRST_APP"
+overhead_sign_app_bundle "$SECOND_APP"
 
 requirement_for() {
   /usr/bin/codesign -d -r- "$1" 2>&1 | /usr/bin/sed -n 's/^designated => //p'
@@ -67,7 +67,7 @@ if [[ -z "$FIRST_CDHASH" || -z "$SECOND_CDHASH" || "$FIRST_CDHASH" == "$SECOND_C
   exit 1
 fi
 
-print "PASS: Chimlo's designated requirement stays stable across different builds."
+print "PASS: Claude Overhead's designated requirement stays stable across different builds."
 print "Requirement: $FIRST_REQUIREMENT"
 print "CDHash A: $FIRST_CDHASH"
 print "CDHash B: $SECOND_CDHASH"

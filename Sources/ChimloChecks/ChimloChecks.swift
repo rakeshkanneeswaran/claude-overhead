@@ -23,7 +23,7 @@ enum ChimloChecks {
             await suite.run()
         }
         if suite.failures.isEmpty {
-            print("\nAll \(suite.passes) Chimlo checks passed.")
+            print("\nAll \(suite.passes) Claude Overhead checks passed.")
         } else {
             FileHandle.standardError.write(
                 Data("\n\(suite.failures.count) check(s) failed:\n\(suite.failures.joined(separator: "\n"))\n".utf8)
@@ -41,7 +41,6 @@ private struct CheckSuite {
         notchLayout()
         appUpdatePresentation()
         sessionListLayout()
-        systemFeedback()
         hookPrivacyMapping()
         transcriptMetadataPrivacy()
         modelDisplayNames()
@@ -49,7 +48,6 @@ private struct CheckSuite {
         sessionDiscoveryRetention()
         sessionVisibility()
         sessionArchiveVisibility()
-        codexHookConfiguration()
         claudeHookConfiguration()
         coreLifecycle()
         coreOrderingAndDeduplication()
@@ -63,7 +61,6 @@ private struct CheckSuite {
     mutating func runLayoutOnly() {
         notchLayout()
         appUpdatePresentation()
-        systemFeedback()
     }
 
     mutating func appUpdatePresentation() {
@@ -75,7 +72,7 @@ private struct CheckSuite {
         expect(presentation.isActionable, "available update is a one-click action")
         let completedCheck = AppUpdatePresentation(phase: .upToDate)
         expect(
-            completedCheck.statusText == "Chimlo is up to date",
+            completedCheck.statusText == "Claude Overhead is up to date",
             "a completed update check keeps a visible result"
         )
         expect(
@@ -148,26 +145,6 @@ private struct CheckSuite {
                 isDisclosureContextActive: true
             ) == 158,
             "a short revealed list does not reserve empty disclosure space"
-        )
-    }
-
-    mutating func systemFeedback() {
-        let volume = SystemFeedbackPresentation(
-            kind: .outputVolume,
-            value: 0.5
-        )
-        expect(volume.percentage == 50, "system feedback exposes an exact percentage")
-        expect(
-            volume.accessibilityDescription == "Output volume 50 percent",
-            "system feedback announces the exact percentage"
-        )
-        expect(
-            SystemFeedbackPolicy.meterFillWidth(for: volume.value, trackWidth: 23) == 11.5,
-            "system feedback fills the pixel meter to the exact value"
-        )
-        expect(
-            SystemFeedbackPolicy.adjustedValue(from: 0.5, direction: 1, fine: false) == 0.5625,
-            "system feedback uses native-sized coarse steps"
         )
     }
 
@@ -314,27 +291,22 @@ private struct CheckSuite {
             ),
             "repeated completion does not replay feedback"
         )
-        expect(
-            IslandCollapsePolicy.completionHoldMilliseconds
-                > IslandCollapsePolicy.hoverDelayMilliseconds,
-            "completion remains readable longer than hover expansion"
-        )
     }
 
     mutating func hookPrivacyMapping() {
         let payload = Data(
-            #"{"session_id":"codex-local-1","hook_event_name":"PermissionRequest","cwd":"/Users/example/Projects/chimlo","model":"gpt-local","tool_name":"Bash","prompt":"DO NOT RETAIN THIS PROMPT","transcript_path":"/private/secret/transcript.jsonl","tool_input":{"command":"DO NOT RETAIN THIS COMMAND"}}"#.utf8
+            #"{"session_id":"claude-local-1","hook_event_name":"PreToolUse","cwd":"/Users/example/Projects/overhead","model":"claude-local","tool_name":"Bash","prompt":"DO NOT RETAIN THIS PROMPT","transcript_path":"/private/secret/transcript.jsonl","tool_input":{"command":"DO NOT RETAIN THIS COMMAND"}}"#.utf8
         )
 
         do {
             let event = try PrivacySafeHookMapper.event(
                 from: payload,
-                source: .codex,
+                source: .claude,
                 timestamp: Date(timeIntervalSince1970: 1_785_000_000)
             )
-            expect(event?.kind == .permissionRequested, "Codex permission hook maps to waiting state")
-            expect(event?.sequence == 0, "provider hook sequencing is delegated to Chimlo")
-            expect(event?.title == "chimlo", "hook exposes only the local project basename")
+            expect(event?.kind == .activity, "Claude tool hook maps to working activity")
+            expect(event?.sequence == 0, "provider hook sequencing is delegated to Claude Overhead")
+            expect(event?.title == "overhead", "hook exposes only the local project basename")
 
             let encoded = event.flatMap { try? JSONEncoder().encode($0) }
                 .map { String(decoding: $0, as: UTF8.self) } ?? ""
@@ -350,14 +322,14 @@ private struct CheckSuite {
         let marker = SessionArchiveMarker(archivedAt: archivedAt)
         let stale = SessionCandidate(
             id: "archive-check",
-            agent: .codex,
+            agent: .claude,
             title: "Archive check",
             detail: "Working",
             latestUserPrompt: "Same message",
             latestConversationUpdatedAt: archivedAt,
             phase: .working,
             updatedAt: archivedAt,
-            evidence: .codexRollout
+            evidence: .claudeTranscript
         )
         var newer = stale
         newer.latestConversationUpdatedAt = archivedAt.addingTimeInterval(1)
@@ -369,7 +341,7 @@ private struct CheckSuite {
                 sessionID: stale.id,
                 sequence: 1,
                 kind: .activity,
-                agent: .codex,
+                agent: .claude,
                 timestamp: archivedAt.addingTimeInterval(1)
             )),
             "tool activity does not restore an archived session"
@@ -379,7 +351,7 @@ private struct CheckSuite {
                 sessionID: stale.id,
                 sequence: 2,
                 kind: .sessionStarted,
-                agent: .codex,
+                agent: .claude,
                 timestamp: archivedAt.addingTimeInterval(1)
             )),
             "a lifecycle restart does not restore an archived session"
@@ -389,95 +361,27 @@ private struct CheckSuite {
                 sessionID: stale.id,
                 sequence: 3,
                 kind: .permissionRequested,
-                agent: .codex,
+                agent: .claude,
                 timestamp: archivedAt.addingTimeInterval(1)
             )),
             "an approval request restores an archived session"
         )
     }
 
-    mutating func codexHookConfiguration() {
-        let helperPath = "/Users/example/Library/Application Support/Chimlo/bin/chimlo"
-        let existing = Data(
-            #"{"description":"keep","hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"existing-observer"}]}],"Unrelated":[{"hooks":[{"type":"command","command":"leave-this-alone"}]}]}}"#.utf8
-        )
-
-        do {
-            let merged = try CodexHookConfiguration.merging(
-                existingData: existing,
-                helperPath: helperPath
-            )
-            expect(merged.changed, "Codex observer merge reports a change")
-            let installedState = try CodexHookConfiguration.installationState(
-                in: merged.data,
-                helperPath: helperPath
-            )
-            expect(
-                installedState == .current,
-                "Codex observer merge covers every activity event"
-            )
-            let mergedText = String(decoding: merged.data, as: UTF8.self)
-            expect(mergedText.contains("leave-this-alone"), "Codex observer merge preserves unrelated hooks")
-
-            let repeated = try CodexHookConfiguration.merging(
-                existingData: merged.data,
-                helperPath: helperPath
-            )
-            expect(!repeated.changed && repeated.data == merged.data, "Codex observer merge is idempotent")
-
-            let movedState = try CodexHookConfiguration.installationState(
-                in: merged.data,
-                helperPath: "/tmp/Moved Chimlo.app/Contents/Helpers/chimlo"
-            )
-            expect(movedState == .needsRepair, "a moved Chimlo app is reported for repair")
-
-            let removed = try CodexHookConfiguration.removing(existingData: merged.data)
-            let removedText = String(decoding: removed.data, as: UTF8.self)
-            expect(
-                removed.changed && removedText.contains("existing-observer")
-                    && !removedText.contains(CodexHookConfiguration.marker),
-                "Codex observer removal is marker scoped"
-            )
-        } catch {
-            failures.append("FAIL  Codex observer configuration: \(error)")
-        }
-    }
-
     mutating func transcriptMetadataPrivacy() {
-        var codex = PrivacySafeSessionMetadataScanner(provider: .codex)
-        codex.consume(line: Data(
-            #"{"type":"session_meta","timestamp":"2026-07-20T13:00:00.123Z","payload":{"id":"codex-transcript-1","cwd":"/Users/example/Projects/chimlo","model":"gpt-local","prompt":"DO NOT RETAIN CODEX PROMPT"}}"#.utf8
-        ))
-        codex.consume(line: Data(
-            #"{"type":"event_msg","timestamp":"2026-07-20T13:01:00.456Z","payload":{"type":"task_started","tool_input":{"command":"DO NOT RETAIN CODEX TOOL"}}}"#.utf8
-        ))
-        codex.consume(line: Data(
-            #"{"type":"event_msg","timestamp":"2026-07-20T13:01:01.456Z","payload":{"type":"user_message","message":"Polish the expanded session row"}}"#.utf8
-        ))
-        codex.consume(line: Data(
-            #"{"type":"event_msg","timestamp":"2026-07-20T13:01:02.456Z","payload":{"type":"agent_message","message":"Implemented the compact three-line layout."}}"#.utf8
-        ))
-        let codexCandidate = codex.candidate(
-            transcriptPath: "/private/codex-rollout.jsonl",
-            fallbackUpdatedAt: .distantPast
-        )
-        expect(codexCandidate?.phase == .working, "Codex rollout lifecycle maps to working")
-        expect(codexCandidate?.updatedAt != .distantPast, "fractional Codex timestamps are parsed")
-        expect(codexCandidate?.latestUserPrompt == "Polish the expanded session row", "Codex user prompt is projected")
-        expect(codexCandidate?.latestAgentResponse == "Implemented the compact three-line layout.", "Codex response is projected")
-
-        var claude = PrivacySafeSessionMetadataScanner(provider: .claude)
+        var claude = PrivacySafeSessionMetadataScanner()
         claude.consume(line: Data(
-            #"{"sessionId":"claude-transcript-1","cwd":"/Users/example/Projects/chimlo","timestamp":"2026-07-20T13:02:00.789Z","type":"assistant","message":{"role":"assistant","model":"claude-local","content":"Implemented the compact three-line layout."},"toolUseResult":"DO NOT RETAIN CLAUDE TOOL"}"#.utf8
+            #"{"sessionId":"claude-transcript-1","cwd":"/Users/example/Projects/overhead","timestamp":"2026-07-20T13:02:00.789Z","type":"assistant","message":{"role":"assistant","model":"claude-local","content":"Implemented the compact three-line layout."},"toolUseResult":"DO NOT RETAIN CLAUDE TOOL"}"#.utf8
         ))
         let claudeCandidate = claude.candidate(
             transcriptPath: "/private/claude-transcript.jsonl",
             fallbackUpdatedAt: .distantPast
         )
         expect(claudeCandidate?.phase == .working, "Claude transcript lifecycle maps to working")
+        expect(claudeCandidate?.updatedAt != .distantPast, "fractional Claude timestamps are parsed")
         expect(claudeCandidate?.latestAgentResponse == "Implemented the compact three-line layout.", "Claude response is projected")
 
-        let encoded = [codexCandidate, claudeCandidate].compactMap { $0 }
+        let encoded = [claudeCandidate].compactMap { $0 }
             .compactMap { try? JSONEncoder().encode($0) }
             .map { String(decoding: $0, as: UTF8.self) }
             .joined()
@@ -501,27 +405,12 @@ private struct CheckSuite {
             ) == "Opus 4.8",
             "Claude minor versions use a readable decimal"
         )
-        expect(
-            ModelDisplayName.resolve(
-                modelID: "gpt-5.6-sol",
-                agent: .codex,
-                providerDisplayName: "GPT-5.6-Sol"
-            ) == "5.6 Sol",
-            "Codex catalog names stay compact beside the provider label"
-        )
-        expect(
-            ModelDisplayName.resolve(
-                modelID: "gpt-5.3-codex-spark",
-                agent: .codex
-            ) == "5.3 Codex Spark",
-            "Codex compound model families remain readable"
-        )
     }
 
     mutating func sessionVisibility() {
         expect(
             !SessionVisibilityPolicy.shouldDisplay(
-                title: "chimlo",
+                title: "overhead",
                 titleKind: .workspace,
                 isDemo: false,
                 hasActionableRequest: false
@@ -530,37 +419,13 @@ private struct CheckSuite {
         )
         expect(
             SessionVisibilityPolicy.shouldDisplay(
-                title: "chimlo",
+                title: "overhead",
                 titleKind: .workspace,
                 isDemo: false,
                 hasActionableRequest: false,
                 hasConversationPreview: true
             ),
             "a response-backed Claude workspace session remains visible"
-        )
-        expect(
-            !SessionVisibilityPolicy.shouldDisplay(
-                title: "Review recent changes",
-                titleKind: .task,
-                isDemo: false,
-                hasActionableRequest: false,
-                hasConversationPreview: true,
-                agent: .codex,
-                model: "codex-auto-review"
-            ),
-            "Codex Auto Review sessions stay hidden"
-        )
-        expect(
-            SessionVisibilityPolicy.shouldDisplay(
-                title: "Review recent changes",
-                titleKind: .task,
-                isDemo: false,
-                hasActionableRequest: false,
-                hasConversationPreview: true,
-                agent: .codex,
-                model: "gpt-5.6-sol"
-            ),
-            "ordinary Codex sessions remain visible"
         )
         expect(
             SessionVisibilityPolicy.shouldDisplay(
@@ -582,7 +447,7 @@ private struct CheckSuite {
         )
         expect(
             SessionVisibilityPolicy.shouldDisplay(
-                title: "chimlo",
+                title: "overhead",
                 titleKind: .workspace,
                 isDemo: false,
                 hasActionableRequest: true
@@ -592,7 +457,7 @@ private struct CheckSuite {
     }
 
     mutating func claudeHookConfiguration() {
-        let helperPath = "/Users/example/Library/Application Support/Chimlo/bin/chimlo"
+        let helperPath = "/Users/example/Library/Application Support/Overhead/bin/overhead"
         let existing = Data(
             #"{"theme":"dark","hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"existing-observer"}]}],"Unrelated":[{"hooks":[{"type":"command","command":"leave-this-alone"}]}]}}"#.utf8
         )
@@ -636,7 +501,7 @@ private struct CheckSuite {
 
             let movedState = try ClaudeHookConfiguration.installationState(
                 in: merged.data,
-                helperPath: "/tmp/moved/chimlo"
+                helperPath: "/tmp/moved/overhead"
             )
             expect(movedState == .needsRepair, "a stale Claude helper path is reported for repair")
 
@@ -669,7 +534,7 @@ private struct CheckSuite {
             sessionID: "checks-core",
             sequence: 1,
             kind: .sessionStarted,
-            agent: .codex,
+            agent: .claude,
             title: "Check the reducer",
             detail: "Starting"
         )
@@ -677,7 +542,7 @@ private struct CheckSuite {
             sessionID: "checks-core",
             sequence: 2,
             kind: .permissionRequested,
-            agent: .codex,
+            agent: .claude,
             detail: "Waiting",
             request: .approval(.init(id: "checks-approval", summary: "Run a harmless check?"))
         )
@@ -685,7 +550,7 @@ private struct CheckSuite {
             sessionID: "checks-core",
             sequence: 3,
             kind: .completed,
-            agent: .codex,
+            agent: .claude,
             detail: "Done"
         )
 
@@ -726,7 +591,7 @@ private struct CheckSuite {
             sessionID: "candidate-merge",
             sequence: 1,
             kind: .sessionStarted,
-            agent: .codex,
+            agent: .claude,
             title: "Workspace",
             detail: "Working"
         ))
@@ -734,31 +599,31 @@ private struct CheckSuite {
             sessionID: "candidate-merge",
             sequence: 2,
             kind: .permissionRequested,
-            agent: .codex,
+            agent: .claude,
             detail: "Approval needed",
-            request: .approval(.init(id: "approval-1", summary: "Continue in Codex"))
+            request: .approval(.init(id: "approval-1", summary: "Continue in Claude"))
         ))
         _ = reducer.merge(SessionCandidate(
             id: "candidate-merge",
-            agent: .codex,
-            title: "Named Codex task",
+            agent: .claude,
+            title: "Named Claude task",
             titleKind: .task,
-            detail: "Recent Codex activity",
+            detail: "Recent Claude activity",
             phase: .working,
             updatedAt: .now.addingTimeInterval(5),
-            evidence: .codexAppServer
+            evidence: .process
         ))
         _ = reducer.merge(SessionCandidate(
             id: "candidate-merge",
-            agent: .codex,
+            agent: .claude,
             title: "workspace-name",
-            detail: "Codex is working",
+            detail: "Claude is working",
             phase: .working,
             updatedAt: .now.addingTimeInterval(10),
-            evidence: .codexRollout
+            evidence: .claudeTranscript
         ))
         let merged = reducer.sessions["candidate-merge"]
-        expect(merged?.title == "Named Codex task", "strong task names survive newer workspace metadata")
+        expect(merged?.title == "Named Claude task", "strong task names survive newer workspace metadata")
         expect(merged?.phase == .waitingForApproval, "metadata cannot overwrite a live approval state")
         expect(merged?.pendingRequest?.id == "approval-1", "metadata preserves the exact pending request")
     }
@@ -797,7 +662,7 @@ private struct CheckSuite {
 
     mutating func descriptorPermissions() {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("chimlo-checks-descriptor-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("overhead-checks-descriptor-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         do {
             let store = RuntimeDescriptorStore(descriptorURL: directory.appendingPathComponent("runtime.json"))
@@ -819,7 +684,7 @@ private struct CheckSuite {
 
     mutating func networkRoundTrip() async {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("chimlo-checks-network-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("overhead-checks-network-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let box = EventBox()
         do {
@@ -848,7 +713,7 @@ private struct CheckSuite {
 
     mutating func decisionFailureIsClosed() async {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("chimlo-checks-missing-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("overhead-checks-missing-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         do {
             let store = RuntimeDescriptorStore(descriptorURL: directory.appendingPathComponent("missing.json"))

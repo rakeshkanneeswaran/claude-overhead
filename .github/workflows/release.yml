@@ -14,6 +14,6 @@ jobs:
     steps:
       - name: Release policy
         run: |
-          echo "Chimlo releases are built, code-signed, and Sparkle-signed locally."
+          echo "Claude Overhead releases are built, code-signed, and Sparkle-signed locally."
           echo "GitHub Actions must not rebuild or re-sign public artifacts."
           echo "Use make release, then make release-publish from the trusted release Mac."

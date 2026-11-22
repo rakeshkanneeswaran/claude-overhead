@@ -8,11 +8,11 @@ enum LiveWindowTransitionCheck {
         guard let display = NotchedDisplay.current else {
             fail("no built-in notched display was found")
         }
-        guard let initial = chimloWindow(on: display.bounds) else {
-            fail("no visible Chimlo island window was found")
+        guard let initial = overheadWindow(on: display.bounds) else {
+            fail("no visible Claude Overhead island window was found")
         }
 
-        print("READY hover Chimlo open and closed; host=\(initial.bounds)")
+        print("READY hover Claude Overhead open and closed; host=\(initial.bounds)")
         fflush(stdout)
 
         let clock = ContinuousClock()
@@ -21,7 +21,7 @@ enum LiveWindowTransitionCheck {
 
         while clock.now < deadline {
             try? await Task.sleep(for: .milliseconds(8))
-            if let snapshot = chimloWindow(on: display.bounds) { frames.append(snapshot) }
+            if let snapshot = overheadWindow(on: display.bounds) { frames.append(snapshot) }
         }
 
         let centerDeltas = frames.map { abs($0.bounds.midX - initial.bounds.midX) }
@@ -50,21 +50,21 @@ enum LiveWindowTransitionCheck {
         }
 
         if failures.isEmpty {
-            print("PASS  Chimlo host remained stable while the visible island resized")
+            print("PASS  Claude Overhead host remained stable while the visible island resized")
         } else {
             failures.forEach { fputs("FAIL  \($0)\n", stderr) }
             exit(EXIT_FAILURE)
         }
     }
 
-    private static func chimloWindow(on displayBounds: CGRect) -> WindowSnapshot? {
+    private static func overheadWindow(on displayBounds: CGRect) -> WindowSnapshot? {
         let windowInfo = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements],
             kCGNullWindowID
         ) as? [[String: Any]] ?? []
 
         return windowInfo.compactMap { item in
-            guard item[kCGWindowOwnerName as String] as? String == "Chimlo",
+            guard item[kCGWindowOwnerName as String] as? String == "Claude Overhead",
                   let layer = item[kCGWindowLayer as String] as? Int,
                   let rawBounds = item[kCGWindowBounds as String],
                   let bounds = CGRect(dictionaryRepresentation: rawBounds as! CFDictionary),

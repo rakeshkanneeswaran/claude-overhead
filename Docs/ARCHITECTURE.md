@@ -1,6 +1,6 @@
 # Architecture
 
-Chimlo has four deliberately narrow layers.
+Claude Overhead has four deliberately narrow layers.
 
 ## ChimloCore
 
@@ -8,8 +8,7 @@ Pure `Codable` domain values, a deterministic session reducer, display-layout
 math, and the privacy-safe projection from hooks and local JSONL metadata into
 one `SessionCandidate` vocabulary. It knows nothing about AppKit, sockets, hook
 file locations, or vendor configuration files. Hook events, process evidence,
-Codex app-server updates, cache restores, and JSONL metadata all merge through
-the same reducer. A live actionable request cannot be overwritten by weaker
+cache restores, and JSONL metadata all merge through the same reducer. A live actionable request cannot be overwritten by weaker
 metadata. Onboarding demo events pass through this exact reducer too.
 
 ## ChimloProtocol
@@ -21,43 +20,39 @@ never becomes an approval.
 
 ## ChimloApp
 
-AppKit owns the accessory-app lifecycle, top-center `NSPanel`, screen geometry,
-and menu-bar fallback. SwiftUI renders the island, sessions, onboarding, and
+AppKit owns the accessory-app lifecycle, top-center `NSPanel`, and screen
+geometry, including a pill just below the menu bar on displays without a notch.
+SwiftUI renders the island, sessions, onboarding, and
 settings. The panel is non-activating until an interaction requires keyboard
-focus. The app runtime has three narrow adapters:
+focus. The app runtime has two narrow adapters:
 
-- `CodexDesktopSessionAdapter` launches the installed Codex app-server by bundle
-  identifier, synchronizes loaded plus bounded recent tasks, and listens for
-  lifecycle notifications.
 - `LocalSessionRuntime` restores its small privacy-safe cache, publishes the
-  newest Codex/Claude transcript first, then enriches recent history. Cold
+  newest Claude transcript first, then enriches recent history. Cold
   transcript reads are bounded to a metadata head plus recent tail and continue
   incrementally from EOF; terminal-process liveness remains independent.
 - `AgentIntegrationManager` installs and repairs the stable helper plus marked
-  Codex and Claude observer entries after a complete preview and confirmation.
+  Claude observer entries after a complete preview and confirmation.
   Claude's separately marked `AskUserQuestion` and `PermissionRequest` hooks are
   synchronous and route transient owner interactions through the same
   authenticated listener.
 
 ## ChimloCLI
 
-Development event injection and the live Codex and Claude Code hook executable
+Development event injection and the live Claude Code hook executable
 boundary. Provider codecs decode only a small allowlist of status metadata. The
 helper writes only the response format required by the invoking agent to stdout.
 
 ## Provider capacity
 
-Chimlo obtains capacity only through provider-owned runtime surfaces. Codex
-weekly capacity comes from the existing `codex app-server` connection through
-`account/rateLimits/read` and sparse `account/rateLimits/updated` notifications;
-non-weekly Codex windows are ignored. Claude's primary source is an opt-in
+Claude Overhead obtains capacity only through Claude Code's own runtime surfaces. The
+primary source is an opt-in
 status-line bridge that caches only Claude Code's documented `rate_limits`
 payload and configures its documented `refreshInterval` at 60 seconds. Installing
 the bridge preserves and later restores any existing custom status-line
 configuration, including its previous refresh interval.
 
 When the Claude cache is more than five minutes old and the owner opens the
-Usage disclosure, Chimlo may launch one bounded, tool-disabled, probe-owned
+Usage disclosure, Claude Overhead may launch one bounded, tool-disabled, probe-owned
 Claude Code terminal and parse the provider-owned `/usage` panel. This fallback
 runs only while capacity details are disclosed, reuses one probe-owned session
 identity, removes its dedicated transcript artifacts after exit, and is excluded
@@ -69,7 +64,7 @@ snapshots, or token-derived estimates. The `/usage` fallback stores the exact
 percentages shown by Claude Code and derives reset times only from its
 provider-reported relative or timezone-qualified reset labels. A still-valid
 timestamp from the status-line payload remains preferred because it is more
-precise. When no trustworthy value is available, Chimlo reports Capacity
+precise. When no trustworthy value is available, Claude Overhead reports Capacity
 unavailable. Claude's status line continues refreshing while an otherwise idle
 session remains open.
 
@@ -93,6 +88,6 @@ session remains open.
 ## Installer seam
 
 Adapters expose read-only detection, a complete installation preview,
-installation, removal, and health checks. Chimlo never silently modifies hook
+installation, removal, and health checks. Claude Overhead never silently modifies hook
 trust or restores an old whole-file backup over newer user changes. The backup
-is recovery evidence; uninstall removes only Chimlo's current marker.
+is recovery evidence; uninstall removes only Claude Overhead's current marker.

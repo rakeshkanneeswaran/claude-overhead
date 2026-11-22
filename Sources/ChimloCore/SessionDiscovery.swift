@@ -1,9 +1,7 @@
 import Foundation
 
 public enum SessionEvidenceSource: String, Codable, Equatable, Sendable {
-    case codexRollout
     case claudeTranscript
-    case codexAppServer
     case process
     case cache
 }
@@ -18,8 +16,8 @@ public enum SessionTitleKind: Int, Codable, Comparable, Sendable {
 }
 
 /// The local-session vocabulary shared by transcript discovery, process
-/// reconciliation, persistence, and the Codex app-server adapter. Prompt and
-/// response previews are transient: Chimlo's registry deliberately omits them.
+/// reconciliation, and persistence. Prompt and
+/// response previews are transient: Claude Overhead's registry deliberately omits them.
 public struct SessionCandidate: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let agent: AgentKind
@@ -129,12 +127,6 @@ public struct SessionCandidate: Codable, Equatable, Sendable, Identifiable {
 /// visible user prompt and agent response are read; reasoning, tools, tool
 /// results, environment values, and file contents remain excluded.
 public struct PrivacySafeSessionMetadataScanner: Sendable {
-    public enum Provider: Sendable {
-        case codex
-        case claude
-    }
-
-    private let provider: Provider
     private var sessionID: String?
     private var workingDirectory: String?
     private var model: String?
@@ -145,19 +137,11 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
     private var phase: SessionPhase = .completed
     private var updatedAt: Date?
 
-    public init(provider: Provider) {
-        self.provider = provider
-    }
+    public init() {}
 
     public mutating func consume(line data: Data) {
         guard data.count <= Self.maximumLineBytes else { return }
-
-        switch provider {
-        case .codex:
-            consumeCodex(line: data)
-        case .claude:
-            consumeClaude(line: data)
-        }
+        consumeClaude(line: data)
     }
 
     public func candidate(
@@ -171,81 +155,29 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
 
         let workspace = URL(fileURLWithPath: workingDirectory).lastPathComponent
         let safeWorkspace = workspace.isEmpty ? "Workspace" : workspace
-        let agent: AgentKind = provider == .codex ? .codex : .claude
-        let displayName = provider == .codex ? "Codex" : "Claude"
-        let evidence: SessionEvidenceSource = provider == .codex ? .codexRollout : .claudeTranscript
-        let jumpURL = provider == .codex
-            ? URL(string: "codex://threads/\(sessionID)")
-            : nil
-
         let title = taskTitle ?? safeWorkspace
         return SessionCandidate(
             id: sessionID,
-            agent: agent,
+            agent: .claude,
             title: title,
             titleKind: taskTitle == nil ? .workspace : .task,
-            detail: Self.detail(for: phase, displayName: displayName),
+            detail: Self.detail(for: phase, displayName: "Claude"),
             model: Self.bounded(model, maximumUTF8Bytes: 128),
             projectPath: workingDirectory,
-            jumpURL: jumpURL,
+            jumpURL: nil,
             latestUserPrompt: latestUserPrompt,
             latestAgentResponse: latestAgentResponse,
             latestConversationUpdatedAt: latestConversationUpdatedAt,
             phase: phase,
             updatedAt: updatedAt ?? fallbackUpdatedAt,
-            evidence: evidence
+            evidence: .claudeTranscript
         )
     }
 
     public static let maximumLineBytes = 2 * 1_024 * 1_024
 
-    private mutating func consumeCodex(line data: Data) {
-        guard let line = try? JSONDecoder().decode(CodexLine.self, from: data) else { return }
-
-        if line.type == "session_meta", let payload = line.payload {
-            sessionID = Self.prefer(payload.id, over: sessionID, maximumUTF8Bytes: 512)
-            workingDirectory = Self.prefer(payload.cwd, over: workingDirectory, maximumUTF8Bytes: 4_096)
-        }
-        model = Self.prefer(line.payload?.model, over: model, maximumUTF8Bytes: 128)
-
-        let lineTimestamp = Self.parseDate(line.timestamp ?? line.payload?.timestamp)
-        updatedAt = Self.latest(updatedAt, lineTimestamp)
-
-        if line.type == "event_msg" {
-            switch line.payload?.type?.lowercased() {
-            case "user_message":
-                if let prompt = Self.previewText(
-                    line.payload?.message,
-                    extractingCodexRequest: true
-                ) {
-                    latestUserPrompt = prompt
-                    latestConversationUpdatedAt = Self.latest(
-                        latestConversationUpdatedAt,
-                        lineTimestamp
-                    )
-                }
-            case "agent_message":
-                if let response = Self.previewText(line.payload?.message) {
-                    latestAgentResponse = response
-                    latestConversationUpdatedAt = Self.latest(
-                        latestConversationUpdatedAt,
-                        lineTimestamp
-                    )
-                }
-            default:
-                break
-            }
-        }
-
-        guard let lifecycle = line.payload?.type?.lowercased() else { return }
-        if Self.runningLifecycleNames.contains(lifecycle) {
-            phase = .working
-        } else if Self.completedLifecycleNames.contains(lifecycle) {
-            phase = .completed
-        } else if Self.failedLifecycleNames.contains(lifecycle) {
-            phase = .failed
-        }
-    }
+    private static let interruptMarker = "[Request interrupted by user"
+    private static let turnEndingStopReasons: Set<String> = ["end_turn", "stop_sequence", "refusal"]
 
     private mutating func consumeClaude(line data: Data) {
         guard let line = try? JSONDecoder().decode(ClaudeLine.self, from: data) else { return }
@@ -269,8 +201,15 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
                 )
             }
         case "user":
+            let text = line.message?.content?.visibleText
+            // Claude Code writes this marker when the owner presses Esc, and no
+            // Stop hook fires for an interrupt, so the transcript is the signal.
+            if text?.contains(Self.interruptMarker) == true {
+                phase = .completed
+                break
+            }
             if line.message?.role == "user",
-               let prompt = Self.previewText(line.message?.content?.visibleText) {
+               let prompt = Self.previewText(text) {
                 latestUserPrompt = prompt
                 latestConversationUpdatedAt = Self.latest(
                     latestConversationUpdatedAt,
@@ -287,7 +226,12 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
                     lineTimestamp
                 )
             }
-            phase = .working
+            // `end_turn` closes the turn and Claude waits for the owner.
+            // `tool_use`, and streamed blocks with no reason yet, mean it is
+            // still working.
+            phase = Self.turnEndingStopReasons.contains(line.message?.stopReason ?? "")
+                ? .completed
+                : .working
         case "progress":
             phase = .working
         case "result", "summary":
@@ -298,16 +242,6 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
             break
         }
     }
-
-    private static let runningLifecycleNames: Set<String> = [
-        "task_started", "turn_started", "turn_start", "task_start",
-    ]
-    private static let completedLifecycleNames: Set<String> = [
-        "task_complete", "task_completed", "turn_complete", "turn_completed",
-    ]
-    private static let failedLifecycleNames: Set<String> = [
-        "task_failed", "turn_failed", "turn_aborted", "error",
-    ]
 
     private static func latest(_ lhs: Date?, _ rhs: Date?) -> Date? {
         switch (lhs, rhs) {
@@ -350,19 +284,8 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
         return trimmed
     }
 
-    private static func previewText(
-        _ value: String?,
-        extractingCodexRequest: Bool = false
-    ) -> String? {
-        guard var value else { return nil }
-        if extractingCodexRequest {
-            for marker in ["## My request for Codex:", "# My request for Codex:"] {
-                guard let range = value.range(of: marker) else { continue }
-                value = String(value[range.upperBound...])
-                break
-            }
-        }
-
+    private static func previewText(_ value: String?) -> String? {
+        guard let value else { return nil }
         let normalized = value
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
@@ -370,21 +293,6 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
         let maximumCharacters = 2_000
         guard normalized.count > maximumCharacters else { return normalized }
         return String(normalized.prefix(maximumCharacters)).trimmingCharacters(in: .whitespaces) + "…"
-    }
-
-    private struct CodexLine: Decodable {
-        let type: String?
-        let timestamp: String?
-        let payload: Payload?
-
-        struct Payload: Decodable {
-            let id: String?
-            let cwd: String?
-            let model: String?
-            let timestamp: String?
-            let type: String?
-            let message: String?
-        }
     }
 
     private struct ClaudeLine: Decodable {
@@ -401,6 +309,12 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
             let model: String?
             let role: String?
             let content: Content?
+            let stopReason: String?
+
+            private enum CodingKeys: String, CodingKey {
+                case model, role, content
+                case stopReason = "stop_reason"
+            }
         }
 
         enum Content: Decodable {

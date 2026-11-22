@@ -1,7 +1,7 @@
 # Launch QA — Agent Handoffs
 
 Manual checks for completion, questions, and approvals. Each maps to a real code
-path. Run against both Claude Code and Codex where the row applies.
+path. Run against Claude Code.
 
 ## 1. Turn completion flips the session to `completed`
 
@@ -33,7 +33,7 @@ skips `PreToolUse`/`AskUserQuestion` so it can't race and clear pending state
 count, and every answer is a valid option label; otherwise it returns `{}`
 (`Sources/ChimloCore/ClaudeQuestionHook.swift:89`).
 
-- [ ] Answer in Chimlo. Confirm the agent continues with the chosen option.
+- [ ] Answer in Claude Overhead. Confirm the agent continues with the chosen option.
 - [ ] Multi-select (`multiSelect: true`): pick several. Confirm the comma-joined
   selections all map to valid labels and no duplicate is accepted.
 - [ ] Cancel / dismiss the question. Confirm fallback `{}` is written and the
@@ -43,7 +43,7 @@ count, and every answer is a valid option label; otherwise it returns `{}`
 
 `ClaudePermissionHook.output(for:)` maps `.allowedOnce` to `allow`,
 `.allowedForSession` to `allow` + `updatedPermissions`, and `.denied` to `deny`
-with `"Denied in Chimlo"` (`Sources/ChimloCore/ClaudePermissionHook.swift:75`).
+with `"Denied in Claude Overhead"` (`Sources/ChimloCore/ClaudePermissionHook.swift:75`).
 
 - [ ] Trigger a `PermissionRequest` (e.g. a Bash command). Confirm the card
   shows the right prompt/preview per tool (Write/Edit/Bash/WebFetch/WebSearch).

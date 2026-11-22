@@ -1,89 +1,82 @@
-# Codex and Claude Code sessions
+# Claude Code sessions
 
-Chimlo combines four local signals so a running session does not disappear just
-because one integration is unavailable:
+Claude Overhead combines three local signals so a running session does not
+disappear just because one of them is unavailable:
 
-- Codex app-server task metadata while the Codex desktop app is running
 - terminal process liveness and working-directory discovery
-- incremental metadata-only reads of recent Codex and Claude JSONL records
-- documented Codex and Claude Code command hooks
+- incremental metadata-only reads of recent Claude Code JSONL records
+- Claude Code's documented command hooks
 
-All reconciliation happens on this Mac. Chimlo does not use Keychain or upload
-session data. Codex approvals remain in Codex. Claude Code questions and tool
-permissions can be answered in Chimlo, with Claude's native UI as the fallback.
+All reconciliation happens on this Mac. Claude Overhead does not use Keychain or
+upload session data. Claude Code questions and tool permissions can be answered
+in Claude Overhead, with Claude Code's native UI as the fallback.
 
 The packaged helper is:
 
 ```text
-~/Library/Application Support/Chimlo/bin/chimlo
+~/Library/Application Support/Overhead/bin/overhead
 ```
 
 The app refreshes this stable copy from the signed app bundle, so moving or
-renaming `Chimlo.app` does not break an installed observer.
+renaming `Claude Overhead.app` does not break an installed hook.
 
 The helper reads one hook payload from standard input, keeps only the opaque
-session ID, provider, project basename, model label, hook kind, and safe tool
-category, and sends that small event to Chimlo's authenticated loopback
+session ID, project basename, model label, hook kind, and safe tool category,
+and sends that small event to Claude Overhead's authenticated loopback
 listener. Prompt text, assistant text, transcript paths, tool inputs, tool
 outputs, environment values, and file contents are not retained. The one
-deliberate exceptions are Claude Code's blocking owner interactions. An
+deliberate exception is Claude Code's blocking owner interactions: an
 `AskUserQuestion` prompt and its choices, or a `PermissionRequest` tool name,
 path, and bounded action preview, live in memory only while Claude is waiting.
-They are never written to Chimlo's session cache or archive.
+They are never written to Claude Overhead's session cache or archive.
 
 The JSONL scanner follows the same boundary. It extracts only session ID,
 workspace path, model label, timestamp, and lifecycle record type. Reads are
 incremental after the first bounded scan. Prompt bodies, assistant content,
-tool arguments, tool results, and file contents never enter Chimlo's session
-model or local session cache.
-
-## Configure Codex
-
-Use **Connect** in Chimlo Settings to preview and add Chimlo's marked observers
-to `~/.codex/hooks.json`. The merge preserves every existing hook, keeps one
-pre-Chimlo backup, validates the result, and can remove only Chimlo's marked
-entries. [`Integrations/codex-hooks.json`](../Integrations/codex-hooks.json) is
-also available as a manual merge fragment. Do not replace an existing file.
-Review and trust new definitions with `/hooks` in Codex when prompted.
-
-Codex invokes observers synchronously, so the helper has a one-second local
-delivery deadline and always returns an empty JSON response. If Chimlo is not
-running, Codex continues normally.
+tool arguments, tool results, and file contents never enter Claude Overhead's
+session model or local session cache.
 
 ## Configure Claude Code
 
-Use **Connect** beside Claude Code in Chimlo Settings to preview and add Chimlo's
-marked observers to `~/.claude/settings.json`. The same preservation, backup,
-validation, repair, and marker-scoped removal rules used for Codex apply here.
-[`Integrations/claude-hooks.json`](../Integrations/claude-hooks.json) remains
+Use **Connect** beside Claude Code in Claude Overhead Settings to preview and
+add Claude Overhead's marked hooks to `~/.claude/settings.json`. The merge
+preserves every existing hook, keeps one backup of the original file
+(`settings.json.overhead-backup`), validates the result, and can remove only
+Claude Overhead's marked entries.
+[`Integrations/claude-hooks.json`](../Integrations/claude-hooks.json) is also
 available as a manual merge fragment. Replace `/Users/YOU` with the local home
-path and never replace the whole settings file. Observation hooks are
-asynchronous where Claude supports it. Chimlo also adds one narrow, synchronous
-`PreToolUse` hook matching only `AskUserQuestion`. It waits for a choice in
-Chimlo and returns the original question plus the selected answer through Claude
-Code's documented `updatedInput` contract. If Chimlo is closed, unreachable, or
-times out, the hook returns no decision and Claude Code shows its native
-question UI. A second narrow, synchronous hook handles `PermissionRequest` in
-the same way.
+path and never replace the whole settings file.
+
+Observation hooks are asynchronous where Claude Code supports it. Claude
+Overhead also adds one narrow, synchronous `PreToolUse` hook matching only
+`AskUserQuestion`. It waits for a choice in Claude Overhead and returns the
+original question plus the selected answer through Claude Code's documented
+`updatedInput` contract. If Claude Overhead is closed, unreachable, or times
+out, the hook returns no decision and Claude Code shows its native question UI.
+A second narrow, synchronous hook handles `PermissionRequest` in the same way.
+
+Connecting also installs a reversible status-line bridge. It passes Claude
+Code's status-line JSON to any status line you already had, unchanged, and
+caches only the `rate_limits` part for the usage display. Disconnecting
+restores your original status line.
 
 ## Questions and permission behavior
 
-Claude Code multiple-choice questions can be answered directly in Chimlo. A
-single-select choice is sent immediately; multi-select questions require an
-explicit Send action. **Answer in Claude Code** releases the hook without an
-answer so the native prompt takes over.
+Claude Code multiple-choice questions can be answered directly in Claude
+Overhead. A single-select choice is sent immediately; multi-select questions
+require an explicit Send action. **Answer in Claude Code** releases the hook
+without an answer so the native prompt takes over.
 
-Claude Code tool permissions show the real bounded action preview with **Deny**,
-**Allow Once**, and **Allow All**. Allow All always stays in memory for the
-current session. Chimlo prefers Claude's own suggestion, narrows its destination
-to `session`, and uses Claude's `acceptEdits` session mode for file changes when
-no compatible suggestion exists. Persistent settings changes and
-`bypassPermissions` are never surfaced or returned. Codex tool permissions
-remain mirror-only.
+Claude Code tool permissions show the real bounded action preview with
+**Deny**, **Allow Once**, and **Allow All**. Allow All always stays in memory
+for the current session. Claude Overhead prefers Claude's own suggestion,
+narrows its destination to `session`, and uses Claude's `acceptEdits` session
+mode for file changes when no compatible suggestion exists. Persistent settings
+changes and `bypassPermissions` are never surfaced or returned.
 
 A missing app, timeout, malformed payload, or transport error can never imply
 approval or fabricate an answer.
 
-The helper reserves stdout for the provider's hook response. It emits `{}` for
+The helper reserves stdout for Claude Code's hook response. It emits `{}` for
 observation and for any unanswered question or permission fallback, and exits
-successfully even when Chimlo is unavailable.
+successfully even when Claude Overhead is unavailable.

@@ -26,7 +26,7 @@ public struct AppUpdatePresentation: Equatable, Sendable {
         case .checking:
             "Checking for update"
         case .upToDate:
-            "Chimlo is up to date"
+            "Claude Overhead is up to date"
         case .downloading:
             "Downloading update"
         case .preparing:
@@ -45,7 +45,7 @@ public struct AppUpdatePresentation: Equatable, Sendable {
         case .checking:
             "Checking for updates…"
         case .upToDate:
-            "Chimlo is up to date"
+            "Claude Overhead is up to date"
         case .downloading:
             if let progress = normalizedProgress {
                 "Downloading update: \(Int((progress * 100).rounded()))%"

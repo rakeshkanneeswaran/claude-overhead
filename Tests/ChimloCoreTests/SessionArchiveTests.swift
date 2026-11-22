@@ -32,14 +32,14 @@ struct SessionArchiveTests {
     private func candidate(messageAt: Date?) -> SessionCandidate {
         SessionCandidate(
             id: "archived-session",
-            agent: .codex,
+            agent: .claude,
             title: "Archived session",
             detail: "Working",
             latestUserPrompt: "Run the same check",
             latestConversationUpdatedAt: messageAt,
             phase: .working,
             updatedAt: messageAt ?? archivedAt,
-            evidence: .codexRollout
+            evidence: .claudeTranscript
         )
     }
 
@@ -48,7 +48,7 @@ struct SessionArchiveTests {
             sessionID: "archived-session",
             sequence: 2,
             kind: kind,
-            agent: .codex,
+            agent: .claude,
             timestamp: archivedAt.addingTimeInterval(offset)
         )
     }

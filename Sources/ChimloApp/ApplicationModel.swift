@@ -161,7 +161,6 @@ enum PanelMode: Equatable, Sendable {
 }
 
 enum OnboardingStep: Equatable, Sendable {
-    case welcome
     case working
     case permission
     case resolving(allowed: Bool)
@@ -172,9 +171,7 @@ enum OnboardingStep: Equatable, Sendable {
 final class ApplicationModel: ObservableObject {
     @Published private(set) var sessions: [SessionDisplayModel] = []
     @Published var panelMode: PanelMode = .compact
-    @Published private(set) var fullScreenMediaPresentationMode:
-        FullScreenMediaPresentationMode = .normal
-    @Published private(set) var onboardingStep: OnboardingStep = .welcome
+    @Published private(set) var onboardingStep: OnboardingStep = .working
     @Published private(set) var accessibility = AccessibilityEnvironment.current
     @Published private(set) var serverState: LocalServerState = .stopped
     @Published private(set) var pendingDecision: ChimloDecisionRequest?
@@ -182,17 +179,18 @@ final class ApplicationModel: ObservableObject {
     @Published private(set) var sessionQuestions: [String: SessionQuestionPresentation] = [:]
     @Published private(set) var showsAllSessionsDuringOwnerInteraction = false
     @Published private(set) var islandLayout: IslandLayout
-    @Published private(set) var codexConnectionState: AgentConnectionState = .checking
     @Published private(set) var claudeConnectionState: AgentConnectionState = .checking
     @Published private(set) var isScanningSessions = true
-    @Published private(set) var systemFeedback: SystemFeedbackPresentation?
-    @Published private(set) var systemFeedbackState: SystemFeedbackEngineState = .disabled
     @Published private(set) var capacitySnapshots: [CapacityProvider: ProviderCapacitySnapshot] = [:]
     @Published private(set) var capacityClock = Date.now
     @Published private(set) var showsUsageDetails = false
     @Published private(set) var updatePresentation: AppUpdatePresentation?
+    /// The spectrum glow that says "Claude replied" after a finished turn.
+    /// `showsCompletionGlow` drives its opacity; `animatesCompletionGlow` stays
+    /// on through the fade-out so the colours keep flowing until it is gone.
+    @Published private(set) var showsCompletionGlow = false
+    @Published private(set) var animatesCompletionGlow = false
 
-    let mediaPlayback = MediaPlaybackMonitor()
     let isUpdateTestMode: Bool
 
     @Published var soundsEnabled: Bool {
@@ -201,22 +199,10 @@ final class ApplicationModel: ObservableObject {
     @Published var keepPreviewSession: Bool {
         didSet { defaults.set(keepPreviewSession, forKey: Keys.keepPreviewSession) }
     }
-    @Published var replacesSystemFeedback: Bool {
-        didSet {
-            defaults.set(replacesSystemFeedback, forKey: Keys.replacesSystemFeedback)
-            guard hasStarted else { return }
-            systemFeedbackEngine.setEnabled(
-                replacesSystemFeedback,
-                promptForPermission: replacesSystemFeedback
-            )
-            if !replacesSystemFeedback { clearSystemFeedback() }
-        }
-    }
 
     private let defaults: UserDefaults
     private let updater = ChimloUpdater()
     private let chiptunePlayer = ChiptunePlayer()
-    private let systemFeedbackEngine = SystemFeedbackEngine()
     private var reducer = SessionReducer()
     private var demoSessionIDs: Set<String> = []
     private var previewSessionIDs: Set<String> = []
@@ -227,6 +213,7 @@ final class ApplicationModel: ObservableObject {
     private var onboardingEvents: [AgentEvent] = []
     private var onboardingTask: Task<Void, Never>?
     private var collapseTask: Task<Void, Never>?
+    private var completionGlowTask: Task<Void, Never>?
     private var pointerInsideIsland = false
     private var decisionExpiryTask: Task<Void, Never>?
     private var decisionContinuation: CheckedContinuation<ChimloDecisionResponse, Never>?
@@ -240,28 +227,20 @@ final class ApplicationModel: ObservableObject {
     private var hasStarted = false
     private lazy var integrationManager = AgentIntegrationManager.live()
     private let localSessionRuntime = LocalSessionRuntime()
-    private let codexDesktopAdapter = CodexDesktopSessionAdapter()
     private let claudeUsageProbe = ClaudeUsageProbe()
-    private var codexAppServerConnected = false
     private var sessionRemovalTasks: [String: Task<Void, Never>] = [:]
     private var sessionActivityExpiryTask: Task<Void, Never>?
     private var sessionsArmedForCompletion: Set<String> = []
     private var latestResponseReceivedAt: [String: Date] = [:]
     private var completionDetailExpiryTasks: [String: Task<Void, Never>] = [:]
     private var lastPresentedResponse: [String: String] = [:]
-    private var codexModelDisplayNames: [String: String] = [:]
-    private var systemFeedbackExpiryTask: Task<Void, Never>?
     private var capacityMonitorTask: Task<Void, Never>?
     private var claudeUsageRefreshTask: Task<Void, Never>?
     private var lastClaudeUsageProbeAttemptAt: Date?
     private var capacityRefreshFailures: Set<CapacityProvider> = []
 
-    var presentedPanelMode: PanelMode {
-        fullScreenMediaPresentationMode == .systemFeedbackOnly ? .compact : panelMode
-    }
-
     var panelSize: CGSize {
-        switch presentedPanelMode {
+        switch panelMode {
         case .compact:
             return CGSize(width: islandLayout.compactWidth, height: islandLayout.compactHeight)
         case .sessions:
@@ -306,7 +285,6 @@ final class ApplicationModel: ObservableObject {
 
     private var onboardingBodyHeight: CGFloat {
         switch onboardingStep {
-        case .welcome: 186
         case .working: 172
         case .permission: 208
         case .resolving: 138
@@ -348,52 +326,8 @@ final class ApplicationModel: ObservableObject {
         return "READY"
     }
 
-    var shouldShowCompactMedia: Bool {
-        guard let media = mediaPlayback.presentation,
-              media.isPlaying,
-              pendingDecision == nil else { return false }
-        return !sessions.contains {
-            $0.needsAttention || $0.mood == .failed
-        }
-    }
-
     private var hasActiveOwnerInteraction: Bool {
         pendingDecision != nil || sessions.contains(where: \.hasActiveOwnerInteraction)
-    }
-
-    var systemFeedbackStatusText: String {
-        switch systemFeedbackState {
-        case .disabled:
-            return "Shown by macOS"
-        case .starting:
-            return "Starting"
-        case .permissionRequired:
-            return "Permission needed"
-        case .active:
-            return "On"
-        case let .unavailable(reason):
-            return reason
-        }
-    }
-
-    var codexConnectionText: String {
-        guard codexAppServerConnected else {
-            return connectionText(state: codexConnectionState)
-        }
-        switch codexConnectionState {
-        case .checking:
-            return "Codex app connected; checking helper"
-        case .disconnected:
-            return "Codex app connected; helper optional"
-        case .installedAwaitingEvent:
-            return "Codex app connected; waiting for activity"
-        case let .receiving(date):
-            return "Active \(date.formatted(.relative(presentation: .named)))"
-        case .needsRepair:
-            return "Codex app connected; helper needs repair"
-        case .unavailable:
-            return "Codex app connected"
-        }
     }
 
     var claudeConnectionText: String {
@@ -401,11 +335,11 @@ final class ApplicationModel: ObservableObject {
     }
 
     var hasInstalledAgent: Bool {
-        codexConnectionState.isInstalled || claudeConnectionState.isInstalled || codexAppServerConnected
+        claudeConnectionState.isInstalled
     }
 
     var isReceivingAgentEvents: Bool {
-        codexConnectionState.isReceiving || claudeConnectionState.isReceiving || codexAppServerConnected
+        claudeConnectionState.isReceiving
     }
 
     var connectionSummary: String {
@@ -436,7 +370,6 @@ final class ApplicationModel: ObservableObject {
         )
         soundsEnabled = defaults.object(forKey: Keys.soundsEnabled) as? Bool ?? true
         keepPreviewSession = defaults.object(forKey: Keys.keepPreviewSession) as? Bool ?? true
-        replacesSystemFeedback = defaults.object(forKey: Keys.replacesSystemFeedback) as? Bool ?? true
         for provider in CapacityProvider.allCases {
             if let snapshot = try? ProviderCapacityFile.load(from: Self.capacityCacheURL(for: provider)) {
                 capacitySnapshots[provider] = snapshot
@@ -463,25 +396,7 @@ final class ApplicationModel: ObservableObject {
             name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
             object: nil
         )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(applicationBecameActive),
-            name: NSApplication.didBecomeActiveNotification,
-            object: nil
-        )
 
-        systemFeedbackEngine.presentationChanged = { [weak self] presentation in
-            self?.presentSystemFeedback(presentation)
-        }
-        systemFeedbackEngine.stateChanged = { [weak self] state in
-            self?.systemFeedbackState = state
-            if state != .active { self?.clearSystemFeedback() }
-        }
-        systemFeedbackEngine.setEnabled(
-            replacesSystemFeedback,
-            promptForPermission: replacesSystemFeedback
-        )
-        mediaPlayback.start()
 
         let bridge = ProtocolBridge()
         protocolBridge = bridge
@@ -491,19 +406,19 @@ final class ApplicationModel: ObservableObject {
             },
             decide: { [weak self] request in
                 guard let self else {
-                    return .unavailable(for: request.id, reason: "Chimlo is closing")
+                    return .unavailable(for: request.id, reason: "Claude Overhead is closing")
                 }
                 return await self.requestDecision(request)
             },
             permit: { [weak self] request in
                 guard let self else {
-                    return .unavailable(for: request.id, reason: "Chimlo is closing")
+                    return .unavailable(for: request.id, reason: "Claude Overhead is closing")
                 }
                 return await self.requestPermission(request)
             },
             answer: { [weak self] request in
                 guard let self else {
-                    return .unavailable(for: request.id, reason: "Chimlo is closing")
+                    return .unavailable(for: request.id, reason: "Claude Overhead is closing")
                 }
                 return await self.requestQuestion(request)
             },
@@ -515,20 +430,16 @@ final class ApplicationModel: ObservableObject {
             _ = try integrationManager.prepareStableHelper()
             try integrationManager.upgradeClaudeCapacityBridgeIfConnected()
         } catch {
-            codexConnectionState = .unavailable(error.localizedDescription)
             claudeConnectionState = .unavailable(error.localizedDescription)
         }
         configureSessionRuntime()
         startCapacityMonitoring()
         localSessionRuntime.start()
-        codexDesktopAdapter.start()
         refreshAgentConnections()
 
-        if defaults.bool(forKey: Keys.completedOnboarding) {
-            panelMode = preferredIdlePanelMode
-        } else {
-            replayOnboarding()
-        }
+        // First-launch setup runs in its own window (SetupCoordinator); the
+        // notch starts idle and plays its preview only once setup asks.
+        panelMode = preferredIdlePanelMode
         updater.start()
     }
 
@@ -537,20 +448,12 @@ final class ApplicationModel: ObservableObject {
         onboardingTask?.cancel()
         collapseTask?.cancel()
         decisionExpiryTask?.cancel()
-        systemFeedbackExpiryTask?.cancel()
-        systemFeedbackExpiryTask = nil
-        systemFeedbackEngine.stop()
-        systemFeedbackEngine.presentationChanged = nil
-        systemFeedbackEngine.stateChanged = nil
-        systemFeedback = nil
-        mediaPlayback.stop()
-        finishPendingDecision(outcome: .unavailable, note: "Chimlo closed before a decision was made")
-        finishAllPendingPermissions(note: "Chimlo closed before permission was decided")
-        finishAllPendingQuestions(note: "Chimlo closed before an answer was selected")
+        finishPendingDecision(outcome: .unavailable, note: "Claude Overhead closed before a decision was made")
+        finishAllPendingPermissions(note: "Claude Overhead closed before permission was decided")
+        finishAllPendingQuestions(note: "Claude Overhead closed before an answer was selected")
         protocolBridge?.stop()
         protocolBridge = nil
         localSessionRuntime.stop()
-        codexDesktopAdapter.stop()
         capacityMonitorTask?.cancel()
         capacityMonitorTask = nil
         claudeUsageRefreshTask?.cancel()
@@ -561,17 +464,14 @@ final class ApplicationModel: ObservableObject {
         sessionRemovalTasks.removeAll()
         for task in completionDetailExpiryTasks.values { task.cancel() }
         completionDetailExpiryTasks.removeAll()
+        completionGlowTask?.cancel()
+        completionGlowTask = nil
         NotificationCenter.default.removeObserver(self)
     }
 
     func openPanel() {
         cancelCollapse()
         panelMode = .sessions
-    }
-
-    func updateFullScreenMediaPresentationMode(_ mode: FullScreenMediaPresentationMode) {
-        guard mode != fullScreenMediaPresentationMode else { return }
-        fullScreenMediaPresentationMode = mode
     }
 
     func collapsePanelFromOutsideClick() {
@@ -585,6 +485,7 @@ final class ApplicationModel: ObservableObject {
     func pointerPresenceChanged(_ inside: Bool) {
         pointerInsideIsland = inside
         if inside {
+            clearCompletionGlow()
             cancelCollapse()
             guard panelMode == .compact else { return }
             panelMode = .sessions
@@ -700,7 +601,7 @@ final class ApplicationModel: ObservableObject {
     func primaryCapacityReading(for provider: CapacityProvider) -> CapacityReading {
         capacityReading(
             provider: provider,
-            kind: provider == .codex ? .weekly : .session
+            kind: .session
         )
     }
 
@@ -713,7 +614,7 @@ final class ApplicationModel: ObservableObject {
         onboardingTask?.cancel()
         hideExistingDemoSessions()
 
-        let sessionID = "chimlo-onboarding-\(UUID().uuidString.lowercased())"
+        let sessionID = "overhead-onboarding-\(UUID().uuidString.lowercased())"
         onboardingSessionID = sessionID
         demoSessionIDs.insert(sessionID)
         onboardingEvents = makeOnboardingEvents(sessionID: sessionID, start: .now)
@@ -793,52 +694,36 @@ final class ApplicationModel: ObservableObject {
         }
     }
 
-    func replayOnboarding() {
-        onboardingTask?.cancel()
-        hideExistingDemoSessions()
-        onboardingSessionID = nil
-        onboardingEvents = []
-        showsUsageDetails = false
-        panelMode = .onboarding
-        onboardingStep = .welcome
+    /// Opens the setup window. `fromWelcome` replays the whole journey; otherwise
+    /// it goes straight to reconnecting. Set by the app delegate.
+    var presentSetup: ((_ fromWelcome: Bool) -> Void)?
+
+    /// Setup finished with a verified connection at least once.
+    var hasCompletedSetup: Bool { defaults.bool(forKey: Keys.completedOnboarding) }
+
+    func markSetupCompleted() {
+        defaults.set(true, forKey: Keys.completedOnboarding)
     }
 
-    func requestSystemFeedbackPermission() {
-        guard replacesSystemFeedback else { return }
-        systemFeedbackEngine.retry(promptForPermission: true)
+    /// The notch's Connect and Repair buttons reconnect through the setup window.
+    func beginReconnect() {
+        if let presentSetup {
+            presentSetup(false)
+        } else {
+            connectClaude()
+        }
     }
 
-    func retrySystemFeedback() {
-        guard replacesSystemFeedback else { return }
-        systemFeedbackEngine.retry(promptForPermission: false)
-    }
-
-    func openAccessibilitySettings() {
-        guard let url = URL(
-            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-        ) else { return }
-        NSWorkspace.shared.open(url)
+    func playCue(_ cue: ChiptuneCue) {
+        if soundsEnabled { chiptunePlayer.play(cue) }
     }
 
     func refreshAgentConnections() {
-        codexConnectionState = connectionState(for: .codex)
         claudeConnectionState = connectionState(for: .claude)
-    }
-
-    func refreshCodexConnection() {
-        refreshAgentConnections()
-    }
-
-    func connectCodex() {
-        connect(.codex)
     }
 
     func connectClaude() {
         connect(.claude)
-    }
-
-    func disconnectCodex() {
-        disconnect(.codex)
     }
 
     func disconnectClaude() {
@@ -872,12 +757,12 @@ final class ApplicationModel: ObservableObject {
     private func confirmConnection(provider: AgentProvider, preview: String) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = "Connect \(provider.displayName) to Chimlo?"
-        let filename = provider == .codex ? "hooks.json" : "settings.json"
+        alert.messageText = "Connect \(provider.displayName) to Claude Overhead?"
+        let filename = "settings.json"
         let questionNote = provider == .claude
-            ? " Claude questions and permissions route through Chimlo while it is running; Claude Code remains the fallback. The reversible status-line bridge stores only 5h and 7d usage limits and restores any existing custom status line on disconnect."
+            ? " Claude questions and permissions route through Claude Overhead while it is running; Claude Code remains the fallback. The reversible status-line bridge stores only 5h and 7d usage limits and restores any existing custom status line on disconnect."
             : ""
-        alert.informativeText = "Review the complete merged \(filename) below. Existing settings stay in place, and Chimlo keeps a one-time backup before writing.\(questionNote)"
+        alert.informativeText = "Review the complete merged \(filename) below. Existing settings stay in place, and Claude Overhead keeps a one-time backup before writing.\(questionNote)"
         alert.addButton(withTitle: "Connect")
         alert.addButton(withTitle: "Cancel")
 
@@ -985,7 +870,7 @@ final class ApplicationModel: ObservableObject {
             return
         }
 
-        // Hook helpers are short-lived and can run concurrently. Chimlo owns
+        // Hook helpers are short-lived and can run concurrently. Claude Overhead owns
         // their ordering so adapters need no shared counter or lock.
         if reducer.sessions[event.sessionID] == nil, event.kind != .sessionStarted {
             consume(
@@ -1023,6 +908,7 @@ final class ApplicationModel: ObservableObject {
             wasArmedForCompletion: wasArmedForCompletion,
             eventKind: event.kind
         )
+        if isNewCompletion { flashCompletionGlow() }
         var completionReceivedAt: Date?
         if isNewCompletion,
            reducer.sessions[event.sessionID]?.latestAgentResponse != nil {
@@ -1034,9 +920,9 @@ final class ApplicationModel: ObservableObject {
         syncSessionProjections()
         if !isDemo { localSessionRuntime.persist(reducer.orderedSessions) }
 
-        let presentsCompletion = completionReceivedAt.map {
-            presentCompletionIfNeeded(sessionID: event.sessionID, receivedAt: $0)
-        } ?? false
+        if let completionReceivedAt {
+            announceCompletionIfNeeded(sessionID: event.sessionID, receivedAt: completionReceivedAt)
+        }
 
         if soundsEnabled {
             switch event.kind {
@@ -1049,13 +935,6 @@ final class ApplicationModel: ObservableObject {
             }
         }
 
-        if presentsCompletion {
-            scheduleCollapseAfterHover(
-                delayMilliseconds: IslandCollapsePolicy.completionHoldMilliseconds
-            )
-            return
-        }
-
         if let session = reducer.sessions[event.sessionID],
            sessions.contains(where: { $0.id == event.sessionID }),
            (session.pendingRequest != nil || session.phase == .failed),
@@ -1065,6 +944,29 @@ final class ApplicationModel: ObservableObject {
             panelMode = .sessions
             scheduleCollapseAfterHover()
         }
+    }
+
+    /// One glow at a time: a completion while it shows (or fades) restarts the
+    /// same glow instead of stacking a second one.
+    private func flashCompletionGlow() {
+        completionGlowTask?.cancel()
+        animatesCompletionGlow = true
+        showsCompletionGlow = true
+        completionGlowTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(IslandCollapsePolicy.completionGlowSeconds))
+            guard !Task.isCancelled, let self else { return }
+            showsCompletionGlow = false
+            try? await Task.sleep(for: .seconds(IslandCollapsePolicy.completionGlowFadeSeconds))
+            guard !Task.isCancelled else { return }
+            animatesCompletionGlow = false
+        }
+    }
+
+    private func clearCompletionGlow() {
+        completionGlowTask?.cancel()
+        completionGlowTask = nil
+        showsCompletionGlow = false
+        animatesCompletionGlow = false
     }
 
     private func updateCompletionArm(for event: AgentEvent) {
@@ -1100,21 +1002,19 @@ final class ApplicationModel: ObservableObject {
         }
     }
 
-    @discardableResult
-    private func presentCompletionIfNeeded(sessionID: String, receivedAt: Date) -> Bool {
+    /// Plays the success sound once per new reply. The panel stays closed: the
+    /// orange notch glow says "Claude replied", and the owner opens it on hover.
+    private func announceCompletionIfNeeded(sessionID: String, receivedAt: Date) {
         guard sessions.contains(where: { $0.id == sessionID }),
               panelMode != .onboarding,
               receivedAt >= Date.now.addingTimeInterval(
                 -IslandCollapsePolicy.completionDetailLifetimeSeconds
               ),
               let response = reducer.sessions[sessionID]?.latestAgentResponse,
-              lastPresentedResponse[sessionID] != response else { return false }
+              lastPresentedResponse[sessionID] != response else { return }
 
         lastPresentedResponse[sessionID] = response
-        cancelCollapse()
-        panelMode = .sessions
         if soundsEnabled { chiptunePlayer.play(.success) }
-        return true
     }
 
     private func syncSessionProjections() {
@@ -1136,9 +1036,7 @@ final class ApplicationModel: ObservableObject {
                     isDemo: isDemo,
                     hasActionableRequest: hasActionableRequest,
                     hasConversationPreview: session.latestUserPrompt != nil
-                        || session.latestAgentResponse != nil,
-                    agent: session.agent,
-                    model: session.model
+                        || session.latestAgentResponse != nil
                   ) else {
                 return nil
             }
@@ -1157,8 +1055,7 @@ final class ApplicationModel: ObservableObject {
                 jumpURL: session.jumpURL,
                 model: ModelDisplayName.resolve(
                     modelID: session.model,
-                    agent: session.agent,
-                    providerDisplayName: codexModelDisplayName(for: session)
+                    agent: session.agent
                 ),
                 updatedAt: session.updatedAt,
                 latestUserPrompt: session.latestUserPrompt,
@@ -1216,39 +1113,6 @@ final class ApplicationModel: ObservableObject {
         }
         localSessionRuntime.onInitialScanCompleted = { [weak self] in
             self?.isScanningSessions = false
-        }
-        codexDesktopAdapter.onCandidate = { [weak self] candidate in
-            guard let self else { return }
-            codexAppServerConnected = true
-            receive(candidate)
-            refreshAgentConnections()
-        }
-        codexDesktopAdapter.onEvent = { [weak self] event in
-            guard let self else { return }
-            codexAppServerConnected = true
-            receiveLiveEvent(event)
-            refreshAgentConnections()
-        }
-        codexDesktopAdapter.onSessionEnded = { [weak self] sessionID in
-            self?.scheduleSessionRemoval(sessionID)
-        }
-        codexDesktopAdapter.onConnectionChanged = { [weak self] connected in
-            guard let self else { return }
-            codexAppServerConnected = connected
-            refreshAgentConnections()
-        }
-        codexDesktopAdapter.onModelCatalog = { [weak self] catalog in
-            guard let self, codexModelDisplayNames != catalog else { return }
-            codexModelDisplayNames = catalog
-            syncSessionProjections()
-        }
-        codexDesktopAdapter.onWeeklyCapacity = { [weak self] snapshot in
-            self?.receiveCapacity(snapshot)
-        }
-        codexDesktopAdapter.onCapacityRefreshFailed = { [weak self] in
-            guard let self else { return }
-            capacityRefreshFailures.insert(.codex)
-            capacityClock = .now
         }
     }
 
@@ -1326,14 +1190,9 @@ final class ApplicationModel: ObservableObject {
 
     private static func capacityCacheURL(for provider: CapacityProvider) -> URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Chimlo", isDirectory: true)
+            .appendingPathComponent("Library/Application Support/Overhead", isDirectory: true)
             .appendingPathComponent("capacity", isDirectory: true)
             .appendingPathComponent("\(provider.rawValue).json")
-    }
-
-    private func codexModelDisplayName(for session: AgentSession) -> String? {
-        guard session.agent == .codex, let model = session.model else { return nil }
-        return codexModelDisplayNames[model.lowercased()]
     }
 
     private func receive(_ candidate: SessionCandidate) {
@@ -1355,19 +1214,16 @@ final class ApplicationModel: ObservableObject {
             recordLatestResponse(for: candidate.id, receivedAt: .now)
         }
 
-        let presentsCompletion = merged.phase == .completed
+        let finishedWithReply = merged.phase == .completed
             && merged.latestAgentResponse != nil
             && (previous?.phase != .completed || hasNewResponse)
         syncSessionProjections()
         localSessionRuntime.persist(reducer.orderedSessions)
 
-        if presentsCompletion,
-           presentCompletionIfNeeded(
-            sessionID: candidate.id,
-            receivedAt: latestResponseReceivedAt[candidate.id] ?? candidate.updatedAt
-           ) {
-            scheduleCollapseAfterHover(
-                delayMilliseconds: IslandCollapsePolicy.completionHoldMilliseconds
+        if finishedWithReply {
+            announceCompletionIfNeeded(
+                sessionID: candidate.id,
+                receivedAt: latestResponseReceivedAt[candidate.id] ?? candidate.updatedAt
             )
         }
     }
@@ -1407,7 +1263,6 @@ final class ApplicationModel: ObservableObject {
     private func recordReceipt(for agent: AgentKind) {
         let provider: AgentProvider?
         switch agent {
-        case .codex: provider = .codex
         case .claude: provider = .claude
         default: provider = nil
         }
@@ -1455,7 +1310,6 @@ final class ApplicationModel: ObservableObject {
 
     private func setConnectionState(_ state: AgentConnectionState, for provider: AgentProvider) {
         switch provider {
-        case .codex: codexConnectionState = state
         case .claude: claudeConnectionState = state
         }
     }
@@ -1478,7 +1332,7 @@ final class ApplicationModel: ObservableObject {
     }
 
     private func receiptKey(for provider: AgentProvider) -> String {
-        "chimlo.integration.\(provider.rawValue).lastReceipt"
+        "overhead.integration.\(provider.rawValue).lastReceipt"
     }
 
     private func mood(for session: AgentSession) -> AvatarMood {
@@ -1607,7 +1461,7 @@ final class ApplicationModel: ObservableObject {
             let detail = switch outcome {
             case .allowedOnce: "Allowed once in Claude Code"
             case .allowedForSession: "Allowed for this Claude Code session"
-            case .denied: "Permission denied in Chimlo"
+            case .denied: "Permission denied in Claude Overhead"
             case .cancelled, .unavailable: "Answer in Claude Code"
             }
             let decision: UserDecision? = switch outcome {
@@ -1827,7 +1681,7 @@ final class ApplicationModel: ObservableObject {
 
     private func installPreviewSession() {
         guard !sessions.contains(where: \.isDemo) else { return }
-        let sessionID = "chimlo-listener-preview-\(UUID().uuidString.lowercased())"
+        let sessionID = "overhead-listener-preview-\(UUID().uuidString.lowercased())"
         previewSessionIDs.insert(sessionID)
         demoSessionIDs.insert(sessionID)
         consume(
@@ -1874,7 +1728,6 @@ final class ApplicationModel: ObservableObject {
     private static func agentName(_ agent: AgentKind) -> String {
         switch agent {
         case .claude: "Claude"
-        case .codex: "Codex"
         case .gemini: "Gemini"
         case .cursor: "Cursor"
         case .openCode: "OpenCode"
@@ -1887,34 +1740,11 @@ final class ApplicationModel: ObservableObject {
         accessibility = .current
     }
 
-    @objc private func applicationBecameActive() {
-        guard replacesSystemFeedback else { return }
-        systemFeedbackEngine.retry(promptForPermission: false)
-    }
-
-    private func presentSystemFeedback(_ presentation: SystemFeedbackPresentation) {
-        systemFeedback = presentation
-        systemFeedbackExpiryTask?.cancel()
-        systemFeedbackExpiryTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(SystemFeedbackPolicy.holdMilliseconds))
-            guard !Task.isCancelled, let self else { return }
-            systemFeedback = nil
-            systemFeedbackExpiryTask = nil
-        }
-    }
-
-    private func clearSystemFeedback() {
-        systemFeedbackExpiryTask?.cancel()
-        systemFeedbackExpiryTask = nil
-        systemFeedback = nil
-    }
-
     private enum Keys {
-        static let completedOnboarding = "chimlo.onboarding.completed"
-        static let soundsEnabled = "chimlo.sound.enabled"
-        static let keepPreviewSession = "chimlo.preview.keepSession"
-        static let replacesSystemFeedback = "chimlo.systemFeedback.replacesNative"
-        static let archivedSessions = "chimlo.sessions.archived"
+        static let completedOnboarding = "overhead.onboarding.completed"
+        static let soundsEnabled = "overhead.sound.enabled"
+        static let keepPreviewSession = "overhead.preview.keepSession"
+        static let archivedSessions = "overhead.sessions.archived"
     }
 
     private struct QuestionFlow {

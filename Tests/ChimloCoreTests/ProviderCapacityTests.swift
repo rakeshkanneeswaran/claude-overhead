@@ -4,30 +4,6 @@ import Testing
 
 @Suite("Provider capacity")
 struct ProviderCapacityTests {
-    @Test("Codex selects only the exact weekly app-server window")
-    func parsesCodexWeeklyWindow() throws {
-        let observedAt = Date(timeIntervalSince1970: 1_700_000_000)
-        let snapshot = try #require(ProviderCapacityParser.codexAppServer([
-            "rateLimits": [
-                "primary": [
-                    "usedPercent": 12,
-                    "windowDurationMins": 300,
-                    "resetsAt": 1_700_001_000,
-                ],
-                "secondary": [
-                    "usedPercent": 36,
-                    "windowDurationMins": 10_080,
-                    "resetsAt": 1_700_090_000,
-                ],
-            ],
-        ], observedAt: observedAt))
-
-        #expect(snapshot.windows.count == 1)
-        #expect(snapshot.window(.session) == nil)
-        #expect(snapshot.window(.weekly)?.remainingPercentage == 64)
-        #expect(snapshot.window(.weekly)?.resetsAt == Date(timeIntervalSince1970: 1_700_090_000))
-    }
-
     @Test("Claude status-line data produces separate session and weekly windows")
     func parsesClaudeWindows() throws {
         let data = Data(#"{"rate_limits":{"five_hour":{"used_percentage":32,"resets_at":1700001000},"seven_day":{"used_percentage":67,"resets_at":1700090000}}}"#.utf8)
@@ -50,7 +26,6 @@ struct ProviderCapacityTests {
 
     @Test("Missing capacity is unavailable rather than zero")
     func missingDataIsUnavailable() {
-        #expect(ProviderCapacityParser.codexAppServer(["rateLimits": [:]]) == nil)
         #expect(ProviderCapacityParser.claudeStatusLine(Data(#"{"rate_limits":{}}"#.utf8)) == nil)
         #expect(ProviderCapacityParser.claudeUsagePanel("No usage data here") == nil)
     }

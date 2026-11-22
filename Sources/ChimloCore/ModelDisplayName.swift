@@ -1,15 +1,13 @@
 import Foundation
 
 /// Produces a compact provider-facing model name without baking current model
-/// versions into Chimlo. Provider catalogs can supply a preferred name; model
-/// identifiers remain a future-proof fallback for providers without a catalog.
+/// versions into Claude Overhead.
 public enum ModelDisplayName {
     public static func resolve(
         modelID: String?,
-        agent: AgentKind,
-        providerDisplayName: String? = nil
+        agent: AgentKind
     ) -> String? {
-        let candidates = [providerDisplayName, modelID].compactMap(cleaned)
+        let candidates = [modelID].compactMap(cleaned)
         guard !candidates.isEmpty else { return nil }
 
         for candidate in candidates {
@@ -17,8 +15,6 @@ public enum ModelDisplayName {
             switch agent {
             case .claude:
                 formatted = formatClaude(candidate)
-            case .codex:
-                formatted = formatCodex(candidate)
             case .gemini, .cursor, .openCode, .hermes, .other:
                 formatted = nil
             }
@@ -64,28 +60,6 @@ public enum ModelDisplayName {
         let family = familyTokens.map(titleCased).joined(separator: " ")
         let version = versionTokens.map(normalizedVersionToken).joined(separator: ".")
         return version.isEmpty ? family : "\(family) \(version)"
-    }
-
-    private static func formatCodex(_ source: String) -> String? {
-        let lowercased = source.lowercased()
-        let modelPortion: Substring
-        if let gptRange = lowercased.range(of: "gpt-") {
-            let offset = lowercased.distance(from: lowercased.startIndex, to: gptRange.upperBound)
-            let sourceIndex = source.index(source.startIndex, offsetBy: offset)
-            modelPortion = source[sourceIndex...]
-        } else if lowercased.hasPrefix("codex-")
-                    || lowercased.hasPrefix("codex ")
-                    || lowercased.first == "o" && lowercased.dropFirst().first?.isNumber == true {
-            modelPortion = source[...]
-        } else {
-            return nil
-        }
-
-        let tokens = tokenize(modelPortion).filter { !isReleaseSuffix($0) }
-        guard !tokens.isEmpty else { return nil }
-        return tokens.map { token in
-            isVersionToken(token) ? normalizedVersionToken(token) : titleCased(token)
-        }.joined(separator: " ")
     }
 
     private static func tokenize(_ source: Substring) -> [String] {

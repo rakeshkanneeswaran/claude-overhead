@@ -1,212 +1,90 @@
-<h1 align="center"><img src=".github/chimlo-readme-icon.png" alt="" width="48" height="60" align="absmiddle">&nbsp;&nbsp;Chimlo</h1>
+# Claude Overhead
 
-<p align="center">
-  <strong>The macOS activity island for coding agents.</strong>
-  <br>
-  Watch Codex and Claude Code work, respond when they need you, then get back to your flow.
-</p>
+**A notch companion for Claude Code on macOS.** See your Claude Code sessions,
+answer their questions and approve their tool requests from the MacBook notch,
+without switching back to the terminal.
 
-<p align="center">
-  <a href="https://github.com/kraten/chimlo#-install">Install</a> ·
-  <a href="https://github.com/kraten/chimlo#-features">Features</a> ·
-  <a href="CHANGELOG.md">Changelog</a> ·
-  <a href="https://github.com/kraten/chimlo#-connect-codex-and-claude-code">Connect agents</a> ·
-  <a href="https://github.com/kraten/chimlo#%EF%B8%8F-architecture">Architecture</a> ·
-  <a href="https://github.com/kraten/chimlo#-contributing">Contribute</a>
-</p>
+> Claude Overhead is an independent open-source project. It is not affiliated
+> with, endorsed by, or sponsored by Anthropic.
 
-<p align="center">
-  <a href="https://github.com/kraten/chimlo/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/kraten/chimlo/ci.yml?branch=main&style=flat-square&label=CI" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/macOS-14%2B-1b1b1b?style=flat-square&logo=apple&logoColor=white" alt="macOS 14 or newer">
-  <img src="https://img.shields.io/badge/Swift-6.0-c96b42?style=flat-square&logo=swift&logoColor=white" alt="Swift 6.0">
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/kraten/chimlo?style=flat-square&color=5f7f59" alt="GPL-3.0 license"></a>
-  <a href="https://github.com/kraten/chimlo/stargazers"><img src="https://img.shields.io/github/stars/kraten/chimlo?style=flat-square&color=8b7d52" alt="GitHub stars"></a>
-</p>
+**Status:** early development. There are no releases yet; build it from source
+(below).
 
-<p align="center">
-  <img src=".github/social-preview.png" alt="Chimlo showing Codex and Claude coding-agent sessions in the MacBook notch">
-</p>
+## What it does today
 
----
+- **Live sessions.** Every running Claude Code session shows up in the notch:
+  working, waiting for you, done, or failed.
+- **Answer questions in place.** Claude's multiple-choice questions
+  (`AskUserQuestion`) appear in the notch; pick an option and Claude continues.
+- **Approve tool requests.** Deny, allow once, or allow for the current
+  session. Bypass mode is never offered.
+- **Usage limits.** Your 5-hour and weekly Claude usage, with reset countdowns.
+- **Sound cues** when a session needs you or finishes (can be muted).
+- **Works without a notch.** On external displays and Macs without a notch it
+  shows as a small pill just below the menu bar.
+- **Local and private.** Nothing leaves your Mac, and there is no telemetry.
+  If the app is closed or anything fails, Claude Code simply asks in the
+  terminal as usual: a failure never counts as an approval.
 
-Long-running agents should not make you babysit a terminal. Chimlo turns the top
-of your display into a small, local control surface: active work stays visible,
-questions and approvals arrive where you can act on them, and completed work is
-easy to reopen.
+## Planned
 
-## ✨ Features
+- A cache countdown: how long until Claude's prompt cache goes cold while a
+  session waits for you.
+- A context meter that warns before auto-compact.
+- A session receipt: cost, time, lines changed and the PR, when a session ends.
+- GitHub: your PRs' checks, reviews and merge blockers, live Actions runs, and
+  notifications when a build fails.
 
-- 🤖 **Live agent sessions.** Follow concurrent Codex and Claude Code work, including what is active, waiting, done, or failed.
-- ❓ **Claude questions in place.** Read the real multiple-choice prompt and send the selected option back to the blocked session.
-- 🛡️ **Scoped Claude approvals.** Inspect the requested tool action, then deny it, allow it once, or allow it for the current session. Bypass mode is never exposed.
-- 📊 **Real provider capacity.** See Codex and Claude usage windows from provider-owned runtime data, without reading credentials or inventing percentages.
-- 🍎 **Native macOS.** Chimlo is built with AppKit and SwiftUI. There is no Electron shell and no web view.
-- 🎵 **A useful notch between tasks.** Media playback plus volume and brightness feedback share the same compact surface.
-- 🖥️ **Display-aware behavior.** The island adapts to notched displays, external monitors, the menu bar, fullscreen media, Reduce Motion, and increased contrast.
-- 👾 **Animated pixel companions.** Original characters make idle, working, waiting, completed, and failed states recognizable at a glance.
-- 🔌 **Safe agent setup.** Previewed, marker-scoped hook installation preserves unrelated Codex and Claude Code configuration and removes only Chimlo's entries.
-- 🔒 **Local and private.** Prompts, transcripts, permission previews, and session details are not sent to a Chimlo service. There is no telemetry by default.
+## Requirements
 
-## 📦 Install
+- macOS 14 or newer, Apple silicon
+- [Claude Code](https://code.claude.com) installed
+- To build: Xcode, or the Xcode Command Line Tools with Swift 6
 
-Chimlo requires macOS 14 or newer. The current release supports Apple silicon
-Macs.
-
-1. Download the latest `Chimlo-*.dmg` from
-   [GitHub Releases](https://github.com/kraten/chimlo/releases/latest).
-2. Open the DMG and drag **Chimlo** into **Applications**.
-3. Eject the Chimlo disk image, then open Chimlo from Applications.
-
-### Updates
-
-Release builds check for signed updates every hour. When a newer published
-release is available, Chimlo shows **Update to latest version** in the island.
-Click it once to download, verify, install, and relaunch the app. Chimlo keeps
-the same release bundle identifier, so existing app preferences remain in
-place.
-
-### First launch
-
-Chimlo is not yet notarized by Apple. If macOS blocks the first launch, open
-**System Settings > Privacy & Security**, scroll to **Security**, then click
-**Open Anyway** for Chimlo. Confirm with your Mac password when prompted.
-Apple documents this process in
-[Open a Mac app from an unknown developer](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac).
-
-On first launch, complete the short onboarding tour. Chimlo then automatically
-discovers supported local Codex and Claude Code sessions; no manual connection
-step is required for session activity.
-
-### Allow Accessibility permission
-
-Accessibility permission is required for Chimlo's volume and brightness
-controls and helps it recognize active fullscreen media.
-
-1. Install Chimlo in Applications and open it from there.
-2. Open **Chimlo Settings > General**.
-3. Under **Volume and brightness**, enable **Show in Chimlo** and click
-   **Allow**.
-4. In **System Settings > Privacy & Security > Accessibility**, enable
-   **Chimlo**.
-5. Return to Chimlo and click **Retry** if the status has not updated.
-
-Without this permission, agent activity remains available and macOS keeps its
-native volume and brightness controls.
-
-### Build from source
-
-You need Xcode or the Xcode Command Line Tools with a Swift 6 toolchain.
+## Build and run
 
 ```sh
-git clone https://github.com/kraten/chimlo.git
-cd chimlo
-
-# One-time local signing setup
-make signing-identity
-
-# Package and open the separately identified local build
+git clone https://github.com/rakeshkanneeswaran/claude-overhead.git
+cd claude-overhead
 make app
-open "dist/Chimlo Dev.app"
+open "dist/Claude Overhead Dev.app"
 ```
 
-The source build is named **Chimlo Dev** and uses its own bundle identifier, so
-macOS lists it separately from a release copy of **Chimlo** in Accessibility
-settings. Each app can therefore keep its own permission toggle.
+Then open **Settings → Agents** and click **Connect** next to Claude Code.
+Claude Overhead shows you exactly what it will add to `~/.claude/settings.json`
+before writing anything, keeps a backup of the original
+(`settings.json.overhead-backup`), and **Disconnect** removes only its own
+entries. See [Docs/AGENT_HOOKS.md](Docs/AGENT_HOOKS.md) for the details.
 
-<details>
-<summary>Why the local signing step matters</summary>
+The app is not notarized yet. If macOS blocks the first launch, open
+**System Settings → Privacy & Security** and click **Open Anyway**.
 
-`make signing-identity` creates a dedicated local keychain, imports a
-non-exportable private key, and restricts the certificate to code signing. This
-keeps Chimlo's designated code requirement stable between local builds, so macOS
-does not repeatedly forget its Accessibility permission.
-
-You can skip the step for an ad-hoc build, but permission may need to be granted
-again when the executable changes. Run `make signing-check` to verify that two
-separate builds keep the same designated requirement.
-
-</details>
-
-### Develop locally
+## Develop
 
 ```sh
-make build
-make test
-make check
-./Scripts/swift.sh run ChimloApp
+make build   # compile
+make test    # unit tests
+make check   # behaviour checks (layout, protocol, fail-closed decisions)
 ```
 
-`make test` runs the Swift test suites. `make check` runs Chimlo's deterministic
-layout, protocol, and behavior checks.
+With only the Command Line Tools installed (no full Xcode), the build scripts
+use the macOS 26 SDK automatically, because the macOS 27 SDK's SwiftUI needs a
+macro plugin that only ships with Xcode.
 
-Public releases are built and signed locally, then the exact DMG and signed
-`appcast.xml` are uploaded to a draft GitHub release. GitHub Actions does not
-rebuild or re-sign the artifact, and the private Sparkle key stays in the
-release Mac's Keychain. Maintainers should follow the complete
-[release procedure](Docs/RELEASING.md).
+More reading: [Architecture](Docs/ARCHITECTURE.md) ·
+[Protocol](Docs/PROTOCOL.md) · [Contributing](CONTRIBUTING.md) ·
+[Security](SECURITY.md)
 
-## 🔌 Connect Codex and Claude Code
+## Credits
 
-Chimlo combines app-server events, process liveness, incremental local metadata,
-and command hooks. No cloud connection is required.
+Claude Overhead is a fork of [Chimlo](https://github.com/kraten/chimlo) by
+Kartike Bansal, licensed under GPL-3.0. Chimlo built the notch island, the
+authenticated hook protocol, and the question and permission bridges this app
+is built on.
 
-| Client | What Chimlo installs |
-|:--|:--|
-| **Codex** | Marker-scoped observers in `~/.codex/hooks.json` for task lifecycle updates. |
-| **Claude Code** | Marker-scoped observers plus the blocking `AskUserQuestion` and `PermissionRequest` bridges in `~/.claude/settings.json`. |
+The Claude usage probe adapts code from CodexBar (MIT); see
+[Vendor/CodexBar/LICENSE](Vendor/CodexBar/LICENSE).
 
-Every install starts with a complete preview and explicit confirmation. Chimlo
-preserves unrelated configuration, creates a one-time backup, validates the
-result, and removes only its own marked entries during uninstall.
+## License
 
-Read [Agent hook setup](Docs/AGENT_HOOKS.md) for the full install, recovery, and
-uninstall behavior.
-
-## 🔒 Privacy and safety
-
-Chimlo is designed so that the terminal remains authoritative.
-
-- Question text, answers, permission paths, and action previews exist only in memory while the interaction is active.
-- The local registry deliberately omits prompt and response content.
-- Hook traffic uses an authenticated loopback protocol with per-launch tokens and bounded message framing.
-- A missing app, timeout, authentication failure, or transport error never implies approval. Claude Code falls back to its native terminal UI.
-- Capacity comes from the existing Codex app-server connection and Claude Code's documented status-line or `/usage` surfaces. Chimlo does not read provider credentials.
-
-See the [protocol specification](Docs/PROTOCOL.md) for the wire format and
-fail-closed behavior.
-
-## 🏗️ Architecture
-
-Chimlo keeps its platform code, transport, and domain model in narrow modules:
-
-```mermaid
-flowchart LR
-    CLI["ChimloCLI<br/>Hooks and dev events"] --> Protocol["ChimloProtocol<br/>Authenticated loopback"]
-    App["ChimloApp<br/>AppKit and SwiftUI"] --> Protocol
-    CLI --> Core["ChimloCore<br/>Domain values and reducer"]
-    App --> Core
-    Protocol --> Core
-```
-
-- **ChimloCore** owns deterministic session, interaction, retention, capacity, and layout rules.
-- **ChimloProtocol** owns authenticated local transport and its wire schema.
-- **ChimloApp** owns the macOS lifecycle, panel placement, discovery adapters, settings, and SwiftUI views.
-- **ChimloCLI** receives agent hooks and provides development event injection.
-
-Read the [architecture guide](Docs/ARCHITECTURE.md) for the dependency boundaries
-and runtime data flow.
-
-## 🤝 Contributing
-
-Contributions are welcome. Start with the [contributing guide](CONTRIBUTING.md)
-and [code of conduct](CODE_OF_CONDUCT.md), then open an issue or pull request.
-
-- [Report a bug](https://github.com/kraten/chimlo/issues/new?template=bug_report.yml)
-- [Request a feature](https://github.com/kraten/chimlo/issues/new?template=feature_request.yml)
-- [Join a discussion](https://github.com/kraten/chimlo/discussions)
-
-## 📜 License
-
-Chimlo is free and open-source software licensed under
-[GPL-3.0](LICENSE). Product and integration names remain the property of their
-respective owners.
+[GPL-3.0](LICENSE), the same license as Chimlo.

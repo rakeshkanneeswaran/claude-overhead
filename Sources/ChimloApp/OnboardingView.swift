@@ -14,8 +14,6 @@ struct OnboardingView: View {
 
             Group {
                 switch model.onboardingStep {
-                case .welcome:
-                    welcome
                 case .working:
                     working
                 case .permission:
@@ -32,57 +30,7 @@ struct OnboardingView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Chimlo first-run tour")
-    }
-
-    private var welcome: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Chimlo lives in your notch.")
-                    .font(.system(size: 19, weight: .bold))
-                    .tracking(-0.25)
-                    .foregroundStyle(ChimloTheme.paper)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text("See agents, media, system controls, and usage.")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(ChimloTheme.quietPaper)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            VStack(spacing: 9) {
-                HStack(spacing: 14) {
-                    TourCapability(kind: .agents, model: model)
-                    TourCapability(kind: .media, model: model)
-                }
-                HStack(spacing: 14) {
-                    TourCapability(kind: .system, model: model)
-                    TourCapability(kind: .usage, model: model)
-                }
-            }
-            .frame(maxWidth: .infinity)
-
-            HStack(alignment: .center, spacing: 10) {
-                HStack(alignment: .top, spacing: 6) {
-                    PixelSystemGlyph(kind: .warning, color: ChimloTheme.attention, size: 12)
-                        .padding(.top, 1)
-
-                    Text("Restart after Accessibility access for volume, brightness, and media controls.")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(ChimloTheme.quietPaper)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityElement(children: .combine)
-
-                Button("Skip tour", action: model.finishOnboarding)
-                    .buttonStyle(TourTextButtonStyle())
-
-                Button("Run demo", action: model.beginOnboardingDemo)
-                    .buttonStyle(ChimloButtonStyle(kind: .primary, compact: true))
-                    .keyboardShortcut(.defaultAction)
-            }
-        }
+        .accessibilityLabel("Claude Overhead first-run tour")
     }
 
     private var working: some View {
@@ -91,7 +39,7 @@ struct OnboardingView: View {
 
             demoSessionRow
 
-            Text("Chimlo shows live agent activity.")
+            Text("Claude Overhead shows live agent activity.")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(ChimloTheme.quietPaper)
                 .fixedSize(horizontal: false, vertical: true)
@@ -164,7 +112,7 @@ struct OnboardingView: View {
 
             Text(
                 allowed
-                    ? "Chimlo waits for the result."
+                    ? "Claude Overhead waits for the result."
                     : "Nothing ran."
             )
             .font(.system(size: 11, weight: .medium))
@@ -176,28 +124,31 @@ struct OnboardingView: View {
     private func complete(allowed: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             TourStepHeader(
-                marker: "DONE",
-                title: "Demo complete",
+                marker: "READY",
+                title: "That's it. You're ready.",
                 markerPosition: .trailing,
-                markerColor: allowed ? ChimloTheme.moss : ChimloTheme.mutedPaper
+                markerColor: ChimloTheme.moss
             )
 
             demoSessionRow
 
             Text(
                 allowed
-                    ? "Finish returns Chimlo to the notch."
-                    : "Nothing ran. Your choice was respected."
+                    ? "That was a preview. Your Claude sessions will now stay within reach, right here."
+                    : "That was a preview, and nothing ran. Your real Claude sessions will show up right here."
             )
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(ChimloTheme.quietPaper)
             .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 12) {
-                Button("Replay demo", action: model.replayOnboarding)
-                    .buttonStyle(TourTextButtonStyle())
+                Button("Explore features") {
+                    model.finishOnboarding()
+                    model.openPanel()
+                }
+                .buttonStyle(TourTextButtonStyle())
                 Spacer(minLength: 8)
-                Button("Finish", action: model.finishOnboarding)
+                Button("Start using Overhead", action: model.finishOnboarding)
                     .buttonStyle(ChimloButtonStyle(kind: .primary, compact: true))
                     .keyboardShortcut(.defaultAction)
             }
@@ -254,11 +205,11 @@ private struct OnboardingStatusBand: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Chimlo is \(statusLabel.lowercased())")
+        .accessibilityLabel("Claude Overhead is \(statusLabel.lowercased())")
     }
 
     private var brand: some View {
-        PixelText(text: "CHIMLO", pixelSize: 1.1, color: ChimloTheme.paper, spacing: 1)
+        PixelText(text: "OVERHEAD", pixelSize: 1.1, color: ChimloTheme.paper, spacing: 1)
     }
 
     private var status: some View {
@@ -275,7 +226,6 @@ private struct OnboardingStatusBand: View {
 
     private var statusMood: AvatarMood {
         switch model.onboardingStep {
-        case .welcome: .idle
         case .working: .working
         case .permission: .waiting
         case let .resolving(allowed): allowed ? .working : .idle
@@ -285,7 +235,6 @@ private struct OnboardingStatusBand: View {
 
     private var statusLabel: String {
         switch model.onboardingStep {
-        case .welcome: "READY"
         case .working: "WORK"
         case .permission: "WAIT"
         case let .resolving(allowed): allowed ? "WORK" : "STOP"
@@ -299,109 +248,8 @@ private struct OnboardingStatusBand: View {
             ChimloTheme.attention
         case .complete(true):
             ChimloTheme.moss
-        case .welcome, .resolving, .complete(false):
+        case .resolving, .complete(false):
             ChimloTheme.paper
-        }
-    }
-}
-
-private enum TourCapabilityKind {
-    case agents
-    case media
-    case system
-    case usage
-}
-
-private struct TourCapability: View {
-    let kind: TourCapabilityKind
-    @ObservedObject var model: ApplicationModel
-
-    var body: some View {
-        HStack(spacing: 7) {
-            icon
-                .frame(width: 34, height: 30)
-
-            VStack(alignment: .leading, spacing: 2) {
-                PixelText(text: label, pixelSize: 1, color: labelColor, spacing: 1)
-                Text(detail)
-                    .font(.system(size: 9.5, weight: .medium))
-                    .foregroundStyle(ChimloTheme.mutedPaper)
-                    .lineLimit(1)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label.capitalized): \(detail)")
-    }
-
-    @ViewBuilder
-    private var icon: some View {
-        switch kind {
-        case .agents:
-            PixelAvatar(
-                mood: .working,
-                seed: 0,
-                size: 30,
-                reduceMotion: model.accessibility.reduceMotion
-            )
-        case .media:
-            PixelSystemGlyph(kind: .music, color: ChimloTheme.moss, size: 20)
-        case .system:
-            HStack(spacing: 2) {
-                PixelSystemGlyph(kind: .speaker, color: ChimloTheme.paper, size: 15)
-                PixelSystemGlyph(kind: .sun, color: ChimloTheme.attention, size: 15)
-            }
-        case .usage:
-            TourUsageGlyph()
-        }
-    }
-
-    private var label: String {
-        switch kind {
-        case .agents: "AGENTS"
-        case .media: "MEDIA"
-        case .system: "SYSTEM"
-        case .usage: "USAGE"
-        }
-    }
-
-    private var detail: String {
-        switch kind {
-        case .agents: "Work + approvals"
-        case .media: "Now playing"
-        case .system: "Volume + brightness"
-        case .usage: "Codex + Claude"
-        }
-    }
-
-    private var labelColor: Color {
-        switch kind {
-        case .agents, .system: ChimloTheme.attention
-        case .media: ChimloTheme.moss
-        case .usage: ChimloTheme.paper
-        }
-    }
-}
-
-private struct TourUsageGlyph: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            row(label: "7D", litCells: 3, color: ChimloTheme.providerBlue)
-            row(label: "5H", litCells: 2, color: ChimloTheme.providerOrange)
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func row(label: String, litCells: Int, color: Color) -> some View {
-        HStack(spacing: 2) {
-            PixelText(text: label, pixelSize: 1, color: ChimloTheme.mutedPaper, spacing: 1)
-            HStack(spacing: 1) {
-                ForEach(0..<4, id: \.self) { index in
-                    Rectangle()
-                        .fill(index < litCells ? color : ChimloTheme.mutedPaper.opacity(0.28))
-                        .frame(width: 3, height: 5)
-                }
-            }
         }
     }
 }

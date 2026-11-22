@@ -1,13 +1,13 @@
 # Local protocol
 
-Chimlo receives normalized events over authenticated loopback TCP. The transport
+Claude Overhead receives normalized events over authenticated loopback TCP. The transport
 is local only. Agent-specific helpers translate documented vendor input into the
 wire types below.
 
 ## Runtime discovery
 
 The app chooses an available `127.0.0.1` port at launch and writes a runtime
-descriptor beneath `~/Library/Application Support/Chimlo/`. The descriptor
+descriptor beneath `~/Library/Application Support/Overhead/`. The descriptor
 contains:
 
 - protocol major and minor version
@@ -34,10 +34,10 @@ big-endian payload length before the JSON bytes.
   "body": {
     "kind": "event",
     "event": {
-      "sessionID": "demo-codex",
+      "sessionID": "demo-claude",
       "sequence": 3,
       "kind": "activity",
-      "agent": "codex",
+      "agent": "claude",
       "title": "Tighten cache boundaries",
       "detail": "Running focused tests"
     }
@@ -88,7 +88,7 @@ explicit answer it echoes Claude's original `questions` array and adds the
 answer map to `updatedInput`. Any cancellation, invalid option, timeout, app
 shutdown, authentication failure, or transport error returns `{}` so Claude
 Code presents its native question instead. Question payloads and answers never
-enter Chimlo's persisted session registry.
+enter Claude Overhead's persisted session registry.
 
 ## Claude Code permissions
 
@@ -107,7 +107,7 @@ changes or a bounded matching tool rule for other permissions. Deny returns
 `behavior: deny`. Bypass mode and persistent destinations are discarded.
 Cancellation, timeout, shutdown, authentication failure, or transport error
 returns `{}` so Claude Code presents its native permission UI. Tool input and
-the action preview never enter Chimlo's persisted session registry.
+the action preview never enter Claude Overhead's persisted session registry.
 
 ## Payload limits
 
@@ -124,13 +124,13 @@ approval.
 
 ## Development CLI
 
-With Chimlo running:
+With Claude Overhead running:
 
 ```sh
-chimlo demo
-chimlo emit --session local-1 --sequence 1 --agent codex --kind sessionStarted \
+overhead demo
+overhead emit --session local-1 --sequence 1 --agent claude --kind sessionStarted \
   --title "Audit the cache" --detail "Reading request paths"
-chimlo decision --title "Run project checks" \
+overhead decision --title "Run project checks" \
   --message "swift test --filter LighthouseTests" \
   --approve-label "Allow once" --timeout 60
 ```

@@ -27,7 +27,7 @@ if [[ "$OUTPUT_PATH" != /* ]]; then
   OUTPUT_PATH="$PROJECT_DIR/$OUTPUT_PATH"
 fi
 
-STAGING_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/chimlo-appcast.XXXXXX")"
+STAGING_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/overhead-appcast.XXXXXX")"
 
 cleanup_staging() {
   rm -rf "$STAGING_ROOT"
@@ -38,8 +38,8 @@ trap cleanup_staging EXIT
 
 typeset -a appcast_args
 appcast_args=(
-  --download-url-prefix "https://github.com/kraten/chimlo/releases/download/$RELEASE_TAG/"
-  --link "https://github.com/kraten/chimlo"
+  --download-url-prefix "https://github.com/rakeshkanneeswaran/claude-overhead/releases/download/$RELEASE_TAG/"
+  --link "https://github.com/rakeshkanneeswaran/claude-overhead"
   --maximum-versions 1
   --maximum-deltas 0
   -o "$STAGING_ROOT/appcast.xml"
@@ -47,7 +47,7 @@ appcast_args=(
 )
 
 "$GENERATE_APPCAST" \
-  --account "${SPARKLE_KEY_ACCOUNT:-dev.chimlo.mac}" \
+  --account "${SPARKLE_KEY_ACCOUNT:-com.rakesh.overhead}" \
   "${appcast_args[@]}"
 
 if [[ ! -f "$STAGING_ROOT/appcast.xml" ]]; then

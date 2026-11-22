@@ -27,7 +27,7 @@ if [[ -z "$TAG_COMMIT" || "$TAG_COMMIT" != "$HEAD_COMMIT" ]]; then
 fi
 
 ARTIFACT_DIR="$ARTIFACT_ROOT/$TAG"
-DMG_PATH="$ARTIFACT_DIR/Chimlo-$TAG.dmg"
+DMG_PATH="$ARTIFACT_DIR/Claude-Overhead-$TAG.dmg"
 APPCAST_PATH="$ARTIFACT_DIR/appcast.xml"
 MANIFEST_PATH="$ARTIFACT_DIR/RELEASE-MANIFEST.txt"
 CHECKSUM_PATH="$ARTIFACT_DIR/SHA256SUMS.txt"
@@ -45,7 +45,7 @@ if [[ ! -f "$CHANGELOG_PATH" ]]; then
 fi
 
 RELEASE_VERSION="${TAG#v}"
-RELEASE_NOTES_PATH="$(/usr/bin/mktemp -t chimlo-release-notes)"
+RELEASE_NOTES_PATH="$(/usr/bin/mktemp -t overhead-release-notes)"
 cleanup_release_notes() {
   rm -f "$RELEASE_NOTES_PATH"
 }
@@ -82,7 +82,7 @@ gh release create "$TAG" \
   --draft \
   --verify-tag \
   --notes-file "$RELEASE_NOTES_PATH" \
-  --title "Chimlo $RELEASE_VERSION"
+  --title "Claude Overhead $RELEASE_VERSION"
 
 print "Uploaded the exact locally signed files to a draft GitHub release."
 print "Review the draft before publishing it."

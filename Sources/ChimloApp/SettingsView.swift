@@ -51,7 +51,7 @@ struct ChimloSettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             List(selection: $selectedTab) {
-                Section("Chimlo") {
+                Section("Claude Overhead") {
                     sidebarRow(for: .general)
                     sidebarRow(for: .agents)
                     sidebarRow(for: .about)
@@ -130,23 +130,19 @@ private struct GeneralSettingsPane: View {
             }
 
             Section {
-                Toggle("Show in Chimlo", isOn: $model.replacesSystemFeedback)
-
-                LabeledContent("Status") {
-                    feedbackStatus
+                Button("Run setup again") {
+                    model.presentSetup?(true)
                 }
             } header: {
-                Text("Volume and brightness")
+                Text("Setup")
             } footer: {
-                Text("Restart Chimlo after granting Accessibility access. Volume, brightness, and media controls activate on the next launch. macOS takes over if Chimlo cannot show a control.")
+                Text("Walks through connecting Claude Code again and replays the notch preview.")
             }
 
             Section {
-                Button("Replay tour") {
-                    model.replayOnboarding()
-                }
-            } header: {
-                Text("Tour")
+                Button("Quit Claude Overhead") { NSApp.terminate(nil) }
+            } footer: {
+                Text("The notch goes away until you open Claude Overhead again. Claude Code keeps working and asks for permissions itself while it's closed. You can also right-click the notch to quit.")
             }
         }
         .formStyle(.grouped)
@@ -154,37 +150,6 @@ private struct GeneralSettingsPane: View {
         .background(SettingsAppearance.detailBackground)
     }
 
-    @ViewBuilder
-    private var feedbackStatus: some View {
-        switch model.systemFeedbackState {
-        case .permissionRequired:
-            HStack(spacing: 8) {
-                Text(model.systemFeedbackStatusText)
-                    .foregroundStyle(.secondary)
-                Button("Allow") {
-                    model.requestSystemFeedbackPermission()
-                }
-                .controlSize(.small)
-                Button("Settings") {
-                    model.openAccessibilitySettings()
-                }
-                .controlSize(.small)
-            }
-        case .unavailable:
-            HStack(spacing: 8) {
-                Text(model.systemFeedbackStatusText)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                Button("Retry") {
-                    model.retrySystemFeedback()
-                }
-                .controlSize(.small)
-            }
-        default:
-            Text(model.systemFeedbackStatusText)
-                .foregroundStyle(.secondary)
-        }
-    }
 }
 
 private struct AgentSettingsPane: View {
@@ -193,14 +158,6 @@ private struct AgentSettingsPane: View {
     var body: some View {
         Form {
             Section {
-                connectionRow(
-                    title: "Codex",
-                    detail: model.codexConnectionText,
-                    state: model.codexConnectionState,
-                    connect: model.connectCodex,
-                    disconnect: model.disconnectCodex
-                )
-
                 connectionRow(
                     title: "Claude Code",
                     detail: model.claudeConnectionText,
@@ -211,11 +168,11 @@ private struct AgentSettingsPane: View {
             } header: {
                 Text("Connections")
             } footer: {
-                Text("Connect an agent to show its local sessions and usage.")
+                Text("Connect Claude Code to show its local sessions and usage.")
             }
 
             Section {
-                Text("Session data stays on this Mac. Chimlo does not save prompts, responses, tool data, or files.")
+                Text("Session data stays on this Mac. Claude Overhead does not save prompts, responses, tool data, or files.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } header: {
@@ -338,7 +295,7 @@ private struct AboutSettingsPane: View {
                     reduceMotion: model.accessibility.reduceMotion
                 )
 
-                PixelText(text: "CHIMLO", pixelSize: 2, color: .primary, spacing: 1)
+                PixelText(text: "OVERHEAD", pixelSize: 2, color: .primary, spacing: 1)
 
                 Text("Agent activity in your notch")
                     .foregroundStyle(.secondary)

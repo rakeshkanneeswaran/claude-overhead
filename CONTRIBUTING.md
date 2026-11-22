@@ -1,6 +1,6 @@
-# Contributing to Chimlo
+# Contributing to Claude Overhead
 
-Thank you for your interest in contributing! Chimlo values small,
+Thank you for your interest in contributing! Claude Overhead values small,
 safety-backed changes.
 
 ## Getting Started
@@ -14,8 +14,8 @@ safety-backed changes.
 ### Development Setup
 
 ```sh
-git clone https://github.com/kraten/chimlo.git
-cd chimlo
+git clone https://github.com/rakeshkanneeswaran/claude-overhead.git
+cd overhead
 
 # Run the check suite (framework-independent core + loopback verification)
 make check
@@ -37,7 +37,7 @@ make test
 | `Sources/ChimloCLI` | Hook executable and development event injection |
 | `Sources/ChimloChecks` | Framework-independent verification suite |
 | `Tests/` | Swift Testing suites for Core and Protocol |
-| `Integrations/` | Codex and Claude Code hook configuration fragments |
+| `Integrations/` | Claude Code hook configuration fragment |
 | `Docs/` | Architecture, protocol spec, and agent hook guides |
 
 📖 See [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) for a detailed layer breakdown.
@@ -74,5 +74,5 @@ data, or extracted files from another application in issues, PRs, or fixtures.
 
 ## Need Help?
 
-Open a [Discussion](https://github.com/kraten/chimlo/discussions) for questions,
+Open a [Discussion](https://github.com/rakeshkanneeswaran/claude-overhead/discussions) for questions,
 ideas, or anything that isn't a clear bug or feature request.

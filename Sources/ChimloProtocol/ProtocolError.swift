@@ -17,29 +17,29 @@ public enum ChimloProtocolError: Error, Equatable, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .runtimeDescriptorUnavailable:
-            "Chimlo is not running, or its runtime descriptor is unavailable."
+            "Claude Overhead is not running, or its runtime descriptor is unavailable."
         case let .invalidDescriptor(reason):
-            "The Chimlo runtime descriptor is invalid: \(reason)."
+            "The Claude Overhead runtime descriptor is invalid: \(reason)."
         case let .unsupportedProtocolVersion(version):
-            "Chimlo protocol version \(version) is not supported."
+            "Claude Overhead protocol version \(version) is not supported."
         case let .nonLoopbackHost(host):
             "Refusing to connect to non-loopback host \(host)."
         case let .secureRandomFailed(status):
             "Could not create a secure authentication token (status \(status))."
         case let .payloadTooLarge(size):
-            "The Chimlo payload is too large (\(size) bytes)."
+            "The Claude Overhead payload is too large (\(size) bytes)."
         case let .invalidFrame(reason):
-            "The Chimlo frame is invalid: \(reason)."
+            "The Claude Overhead frame is invalid: \(reason)."
         case .authenticationFailed:
-            "Chimlo authentication failed."
+            "Claude Overhead authentication failed."
         case let .unexpectedMessage(message):
-            "Chimlo returned an unexpected message: \(message)."
+            "Claude Overhead returned an unexpected message: \(message)."
         case let .connectionFailed(message):
-            "Could not communicate with Chimlo: \(message)."
+            "Could not communicate with Claude Overhead: \(message)."
         case .timedOut:
-            "Communication with Chimlo timed out."
+            "Communication with Claude Overhead timed out."
         case .serverAlreadyRunning:
-            "The Chimlo protocol server is already running."
+            "The Claude Overhead protocol server is already running."
         }
     }
 }

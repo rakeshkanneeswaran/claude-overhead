@@ -12,7 +12,7 @@ public struct DemoBeat: Codable, Equatable, Sendable {
 
 public enum DemoScript {
     public static func make(start: Date = Date(timeIntervalSince1970: 1_785_000_000)) -> [DemoBeat] {
-        let sessionID = "chimlo-demo-lighthouse"
+        let sessionID = "overhead-demo-lighthouse"
         let approval = PendingRequest.approval(
             ApprovalRequest(
                 id: "demo-check",
@@ -29,7 +29,7 @@ public enum DemoScript {
                     sessionID: sessionID,
                     sequence: 1,
                     kind: .sessionStarted,
-                    agent: .codex,
+                    agent: .claude,
                     title: "Fix the tiny lighthouse",
                     detail: "Reading the signal controller",
                     terminal: "Terminal",
@@ -43,7 +43,7 @@ public enum DemoScript {
                     sessionID: sessionID,
                     sequence: 2,
                     kind: .activity,
-                    agent: .codex,
+                    agent: .claude,
                     detail: "Editing the blink cadence",
                     timestamp: start.addingTimeInterval(0.9)
                 )
@@ -55,7 +55,7 @@ public enum DemoScript {
                     sessionID: sessionID,
                     sequence: 3,
                     kind: .permissionRequested,
-                    agent: .codex,
+                    agent: .claude,
                     detail: "Waiting for your decision",
                     request: approval,
                     timestamp: start.addingTimeInterval(1.8)
@@ -68,7 +68,7 @@ public enum DemoScript {
                     sessionID: sessionID,
                     sequence: 4,
                     kind: .permissionResolved,
-                    agent: .codex,
+                    agent: .claude,
                     detail: "Running three focused checks",
                     decision: .allow,
                     timestamp: start.addingTimeInterval(3.2)
@@ -81,7 +81,7 @@ public enum DemoScript {
                     sessionID: sessionID,
                     sequence: 5,
                     kind: .completed,
-                    agent: .codex,
+                    agent: .claude,
                     detail: "Three checks passed",
                     timestamp: start.addingTimeInterval(4.2)
                 )

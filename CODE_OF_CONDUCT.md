@@ -59,8 +59,8 @@ representative at an online or offline event.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement at
-**kratenhq@gmail.com**.
+reported privately to the maintainers through the repository's GitHub
+**Security** tab (**Report a vulnerability**), which only maintainers can read.
 
 All complaints will be reviewed and investigated promptly and fairly.
 

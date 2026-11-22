@@ -5,7 +5,7 @@ import Testing
 @Suite("Claude permission hook")
 struct ClaudePermissionHookTests {
     private let payload = Data(
-        #"{"session_id":"claude-1","hook_event_name":"PermissionRequest","tool_name":"Write","cwd":"/Users/me/Projects/chimlo","transcript_path":"/private/secret.jsonl","tool_input":{"file_path":"/Users/me/Projects/chimlo/hello.txt","content":"Hello from Chimlo"},"permission_suggestions":[{"type":"setMode","mode":"bypassPermissions","destination":"session"},{"type":"addRules","rules":[{"toolName":"Write","ruleContent":"/Users/me/Projects/chimlo/*"}],"behavior":"allow","destination":"session"}]}"#.utf8
+        #"{"session_id":"claude-1","hook_event_name":"PermissionRequest","tool_name":"Write","cwd":"/Users/me/Projects/overhead","transcript_path":"/private/secret.jsonl","tool_input":{"file_path":"/Users/me/Projects/overhead/hello.txt","content":"Hello from Claude Overhead"},"permission_suggestions":[{"type":"setMode","mode":"bypassPermissions","destination":"session"},{"type":"addRules","rules":[{"toolName":"Write","ruleContent":"/Users/me/Projects/overhead/*"}],"behavior":"allow","destination":"session"}]}"#.utf8
     )
 
     @Test("Parses a bounded transient permission presentation")
@@ -14,11 +14,11 @@ struct ClaudePermissionHookTests {
 
         #expect(hook.request.sessionID == "claude-1")
         #expect(hook.request.agent == .claude)
-        #expect(hook.request.title == "chimlo")
+        #expect(hook.request.title == "overhead")
         #expect(hook.request.toolName == "Write")
         #expect(hook.request.prompt == "Do you want Claude to write hello.txt?")
-        #expect(hook.request.detail == "/Users/me/Projects/chimlo/hello.txt")
-        #expect(hook.request.preview == "Hello from Chimlo")
+        #expect(hook.request.detail == "/Users/me/Projects/overhead/hello.txt")
+        #expect(hook.request.preview == "Hello from Claude Overhead")
         #expect(hook.request.allowsSessionApproval)
     }
 

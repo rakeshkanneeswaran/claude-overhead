@@ -1,7 +1,6 @@
 import Foundation
 
 public enum CapacityProvider: String, Codable, CaseIterable, Sendable {
-    case codex
     case claude
 }
 
@@ -11,7 +10,6 @@ public enum CapacityWindowKind: String, Codable, CaseIterable, Sendable {
 }
 
 public enum CapacitySource: String, Codable, Sendable {
-    case codexAppServer
     case claudeStatusLine
     case claudeCLIUsage
 }
@@ -139,38 +137,6 @@ public enum CapacityPolicy {
 }
 
 public enum ProviderCapacityParser {
-    public static func codexAppServer(
-        _ object: [String: Any],
-        observedAt: Date = .now
-    ) -> ProviderCapacitySnapshot? {
-        let rateLimits = dictionary(object["rateLimits"])
-            ?? dictionary(object["rate_limits"])
-            ?? object
-
-        let candidates = ["secondary", "primary"].compactMap { key -> [String: Any]? in
-            dictionary(rateLimits[key])
-        }
-        guard let weekly = candidates.first(where: { windowDurationMinutes($0) == 10_080 }),
-              let usedPercentage = number(weekly["usedPercent"])
-                ?? number(weekly["used_percent"]) else {
-            return nil
-        }
-
-        let window = CapacityWindowSnapshot(
-            provider: .codex,
-            kind: .weekly,
-            usedPercentage: usedPercentage,
-            resetsAt: date(weekly["resetsAt"] ?? weekly["resets_at"]),
-            observedAt: observedAt,
-            source: .codexAppServer
-        )
-        return ProviderCapacitySnapshot(
-            provider: .codex,
-            windows: [window],
-            observedAt: observedAt
-        )
-    }
-
     public static func claudeStatusLine(
         _ data: Data,
         observedAt: Date = .now
@@ -202,7 +168,7 @@ public enum ProviderCapacityParser {
     }
 
     /// Parses Claude Code's provider-owned `/usage` terminal panel. Claude has
-    /// shipped both used and remaining percentage labels, so Chimlo normalizes
+    /// shipped both used and remaining percentage labels, so Claude Overhead normalizes
     /// either form to the status-line source's used-percentage model.
     public static func claudeUsagePanel(
         _ output: String,
@@ -541,7 +507,7 @@ public enum ProviderCapacityParser {
         String(value.lowercased().unicodeScalars.filter(CharacterSet.alphanumerics.contains))
     }
 
-    private static func strippingTerminalControlSequences(_ output: String) -> String {
+    static func strippingTerminalControlSequences(_ output: String) -> String {
         let scalars = Array(output.unicodeScalars)
         var plain = String.UnicodeScalarView()
         var index = 0
@@ -589,12 +555,6 @@ public enum ProviderCapacityParser {
         return String(plain)
     }
 
-    private static func windowDurationMinutes(_ object: [String: Any]) -> Int? {
-        integer(object["windowDurationMins"])
-            ?? integer(object["window_minutes"])
-            ?? integer(object["windowDurationMinutes"])
-    }
-
     private static func dictionary(_ value: Any?) -> [String: Any]? {
         value as? [String: Any]
     }
@@ -603,14 +563,6 @@ public enum ProviderCapacityParser {
         switch value {
         case let value as NSNumber: value.doubleValue
         case let value as String: Double(value)
-        default: nil
-        }
-    }
-
-    private static func integer(_ value: Any?) -> Int? {
-        switch value {
-        case let value as NSNumber: value.intValue
-        case let value as String: Int(value)
         default: nil
         }
     }

@@ -12,18 +12,18 @@ PASSWORD_DIR="${PASSWORD_FILE:h}"
 TRUST_KEYCHAIN="${CHIMLO_RELEASE_SIGNING_TRUST_KEYCHAIN:-$HOME/Library/Keychains/login.keychain-db}"
 PUBLIC_CERTIFICATE_PATH="${CHIMLO_RELEASE_PUBLIC_CERTIFICATE_PATH:-$PROJECT_DIR/Packaging/Signing/ChimloRelease.cer}"
 P12_PASSWORD_KEYCHAIN="${CHIMLO_RELEASE_P12_PASSWORD_KEYCHAIN:-$HOME/Library/Keychains/login.keychain-db}"
-P12_PASSWORD_SERVICE="${CHIMLO_RELEASE_P12_PASSWORD_SERVICE:-dev.chimlo.release-signing-backup}"
+P12_PASSWORD_SERVICE="${CHIMLO_RELEASE_P12_PASSWORD_SERVICE:-com.rakesh.overhead.release-signing-backup}"
 P12_PASSWORD_ACCOUNT="${CHIMLO_RELEASE_P12_PASSWORD_ACCOUNT:-$(/usr/bin/id -un)}"
 BACKUP_PATH="${1:-}"
 OPENSSL_BIN="${CHIMLO_OPENSSL_BIN:-$(command -v openssl)}"
 
 if [[ -z "$BACKUP_PATH" || ! -f "$BACKUP_PATH" ]]; then
-  print -u2 "Usage: $0 <Chimlo-Release.p12>"
+  print -u2 "Usage: $0 <Overhead-Release.p12>"
   exit 64
 fi
 
 if [[ -z "$OPENSSL_BIN" ]]; then
-  print -u2 "OpenSSL is required to restore Chimlo's release signing identity."
+  print -u2 "OpenSSL is required to restore Claude Overhead's release signing identity."
   exit 1
 fi
 
@@ -57,7 +57,7 @@ else
 fi
 
 umask 077
-TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/chimlo-release-restore.XXXXXX")"
+TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/overhead-release-restore.XXXXXX")"
 PUBLIC_CERTIFICATE_PREEXISTED=0
 [[ -f "$PUBLIC_CERTIFICATE_PATH" ]] && PUBLIC_CERTIFICATE_PREEXISTED=1
 RESTORE_COMPLETE=0
@@ -112,7 +112,7 @@ fi
 
 if [[ -f "$PUBLIC_CERTIFICATE_PATH" ]] \
   && ! /usr/bin/cmp -s "$PUBLIC_CERTIFICATE_PATH" "$CERTIFICATE_DER_PATH"; then
-  print -u2 "The backup certificate does not match Chimlo's committed public certificate."
+  print -u2 "The backup certificate does not match Claude Overhead's committed public certificate."
   print -u2 "$PUBLIC_CERTIFICATE_PATH"
   exit 1
 fi
@@ -169,7 +169,7 @@ unset P12_PASSWORD
 
 CERTIFICATE_SHA256="$(/usr/bin/shasum -a 256 "$CERTIFICATE_DER_PATH" | /usr/bin/awk '{ print $1 }')"
 RESTORE_COMPLETE=1
-print "Restored the Chimlo Release signing identity."
+print "Restored the Claude Overhead Release signing identity."
 print "Identity: $IDENTITY"
 print "Keychain: $KEYCHAIN_PATH"
 print "Certificate SHA-256: $CERTIFICATE_SHA256"
