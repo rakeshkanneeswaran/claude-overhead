@@ -98,19 +98,6 @@ struct SessionMetaLine: View {
                     .foregroundStyle(ChimloTheme.providerOrange)
                     .lineLimit(1)
             }
-            if let branch = insights?.gitBranch {
-                Label(branch, systemImage: "arrow.triangle.branch")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(ChimloTheme.quietPaper)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            if let fraction = insights?.contextFraction {
-                ContextMeter(
-                    fraction: fraction,
-                    health: ContextHealth.classify(fraction: fraction, attentionAt: attentionAt, criticalAt: criticalAt)
-                )
-            }
             if showsAgents, let running = insights?.runningAgents.count, running > 0 {
                 HStack(spacing: 3) {
                     AgentDots(count: running)
@@ -139,9 +126,9 @@ struct SessionMetaLine: View {
     }
 
     static func hasContent(_ session: SessionDisplayModel) -> Bool {
+        // Branch and context stay out of the notch row; the companion
+        // window's Sessions page shows both.
         session.mood == .working
-            || session.insights?.gitBranch != nil
-            || session.insights?.contextFraction != nil
             || (session.insights?.runningAgents.isEmpty == false)
             || session.live?.kind == .background
     }
