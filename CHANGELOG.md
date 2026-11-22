@@ -9,6 +9,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-11-23
+
 - Fixed a crash: clicking **Connect GitHub**, **Choose repositories**,
   **Settings** or **Change monitored repositories** on the GitHub page quit
   the app (1.0.4 and 1.0.5). They now open Settings → GitHub as intended.
@@ -204,7 +206,8 @@ controls in the MacBook notch.
 - Accessibility permission is needed for Chimlo's volume and brightness
   controls. Agent activity remains available without it.
 
-[Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.0.6...HEAD
+[1.0.6]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.6
 [1.0.5]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.5
 [1.0.4]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.4
 [1.0.3]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.3
