@@ -8,8 +8,21 @@ history and GitHub in one companion window.
 > Claude Overhead is an independent open-source project. It is not affiliated
 > with, endorsed by, or sponsored by Anthropic.
 
-**Status:** early development. There are no releases yet; build it from source
-(below).
+## Download
+
+**[Download Claude Overhead for macOS](https://github.com/rakeshkanneeswaran/claude-overhead/releases/latest/download/Claude-Overhead.dmg)**
+(latest release, Apple silicon, macOS 14 or newer). All versions are on the
+[releases page](https://github.com/rakeshkanneeswaran/claude-overhead/releases).
+
+1. Open **Claude-Overhead.dmg** and drag **Claude Overhead** into
+   **Applications**.
+2. Open it from Applications. Releases are not notarized by Apple yet, so the
+   first time macOS says it cannot verify the app: open **System Settings >
+   Privacy & Security**, scroll down, and click **Open Anyway** next to Claude
+   Overhead. You only do this once.
+3. Claude Overhead walks you through connecting Claude Code. It shows exactly
+   what it adds to `~/.claude/settings.json` before changing anything, and
+   keeps a backup.
 
 ## Features
 

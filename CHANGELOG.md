@@ -1,11 +1,44 @@
 # Changelog
 
-All notable changes to Chimlo will be documented in this file.
+All notable changes to Claude Overhead are documented in this file. Entries
+before 1.0.0 are from [Chimlo](https://github.com/kraten/chimlo), which Claude
+Overhead is forked from.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/2.0.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-11-22
+
+Claude Overhead's first public release: a notch companion for Claude Code.
+
+### Highlights
+
+- Every Claude Code session in the MacBook notch: working, waiting for your
+  permission, asking a question, done, or failed. Sessions are ordered by what
+  needs you first, and stale work is never shown as running.
+- Live activity in Claude's own words. The closed notch shows the current tool
+  call, for example `Bash · Run tests and commit the logo change`; click a
+  session in the open notch for its live feed of tool calls, each with its
+  command or file, time and outcome.
+- Answer Claude's questions and approve or deny its tool requests from the
+  notch. Nothing is ever approved silently, and if Claude Overhead is
+  unavailable the question goes back to the terminal.
+- GitHub Mode (⌃⌥G): pull requests, workflow runs, reviews and merging for the
+  repositories you choose, with one red or amber badge on the GitHub icon for
+  alerts you can dismiss.
+- A companion window with sessions, projects, agents, history, usage, GitHub
+  and settings; themes, five notch layouts, Focus mode and shortcuts.
+
+### Before you install
+
+- Requires macOS 14 or newer on an Apple silicon Mac.
+- This build is ad-hoc signed, not notarized by Apple. On first launch, macOS
+  asks you to approve it with **Open Anyway** in **System Settings > Privacy &
+  Security**.
+- Claude Overhead runs locally. It has no telemetry and sends your prompts,
+  transcripts and activity nowhere.
 
 ## [0.1.0] - 2026-07-22
 
@@ -56,5 +89,6 @@ controls in the MacBook notch.
 - Accessibility permission is needed for Chimlo's volume and brightness
   controls. Agent activity remains available without it.
 
-[Unreleased]: https://github.com/kraten/chimlo/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.0
 [0.1.0]: https://github.com/kraten/chimlo/releases/tag/v0.1.0

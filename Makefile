@@ -1,4 +1,4 @@
-.PHONY: app build check clean dmg release release-app release-publish release-signing-freeze release-signing-identity release-signing-restore signing-check signing-identity test update-test
+.PHONY: app build check clean dmg public-dmg public-release release release-app release-publish release-signing-freeze release-signing-identity release-signing-restore signing-check signing-identity test update-test
 
 build:
 	./Scripts/swift.sh build
@@ -32,6 +32,16 @@ release-signing-restore:
 
 release-signing-freeze: release-app
 	./Scripts/verify-release-identity.sh "dist/Claude Overhead.app" --initialize
+
+# Public DMG releases (see Docs/RELEASING.md). CI runs these on every v* tag.
+public-dmg:
+	@test -n "$(VERSION)" || (echo "VERSION=X.Y.Z is required" >&2; exit 64)
+	./Scripts/build-public-dmg.sh "$(VERSION)" "$(or $(BUILD_NUMBER),1)"
+
+public-release:
+	@test -n "$(TAG)" || (echo "TAG=vX.Y.Z is required" >&2; exit 64)
+	./Scripts/build-public-dmg.sh "$(TAG)" "$(or $(BUILD_NUMBER),1)"
+	./Scripts/publish-github-release.sh "$(TAG)"
 
 release:
 	@test -n "$(TAG)" || (echo "TAG=vX.Y.Z is required" >&2; exit 64)

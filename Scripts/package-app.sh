@@ -171,9 +171,14 @@ if command -v codesign >/dev/null 2>&1; then
   /usr/bin/xattr -cr "$APP_DIR"
   overhead_configure_signing
   if [[ "${CHIMLO_REQUIRE_STABLE_SIGNING:-0}" == "1" && "$CHIMLO_SIGNING_MODE" == "adhoc" ]]; then
-    print -u2 "Refusing to create a public release with an ad-hoc signature."
-    print -u2 "Run 'make release-signing-identity' first."
-    exit 1
+    # Public builds are ad-hoc signed until there is a Developer ID; that
+    # must be asked for explicitly, so nothing ships unsigned by accident.
+    if [[ "${CHIMLO_ALLOW_ADHOC_RELEASE:-0}" != "1" ]]; then
+      print -u2 "Refusing to create a public release with an ad-hoc signature."
+      print -u2 "Run 'make release-signing-identity' first, or set CHIMLO_ALLOW_ADHOC_RELEASE=1."
+      exit 1
+    fi
+    print -u2 "Warning: this release build is ad-hoc signed: not Developer ID signed, not notarized."
   fi
   overhead_sign_app_bundle "$APP_DIR"
 

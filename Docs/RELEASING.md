@@ -1,168 +1,84 @@
-# Claude Overhead release procedure
+# Releasing Claude Overhead
 
-Claude Overhead's public release is built on one trusted Mac. GitHub stores and serves
-the exact DMG and appcast produced there. GitHub Actions does not rebuild or
-re-sign either file.
-
-This procedure uses a long-lived self-signed code-signing certificate because
-Claude Overhead does not have an Apple Developer Program membership. It preserves a
-stable designated requirement across releases, but it does not provide Apple
-notarization or normal Gatekeeper trust. New users may still need **Open
-Anyway** on first launch.
-
-## One-time setup
-
-Choose two absolute `.p12` destinations on separate physical backup devices.
-The setup command refuses two destinations on the same filesystem and never
-overwrites an existing backup.
-
-```sh
-make release-signing-identity \
-  BACKUP_ONE="/Volumes/Backup-A/Overhead-Release.p12" \
-  BACKUP_TWO="/Volumes/Backup-B/Overhead-Release.p12"
-```
-
-Choose a strong backup password of at least 16 characters when prompted. Store
-that password separately from both backup devices. The command creates:
-
-- one exportable, long-lived `Claude Overhead Release` identity in a dedicated local
-  keychain;
-- two encrypted, byte-verified `.p12` backups and SHA-256 sidecars;
-- `Packaging/Signing/ChimloRelease.cer`, the public certificate that must be
-  reviewed and committed.
-
-Never commit a `.p12`, private key, keychain password, or Sparkle private key.
-
-If you prefer a generated password, run the setup command with
-`CHIMLO_GENERATE_RELEASE_P12_PASSWORD=1`. The generated value is saved under
-the Keychain service `com.rakesh.overhead.release-signing-backup` and is never printed.
-Copy it from Keychain Access into a separate password manager. A password kept
-only on the release Mac cannot recover offline backups after that Mac is lost.
-
-If cloud storage is replacing the second physical device, set
-`CHIMLO_STAGE_SECOND_BACKUP_FOR_CLOUD=1` and point the second path at an obvious
-temporary location such as the Desktop. Upload the encrypted `.p12` and its
-`.sha256` sidecar, verify the cloud copy, then delete the staged local files.
-Never place the backup password beside the `.p12`.
-
-Build one signed app and freeze its designated requirement:
-
-```sh
-make release-signing-freeze
-```
-
-Review and commit these two public files before creating the first tag:
+Every release is a GitHub release with one DMG, built and checked by GitHub
+Actions from a version tag. The website and the README link to
 
 ```text
-Packaging/Signing/ChimloRelease.cer
-Packaging/Signing/OverheadRelease.designated-requirement
+https://github.com/rakeshkanneeswaran/claude-overhead/releases/latest/download/Claude-Overhead.dmg
 ```
 
-The first update from an older ad-hoc-signed Claude Overhead build to this stable
-self-signed identity may make macOS ask again for permissions the app was
-granted earlier, such as Automation for jumping back to a terminal. Subsequent builds signed by this same certificate should continue to
-satisfy the frozen requirement.
+which GitHub always resolves to the newest release's `Claude-Overhead.dmg`, so
+the link never changes between versions. Nobody needs a GitHub account to use it.
 
-## Test an update without publishing
+## Publish a release
 
-Quit any earlier `Claude Overhead Update Test` app, then run:
+1. Move the release's changes from **Unreleased** into a dated section in
+   `CHANGELOG.md`, for example `## [1.1.0] - 2026-12-01`. That section becomes
+   the release notes, followed by install instructions.
+2. Set the same version in `Packaging/Info.plist` (`CFBundleShortVersionString`).
+3. Commit both, push `main`, then tag that commit and push the tag:
+
+   ```sh
+   git tag -a v1.1.0 -m "Claude Overhead 1.1.0"
+   git push origin v1.1.0
+   ```
+
+The **Release DMG** workflow (`.github/workflows/release.yml`) then:
+
+- refuses a tag that differs from the version in `Info.plist`;
+- runs `make check` and `make test`;
+- builds `Claude Overhead.app` (bundle id `com.rakesh.overhead`) and the DMG
+  with `Scripts/build-public-dmg.sh`, which mounts the image and checks the
+  app, its signature, its version and its bundle id before anything is
+  uploaded;
+- creates the GitHub release with `Claude-Overhead.dmg` (the stable name),
+  `Claude-Overhead-<version>.dmg` (the same bytes) and `SHA256SUMS.txt`;
+- downloads the stable link anonymously and fails unless it serves exactly
+  the DMG it just uploaded.
+
+The release appears only with its DMG attached, so the stable link never points
+at a release without one. To rebuild an existing tag, run the workflow by hand
+(**Actions → Release DMG → Run workflow**) with that tag; it replaces the
+release's files.
+
+## Publish from a Mac instead
+
+If GitHub Actions is unavailable, the same two scripts run locally, with the
+GitHub CLI signed in to an account that can write to the repository:
 
 ```sh
-make update-test
+git push origin v1.1.0          # the tag must exist on GitHub
+make public-release TAG=v1.1.0
 ```
 
-This builds an older test host and a newer signed DMG, generates a signed
-Sparkle appcast, serves both from loopback, and opens Settings directly to the
-About pane. Nothing is uploaded.
+`make public-dmg VERSION=1.1.0` builds and verifies the DMG without uploading
+anything; the files land in `dist/public/`.
 
-In **About > Updates**:
+## Signing and notarization
 
-1. Click **Check for Updates**.
-2. Click **Update to latest version**.
-3. After the test app relaunches, confirm it shows `Version 99.0.0`.
+Releases are currently **ad-hoc signed and not notarized**. `build-public-dmg.sh`
+prints the signature it made, and the release notes tell people how to approve
+the first launch (**System Settings > Privacy & Security > Open Anyway**).
 
-Keep the command running while the update downloads. Press Control-C afterward
-to stop the local server. The final interrupted `make` message is expected.
+Opening without that step needs an Apple Developer Program membership and:
 
-The harness uses the separate bundle identifier
-`com.rakesh.overhead.update-test` and stores generated files under
-`dist/update-test/`. It starts only Settings and Sparkle, so it does not modify
-agent integrations, use production Sparkle
-preferences, alter `dist/Claude Overhead.app`, or change the production feed. Each run
-resets only the update-test preference domain before launch.
+1. A **Developer ID Application** certificate, exported as a `.p12`.
+2. Hardened runtime and the Apple Events entitlement
+   (`com.apple.security.automation.apple-events`), which Claude Overhead uses
+   to focus a Terminal or iTerm tab.
+3. Notarization with `xcrun notarytool` (an Apple ID app-specific password or
+   an App Store Connect API key) and `xcrun stapler staple` on the DMG.
 
-The same release certificate and Sparkle EdDSA key used for public artifacts
-sign both local test versions. This exercises Sparkle's signature validation and
-replacement path without creating a Git tag or GitHub release.
+With those, the workflow would import the certificate from repository secrets
+into a temporary keychain and set `CHIMLO_CODE_SIGN_IDENTITY` before
+`build-public-dmg.sh`. Until that is in place and verified, nothing describes a
+release as signed or notarized.
 
-## Build a release
+## Earlier tooling
 
-Before tagging, move the release's notable changes from **Unreleased** into a
-dated version section in `CHANGELOG.md`. Commit that changelog update and start
-from a clean worktree. The tag must already exist and point at the checked-out
-commit.
-
-```sh
-git tag -a v0.1.0 -m "Claude Overhead 0.1.0"
-make release TAG=v0.1.0 BUILD_NUMBER=1
-```
-
-The command runs checks and tests, builds `com.rakesh.overhead`, verifies the frozen
-designated requirement, makes the final DMG, generates and verifies the signed
-Sparkle appcast from that exact DMG, and records checksums and a manifest under:
-
-```text
-dist/releases/v0.1.0/
-```
-
-Do not modify, repackage, rebuild, or re-sign anything in that directory.
-
-After the local release completes successfully, push the reviewed commit and
-its exact tag:
-
-```sh
-git push origin main
-git push origin v0.1.0
-```
-
-## Upload the exact files
-
-```sh
-make release-publish TAG=v0.1.0
-```
-
-This verifies every checksum and uploads the existing files to a draft GitHub
-release. The matching section from `CHANGELOG.md` becomes the draft release
-notes. It refuses to overwrite an existing release. Review the notes and exact
-artifacts before publishing it.
-
-The Sparkle private EdDSA key remains in the trusted Mac's Keychain under the
-account `com.rakesh.overhead`. It is not copied to GitHub Actions.
-
-## Restore on another Mac
-
-Copy one `.p12` backup and its `.sha256` sidecar to the replacement Mac, then
-run:
-
-```sh
-make release-signing-restore BACKUP="/Volumes/Backup-A/Overhead-Release.p12"
-```
-
-On the original release Mac, prefix that command with
-`CHIMLO_USE_STORED_RELEASE_P12_PASSWORD=1` to read a generated backup password
-from Keychain instead of prompting for it.
-
-The restore command checks the sidecar when present and refuses a backup whose
-certificate differs from the committed public certificate. After restoring,
-run `make release-app` and `./Scripts/verify-release-identity.sh` before making
-another release.
-
-## Invariants
-
-- Keep the release bundle identifier fixed at `com.rakesh.overhead`.
-- Sign every public `Claude Overhead.app` with the same `Claude Overhead Release` certificate.
-- Keep both encrypted `.p12` backups and their password recoverable.
-- Keep the frozen designated requirement under version control.
-- Generate the Sparkle appcast only after the final DMG exists.
-- Upload those exact bytes. Never let CI rebuild or re-sign them.
-- Expect the DMG bytes and app CDHash to change between releases.
+`make release`, `make release-publish`, `make release-signing-identity` and the
+Sparkle appcast scripts come from Chimlo. They build releases signed by a
+long-lived self-signed identity with Sparkle updates. Claude Overhead does not
+use them today: no such identity exists, and Sparkle is off (no `SUFeedURL`).
+They remain in the repository for a future release line that wants a stable
+signing identity or in-app updates.

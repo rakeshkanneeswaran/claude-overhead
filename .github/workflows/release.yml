@@ -1,19 +1,68 @@
-name: Local release policy
+name: Release DMG
 
+# Pushing a version tag (git tag v1.2.3 && git push origin v1.2.3) builds the
+# app, runs every check and test, verifies the DMG, and publishes it as the
+# newest GitHub release. The stable link
+#   https://github.com/rakeshkanneeswaran/claude-overhead/releases/latest/download/Claude-Overhead.dmg
+# then serves it. The release only appears once its DMG is attached, so that
+# link never points at a release without one.
 on:
+  push:
+    tags: ["v*.*.*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to rebuild and republish (vX.Y.Z)
+        required: true
 
-permissions: {}
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
-  explain:
-    name: Explain local-only releases
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  dmg:
+    name: Build, verify and publish the DMG
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
     steps:
-      - name: Release policy
+      - name: Checkout the tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Toolchain
         run: |
-          echo "Claude Overhead releases are built, code-signed, and Sparkle-signed locally."
-          echo "GitHub Actions must not rebuild or re-sign public artifacts."
-          echo "Use make release, then make release-publish from the trusted release Mac."
+          sw_vers
+          swift --version
+
+      - name: The tag matches the app's version
+        run: |
+          version="$(/usr/bin/plutil -extract CFBundleShortVersionString raw Packaging/Info.plist)"
+          if [ "v$version" != "$TAG" ]; then
+            echo "Tag $TAG does not match Packaging/Info.plist ($version)." >&2
+            exit 1
+          fi
+
+      - name: Checks
+        run: make check
+
+      - name: Tests
+        run: make test
+
+      - name: Build and verify the DMG
+        run: ./Scripts/build-public-dmg.sh "$TAG" "${{ github.run_number }}"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHIMLO_REPLACE_ASSETS: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+        run: ./Scripts/publish-github-release.sh "$TAG"
