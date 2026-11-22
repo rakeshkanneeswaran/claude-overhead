@@ -537,11 +537,8 @@ extension TranscriptInsightsScanner {
     }
 }
 
+// `lenient(_:_:)` is shared with OverheadSettings.swift.
 private extension KeyedDecodingContainer {
-    func lenient<Value: Decodable>(_ type: Value.Type, _ key: Key) -> Value? {
-        (try? decodeIfPresent(type, forKey: key)) ?? nil
-    }
-
     /// Accepts integral doubles too: durations and counts are sometimes
     /// serialized as `123.0`, which strict `Int` decoding rejects.
     func lenientInt(_ key: Key) -> Int? {

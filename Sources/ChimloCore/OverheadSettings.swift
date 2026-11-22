@@ -1,0 +1,542 @@
+import Foundation
+
+/// A recurring time-of-day window, such as quiet hours or a Focus schedule.
+public struct DailyWindow: Codable, Equatable, Sendable {
+    /// Minutes after midnight, 0..<1440.
+    public var startMinutes: Int
+    /// Minutes after midnight. An end before the start crosses midnight.
+    /// An end equal to the start is an empty window, never "all day", so a
+    /// half-configured window cannot silently mute everything.
+    public var endMinutes: Int
+    /// Only on days the calendar does not treat as weekend. An overnight
+    /// window belongs to the day it starts: Friday 22:00 to 07:00 still covers
+    /// early Saturday, and Sunday night's window does not exist.
+    public var weekdaysOnly: Bool
+
+    public static let minutesPerDay = 24 * 60
+    public static let defaultQuietHours = DailyWindow(startMinutes: 22 * 60, endMinutes: 8 * 60)
+
+    public init(startMinutes: Int, endMinutes: Int, weekdaysOnly: Bool = false) {
+        self.startMinutes = startMinutes
+        self.endMinutes = endMinutes
+        self.weekdaysOnly = weekdaysOnly
+    }
+
+    public func contains(_ date: Date, calendar: Calendar = .current) -> Bool {
+        let window = normalized()
+        guard window.startMinutes != window.endMinutes else { return false }
+        let parts = calendar.dateComponents([.hour, .minute], from: date)
+        guard let hour = parts.hour, let minute = parts.minute else { return false }
+        let now = hour * 60 + minute
+
+        let startDay: Date
+        if window.startMinutes < window.endMinutes {
+            guard now >= window.startMinutes, now < window.endMinutes else { return false }
+            startDay = date
+        } else if now >= window.startMinutes {
+            startDay = date
+        } else if now < window.endMinutes {
+            startDay = calendar.date(byAdding: .day, value: -1, to: date) ?? date
+        } else {
+            return false
+        }
+        return !window.weekdaysOnly || !calendar.isDateInWeekend(startDay)
+    }
+
+    /// Minutes wrapped into 0..<1440, so a stray value still means a time.
+    public func normalized() -> DailyWindow {
+        DailyWindow(
+            startMinutes: Self.wrap(startMinutes),
+            endMinutes: Self.wrap(endMinutes),
+            weekdaysOnly: weekdaysOnly
+        )
+    }
+
+    private static func wrap(_ minutes: Int) -> Int {
+        let remainder = minutes % minutesPerDay
+        return remainder < 0 ? remainder + minutesPerDay : remainder
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case startMinutes, endMinutes, weekdaysOnly
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let fallback = DailyWindow.defaultQuietHours
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        startMinutes = container.lenient(Int.self, .startMinutes) ?? fallback.startMinutes
+        endMinutes = container.lenient(Int.self, .endMinutes) ?? fallback.endMinutes
+        weekdaysOnly = container.lenient(Bool.self, .weekdaysOnly) ?? fallback.weekdaysOnly
+    }
+}
+
+public enum SessionSort: String, Codable, Sendable, CaseIterable {
+    /// Sessions waiting on the user first, then by recent activity.
+    case attentionFirst
+    case recentActivity
+    case project
+}
+
+public enum DisplayPreference: String, Codable, Sendable, CaseIterable {
+    /// The built-in display with a notch, falling back to the main display.
+    case notchedDisplay
+    case mainDisplay
+    case displayWithPointer
+}
+
+/// Overhead's own Focus mode: fewer interruptions and less motion while the
+/// user concentrates. Independent of macOS Focus, which the policy also honours.
+public struct FocusPreferences: Codable, Equatable, Sendable {
+    public var isOn: Bool
+    /// Hide informational events entirely, not just silence them.
+    public var suppressInformational: Bool
+    /// Silence critical events too. They still show and expand.
+    public var muteSounds: Bool
+    public var reduceAnimations: Bool
+    public var hideActivityLabels: Bool
+    public var schedule: DailyWindow?
+    public var scheduleEnabled: Bool
+
+    public init(
+        isOn: Bool = false,
+        suppressInformational: Bool = false,
+        muteSounds: Bool = true,
+        reduceAnimations: Bool = true,
+        hideActivityLabels: Bool = true,
+        schedule: DailyWindow? = nil,
+        scheduleEnabled: Bool = false
+    ) {
+        self.isOn = isOn
+        self.suppressInformational = suppressInformational
+        self.muteSounds = muteSounds
+        self.reduceAnimations = reduceAnimations
+        self.hideActivityLabels = hideActivityLabels
+        self.schedule = schedule
+        self.scheduleEnabled = scheduleEnabled
+    }
+
+    /// On manually, or inside an enabled schedule.
+    public func isActive(at date: Date, calendar: Calendar = .current) -> Bool {
+        if isOn { return true }
+        guard scheduleEnabled, let schedule else { return false }
+        return schedule.contains(date, calendar: calendar)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case isOn, suppressInformational, muteSounds, reduceAnimations, hideActivityLabels, schedule, scheduleEnabled
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let fallback = FocusPreferences()
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        isOn = container.lenient(Bool.self, .isOn) ?? fallback.isOn
+        suppressInformational = container.lenient(Bool.self, .suppressInformational) ?? fallback.suppressInformational
+        muteSounds = container.lenient(Bool.self, .muteSounds) ?? fallback.muteSounds
+        reduceAnimations = container.lenient(Bool.self, .reduceAnimations) ?? fallback.reduceAnimations
+        hideActivityLabels = container.lenient(Bool.self, .hideActivityLabels) ?? fallback.hideActivityLabels
+        schedule = container.lenient(DailyWindow.self, .schedule)
+        scheduleEnabled = container.lenient(Bool.self, .scheduleEnabled) ?? fallback.scheduleEnabled
+    }
+}
+
+public struct GitHubPreferences: Codable, Equatable, Sendable {
+    /// Off until the user connects an account.
+    public var enabled: Bool
+    public var trackPullRequests: Bool
+    public var monitorActions: Bool
+    public var reviewNotifications: Bool
+    /// Polling interval. At least 2 minutes to respect GitHub's rate limits,
+    /// at most 60 so status never goes stale for longer than an hour.
+    public var refreshMinutes: Int
+
+    public static let refreshRange: ClosedRange<Int> = 2...60
+
+    public init(
+        enabled: Bool = false,
+        trackPullRequests: Bool = true,
+        monitorActions: Bool = true,
+        reviewNotifications: Bool = true,
+        refreshMinutes: Int = 5
+    ) {
+        self.enabled = enabled
+        self.trackPullRequests = trackPullRequests
+        self.monitorActions = monitorActions
+        self.reviewNotifications = reviewNotifications
+        self.refreshMinutes = refreshMinutes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled, trackPullRequests, monitorActions, reviewNotifications, refreshMinutes
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let fallback = GitHubPreferences()
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = container.lenient(Bool.self, .enabled) ?? fallback.enabled
+        trackPullRequests = container.lenient(Bool.self, .trackPullRequests) ?? fallback.trackPullRequests
+        monitorActions = container.lenient(Bool.self, .monitorActions) ?? fallback.monitorActions
+        reviewNotifications = container.lenient(Bool.self, .reviewNotifications) ?? fallback.reviewNotifications
+        refreshMinutes = container.lenient(Int.self, .refreshMinutes) ?? fallback.refreshMinutes
+    }
+}
+
+/// Every user preference, stored as one versioned JSON value.
+///
+/// Decoding is deliberately forgiving: each field falls back to its default on
+/// its own when missing or unreadable, and unknown keys are ignored. A file
+/// written by an older or newer version therefore keeps every setting this
+/// version understands instead of resetting them all.
+public struct OverheadSettings: Codable, Equatable, Sendable {
+    public static let currentVersion = 1
+
+    public var version: Int
+
+    public var launchAtLogin: Bool
+    public var preferredDisplay: DisplayPreference
+
+    public var theme: ThemeID
+    public var accent: AccentChoice
+    public var appearance: AppearancePreference
+    public var animationIntensity: AnimationIntensity
+    /// 0...1.
+    public var glowIntensity: Double
+    public var layout: NotchLayout
+    public var density: RowDensity
+
+    public var sessionSort: SessionSort
+    public var groupByProject: Bool
+    /// Days of session history to keep; nil keeps it forever.
+    public var historyRetentionDays: Int?
+    public var storeConversationPreviews: Bool
+
+    public var notifications: NotificationPreferences
+
+    public var showAgents: Bool
+
+    /// Fractions of the context window, attention < critical, within 0.3...0.99.
+    public var contextAttentionThreshold: Double
+    public var contextCriticalThreshold: Double
+    public var usageWarningThreshold: Double
+    public var showResetCountdowns: Bool
+    public var showCacheMetrics: Bool
+
+    public var github: GitHubPreferences
+    public var focus: FocusPreferences
+
+    /// A missing action is unbound.
+    public var shortcuts: [ShortcutAction: KeyCombo]
+    public var shortcutsEnabled: Bool
+
+    public var dailyRecapEnabled: Bool
+
+    public static let thresholdRange: ClosedRange<Double> = 0.3...0.99
+    /// Smallest gap kept between the attention and critical thresholds, so the
+    /// two stages never collapse into one.
+    public static let thresholdGap = 0.05
+
+    public init() {
+        version = Self.currentVersion
+        launchAtLogin = false
+        preferredDisplay = .notchedDisplay
+        theme = .midnight
+        accent = .claude
+        appearance = .system
+        animationIntensity = .full
+        glowIntensity = 0.8
+        layout = .classic
+        density = .comfortable
+        sessionSort = .attentionFirst
+        groupByProject = false
+        historyRetentionDays = 90
+        storeConversationPreviews = true
+        notifications = NotificationPreferences()
+        showAgents = true
+        contextAttentionThreshold = 0.7
+        contextCriticalThreshold = 0.9
+        usageWarningThreshold = 0.8
+        showResetCountdowns = true
+        showCacheMetrics = true
+        github = GitHubPreferences()
+        focus = FocusPreferences()
+        shortcuts = ShortcutDefaults.bindings
+        shortcutsEnabled = true
+        dailyRecapEnabled = false
+    }
+
+    /// The same settings with every value forced into its valid range. When
+    /// the context thresholds cross, critical wins and attention moves below
+    /// it, because the critical warning is the one that must not be lost.
+    public func normalized() -> OverheadSettings {
+        let defaults = OverheadSettings()
+        var copy = self
+        let range = Self.thresholdRange
+        copy.contextCriticalThreshold = Self.clamp(
+            contextCriticalThreshold,
+            to: (range.lowerBound + Self.thresholdGap)...range.upperBound,
+            fallback: defaults.contextCriticalThreshold
+        )
+        // max() guards the range against floating-point rounding below its lower bound.
+        let attentionCeiling = max(range.lowerBound, copy.contextCriticalThreshold - Self.thresholdGap)
+        copy.contextAttentionThreshold = Self.clamp(
+            contextAttentionThreshold,
+            to: range.lowerBound...attentionCeiling,
+            fallback: defaults.contextAttentionThreshold
+        )
+        copy.usageWarningThreshold = Self.clamp(usageWarningThreshold, to: range, fallback: defaults.usageWarningThreshold)
+        copy.glowIntensity = Self.clamp(glowIntensity, to: 0...1, fallback: defaults.glowIntensity)
+        copy.github.refreshMinutes = min(
+            max(github.refreshMinutes, GitHubPreferences.refreshRange.lowerBound),
+            GitHubPreferences.refreshRange.upperBound
+        )
+        copy.historyRetentionDays = historyRetentionDays.map { max($0, 1) }
+        copy.notifications.quietHours = notifications.quietHours?.normalized()
+        copy.focus.schedule = focus.schedule?.normalized()
+        return copy
+    }
+
+    /// The layout as it should render now, after the user's other choices:
+    /// Focus may hide activity labels and calm motion, the global animation
+    /// intensity scales motion, agents can be turned off, and compact density
+    /// wins if either the layout or the user asks for it.
+    public func resolvedLayoutSpec(at date: Date = .now, calendar: Calendar = .current) -> NotchLayoutSpec {
+        let base = layout.spec
+        let focusActive = focus.isActive(at: date, calendar: calendar)
+        var animation = base.animationScale * animationIntensity.scale
+        if focusActive, focus.reduceAnimations {
+            animation = min(animation, AnimationIntensity.minimal.scale)
+        }
+        let compact = base.expandedRowDensity == .compact || density == .compact
+        return base.with(
+            showsActivityLabel: base.showsActivityLabel && !(focusActive && focus.hideActivityLabels),
+            showsAgentIndicator: base.showsAgentIndicator && showAgents,
+            expandedShowsAgents: base.expandedShowsAgents && showAgents,
+            expandedRowDensity: compact ? .compact : .comfortable,
+            animationScale: animation
+        )
+    }
+
+    private static func clamp(_ value: Double, to range: ClosedRange<Double>, fallback: Double) -> Double {
+        let finite = value.isFinite ? value : fallback
+        return min(max(finite, range.lowerBound), range.upperBound)
+    }
+
+    // MARK: Codable
+
+    private enum CodingKeys: String, CodingKey {
+        case version
+        case launchAtLogin, preferredDisplay
+        case theme, accent, appearance, animationIntensity, glowIntensity, layout, density
+        case sessionSort, groupByProject, historyRetentionDays, storeConversationPreviews
+        case notifications
+        case showAgents
+        case contextAttentionThreshold, contextCriticalThreshold, usageWarningThreshold
+        case showResetCountdowns, showCacheMetrics
+        case github, focus
+        case shortcuts, shortcutsEnabled
+        case dailyRecapEnabled
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let d = OverheadSettings()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = c.lenient(Int.self, .version) ?? d.version
+        launchAtLogin = c.lenient(Bool.self, .launchAtLogin) ?? d.launchAtLogin
+        preferredDisplay = c.lenient(DisplayPreference.self, .preferredDisplay) ?? d.preferredDisplay
+        theme = c.lenient(ThemeID.self, .theme) ?? d.theme
+        accent = c.lenient(AccentChoice.self, .accent) ?? d.accent
+        appearance = c.lenient(AppearancePreference.self, .appearance) ?? d.appearance
+        animationIntensity = c.lenient(AnimationIntensity.self, .animationIntensity) ?? d.animationIntensity
+        glowIntensity = c.lenient(Double.self, .glowIntensity) ?? d.glowIntensity
+        layout = c.lenient(NotchLayout.self, .layout) ?? d.layout
+        density = c.lenient(RowDensity.self, .density) ?? d.density
+        sessionSort = c.lenient(SessionSort.self, .sessionSort) ?? d.sessionSort
+        groupByProject = c.lenient(Bool.self, .groupByProject) ?? d.groupByProject
+        // An explicit null means "keep forever"; only a missing key takes the default.
+        if c.contains(.historyRetentionDays), (try? c.decodeNil(forKey: .historyRetentionDays)) == true {
+            historyRetentionDays = nil
+        } else {
+            historyRetentionDays = c.lenient(Int.self, .historyRetentionDays) ?? d.historyRetentionDays
+        }
+        storeConversationPreviews = c.lenient(Bool.self, .storeConversationPreviews) ?? d.storeConversationPreviews
+        notifications = c.lenient(NotificationPreferences.self, .notifications) ?? d.notifications
+        showAgents = c.lenient(Bool.self, .showAgents) ?? d.showAgents
+        contextAttentionThreshold = c.lenient(Double.self, .contextAttentionThreshold) ?? d.contextAttentionThreshold
+        contextCriticalThreshold = c.lenient(Double.self, .contextCriticalThreshold) ?? d.contextCriticalThreshold
+        usageWarningThreshold = c.lenient(Double.self, .usageWarningThreshold) ?? d.usageWarningThreshold
+        showResetCountdowns = c.lenient(Bool.self, .showResetCountdowns) ?? d.showResetCountdowns
+        showCacheMetrics = c.lenient(Bool.self, .showCacheMetrics) ?? d.showCacheMetrics
+        github = c.lenient(GitHubPreferences.self, .github) ?? d.github
+        focus = c.lenient(FocusPreferences.self, .focus) ?? d.focus
+        shortcuts = Self.decodeShortcuts(from: c) ?? d.shortcuts
+        shortcutsEnabled = c.lenient(Bool.self, .shortcutsEnabled) ?? d.shortcutsEnabled
+        dailyRecapEnabled = c.lenient(Bool.self, .dailyRecapEnabled) ?? d.dailyRecapEnabled
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(version, forKey: .version)
+        try c.encode(launchAtLogin, forKey: .launchAtLogin)
+        try c.encode(preferredDisplay, forKey: .preferredDisplay)
+        try c.encode(theme, forKey: .theme)
+        try c.encode(accent, forKey: .accent)
+        try c.encode(appearance, forKey: .appearance)
+        try c.encode(animationIntensity, forKey: .animationIntensity)
+        try c.encode(glowIntensity, forKey: .glowIntensity)
+        try c.encode(layout, forKey: .layout)
+        try c.encode(density, forKey: .density)
+        try c.encode(sessionSort, forKey: .sessionSort)
+        try c.encode(groupByProject, forKey: .groupByProject)
+        if let historyRetentionDays {
+            try c.encode(historyRetentionDays, forKey: .historyRetentionDays)
+        } else {
+            try c.encodeNil(forKey: .historyRetentionDays)
+        }
+        try c.encode(storeConversationPreviews, forKey: .storeConversationPreviews)
+        try c.encode(notifications, forKey: .notifications)
+        try c.encode(showAgents, forKey: .showAgents)
+        try c.encode(contextAttentionThreshold, forKey: .contextAttentionThreshold)
+        try c.encode(contextCriticalThreshold, forKey: .contextCriticalThreshold)
+        try c.encode(usageWarningThreshold, forKey: .usageWarningThreshold)
+        try c.encode(showResetCountdowns, forKey: .showResetCountdowns)
+        try c.encode(showCacheMetrics, forKey: .showCacheMetrics)
+        try c.encode(github, forKey: .github)
+        try c.encode(focus, forKey: .focus)
+        // Every known action is written, unbound ones as null, so a later
+        // version can tell "the user removed this" from "this did not exist yet".
+        var keys = c.nestedContainer(keyedBy: AnyCodingKey.self, forKey: .shortcuts)
+        for action in ShortcutAction.allCases {
+            let key = AnyCodingKey(action.rawValue)
+            if let combo = shortcuts[action] {
+                try keys.encode(combo, forKey: key)
+            } else {
+                try keys.encodeNil(forKey: key)
+            }
+        }
+        try c.encode(shortcutsEnabled, forKey: .shortcutsEnabled)
+        try c.encode(dailyRecapEnabled, forKey: .dailyRecapEnabled)
+    }
+
+    /// Null unbinds an action; an action absent from the file (added after it
+    /// was written) gets its default binding; unknown actions are ignored.
+    private static func decodeShortcuts(from container: KeyedDecodingContainer<CodingKeys>) -> [ShortcutAction: KeyCombo]? {
+        guard let keys = try? container.nestedContainer(keyedBy: AnyCodingKey.self, forKey: .shortcuts) else {
+            return nil
+        }
+        var result = ShortcutDefaults.bindings
+        for action in ShortcutAction.allCases {
+            let key = AnyCodingKey(action.rawValue)
+            guard keys.contains(key) else { continue }
+            if (try? keys.decodeNil(forKey: key)) == true {
+                result[action] = nil
+            } else if let combo = keys.lenient(KeyCombo.self, key) {
+                result[action] = combo
+            }
+        }
+        return result
+    }
+}
+
+/// Persists `OverheadSettings` as one JSON blob in `UserDefaults`.
+///
+/// One blob rather than a key per setting keeps a save atomic and lets the
+/// whole value be versioned. The lock serialises access so a read-modify-write
+/// through `update` cannot interleave with another thread's save.
+public final class SettingsStore: @unchecked Sendable {
+    public static let storageKey = "overhead.settings.v1"
+    /// Where an unreadable blob is kept, so a bug never destroys the user's data.
+    public static let corruptBackupKey = "overhead.settings.v1.corrupt"
+    /// The sound switch from before settings were unified.
+    public static let legacySoundsEnabledKey = "overhead.sound.enabled"
+
+    private let defaults: UserDefaults
+    private let lock = NSLock()
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    /// The stored settings, or defaults. On first run, values from legacy keys
+    /// are carried over and saved once; the legacy keys are left in place so an
+    /// older build still finds them. A blob that cannot be read yields defaults
+    /// and is copied to `corruptBackupKey` before anything can overwrite it.
+    public func load() -> OverheadSettings {
+        lock.withLock { loadLocked() }
+    }
+
+    public func save(_ settings: OverheadSettings) {
+        lock.withLock { saveLocked(settings) }
+    }
+
+    /// Loads, applies `change`, saves and returns the normalized result as one
+    /// step, so concurrent edits of different fields do not drop each other.
+    @discardableResult
+    public func update(_ change: (inout OverheadSettings) -> Void) -> OverheadSettings {
+        lock.withLock {
+            var settings = loadLocked()
+            change(&settings)
+            let normalized = settings.normalized()
+            saveLocked(normalized)
+            return normalized
+        }
+    }
+
+    private func loadLocked() -> OverheadSettings {
+        guard let stored = defaults.object(forKey: Self.storageKey) else {
+            return migrateLegacyLocked()
+        }
+        guard let data = stored as? Data,
+              let settings = try? JSONDecoder().decode(OverheadSettings.self, from: data)
+        else {
+            defaults.set(stored, forKey: Self.corruptBackupKey)
+            return OverheadSettings()
+        }
+        return settings.normalized()
+    }
+
+    private func migrateLegacyLocked() -> OverheadSettings {
+        var settings = OverheadSettings()
+        guard let soundsEnabled = defaults.object(forKey: Self.legacySoundsEnabledKey) as? Bool else {
+            return settings
+        }
+        settings.notifications.soundsEnabled = soundsEnabled
+        // Saving now is what makes the migration run once: the next load finds
+        // the blob and never reads the legacy key again.
+        saveLocked(settings)
+        return settings
+    }
+
+    private func saveLocked(_ settings: OverheadSettings) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(settings.normalized()) else { return }
+        defaults.set(data, forKey: Self.storageKey)
+    }
+}
+
+// MARK: - Lenient decoding
+
+/// A string coding key for maps keyed by enum raw values.
+struct AnyCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int? = nil
+
+    init(_ string: String) {
+        stringValue = string
+    }
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+    }
+
+    init?(intValue: Int) {
+        return nil
+    }
+}
+
+extension KeyedDecodingContainer {
+    /// The value for `key`, or nil when it is missing, null or unreadable.
+    /// Settings use this for every field so one bad value costs only itself.
+    func lenient<T: Decodable>(_ type: T.Type, _ key: Key) -> T? {
+        try? decodeIfPresent(type, forKey: key)
+    }
+}
