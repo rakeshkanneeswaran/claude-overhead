@@ -142,7 +142,9 @@ public struct EventPreference: Codable, Equatable, Sendable {
     /// ones are on, but only a finished session makes a sound; ambient ones
     /// stay in the notch. GitHub starts with only the events that ask
     /// something of the user (failed workflows and checks, review requested,
-    /// changes requested, merge conflicts).
+    /// changes requested, merge conflicts). A session's events still sound
+    /// only once the owner turns sound on for that session
+    /// (`SessionSoundGate`), so out of the box nothing makes a sound.
     public static func defaultPreference(for kind: OverheadEventKind) -> EventPreference {
         if kind.isGitHub {
             let wanted: Set<OverheadEventKind> = [
@@ -153,7 +155,9 @@ public struct EventPreference: Codable, Equatable, Sendable {
         }
         switch kind.priority {
         case .critical:
-            return EventPreference(enabled: true, sound: true, systemBanner: false)
+            // An integration error belongs to no session, so no session's
+            // toggle can opt it in; it stays silent unless chosen.
+            return EventPreference(enabled: true, sound: kind != .integrationError, systemBanner: false)
         case .informational:
             return EventPreference(enabled: true, sound: kind == .sessionCompleted, systemBanner: false)
         case .ambient:
@@ -186,14 +190,22 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
     /// Tag completions with one group key so a burst of finished sessions
     /// collapses into a single notice.
     public var groupCompletions: Bool
+    /// The sound every notification uses.
+    public var soundChoice: NotificationSoundChoice
+    /// 0.05...1, applied under the Mac's own volume.
+    public var soundVolume: Double
 
     public init(
         soundsEnabled: Bool = true,
         perEvent: [OverheadEventKind: EventPreference] = [:],
         quietHours: DailyWindow? = nil,
         quietHoursEnabled: Bool = false,
-        groupCompletions: Bool = true
+        groupCompletions: Bool = true,
+        soundChoice: NotificationSoundChoice = .chime,
+        soundVolume: Double = NotificationSoundVolume.defaultValue
     ) {
+        self.soundChoice = soundChoice
+        self.soundVolume = NotificationSoundVolume.clamped(soundVolume)
         self.soundsEnabled = soundsEnabled
         self.perEvent = perEvent
         self.quietHours = quietHours
@@ -212,6 +224,7 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case soundsEnabled, perEvent, quietHours, quietHoursEnabled, groupCompletions
+        case soundChoice, soundVolume
     }
 
     public init(from decoder: any Decoder) throws {
@@ -221,6 +234,8 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
         quietHours = container.lenient(DailyWindow.self, .quietHours)
         quietHoursEnabled = container.lenient(Bool.self, .quietHoursEnabled) ?? fallback.quietHoursEnabled
         groupCompletions = container.lenient(Bool.self, .groupCompletions) ?? fallback.groupCompletions
+        soundChoice = container.lenient(NotificationSoundChoice.self, .soundChoice) ?? fallback.soundChoice
+        soundVolume = NotificationSoundVolume.clamped(container.lenient(Double.self, .soundVolume) ?? fallback.soundVolume)
         // Keyed by raw value so an event kind from a newer version, or one
         // malformed entry, is skipped instead of failing the whole map.
         var events: [OverheadEventKind: EventPreference] = [:]
@@ -238,6 +253,8 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(soundsEnabled, forKey: .soundsEnabled)
+        try container.encode(soundChoice, forKey: .soundChoice)
+        try container.encode(soundVolume, forKey: .soundVolume)
         try container.encodeIfPresent(quietHours, forKey: .quietHours)
         try container.encode(quietHoursEnabled, forKey: .quietHoursEnabled)
         try container.encode(groupCompletions, forKey: .groupCompletions)

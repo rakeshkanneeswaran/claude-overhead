@@ -64,10 +64,11 @@ private struct CheckSuite {
     }
 
     mutating func appUpdatePresentation() {
-        let presentation = AppUpdatePresentation(phase: .available)
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let presentation = AppUpdatePresentation(phase: .available(version: "1.0.4"))
         expect(
-            presentation.title == "Update to latest version",
-            "available update uses the requested notification copy"
+            presentation.title == "Update to 1.0.4",
+            "available update names the version it installs"
         )
         expect(presentation.isActionable, "available update is a one-click action")
         let completedCheck = AppUpdatePresentation(phase: .upToDate)
@@ -79,30 +80,37 @@ private struct CheckSuite {
             completedCheck.actionTitle == "Check Again" && completedCheck.isActionable,
             "an up-to-date result can be checked again"
         )
+        var offer = AppUpdateNotice()
+        offer.show(presentation, at: now)
         expect(
             AppUpdatePresentationPolicy.shouldTakeIdlePanel(
-                presentation: presentation,
-                hasOwnerInteraction: false,
-                isOnboarding: false
+                notice: offer, now: now, hasOwnerInteraction: false, isOnboarding: false
             ),
             "available update takes the idle panel"
         )
         expect(
             !AppUpdatePresentationPolicy.shouldTakeIdlePanel(
-                presentation: presentation,
-                hasOwnerInteraction: true,
-                isOnboarding: false
+                notice: offer, now: now, hasOwnerInteraction: true, isOnboarding: false
             ),
             "owner interactions outrank update reminders"
         )
+        var upToDate = AppUpdateNotice()
+        upToDate.show(completedCheck, at: now)
         expect(
             !AppUpdatePresentationPolicy.shouldTakeIdlePanel(
-                presentation: completedCheck,
-                hasOwnerInteraction: false,
-                isOnboarding: false
+                notice: upToDate, now: now, hasOwnerInteraction: false, isOnboarding: false
             ),
             "an up-to-date result stays in Settings instead of taking the island"
         )
+        var failed = AppUpdateNotice()
+        failed.show(AppUpdatePresentation(phase: .failed(.offline)), at: now)
+        expect(
+            !failed.isVisible(at: now.addingTimeInterval(61)),
+            "a failed update leaves the notch on its own"
+        )
+        failed.show(AppUpdatePresentation(phase: .failed(.offline)), at: now)
+        failed.dismiss()
+        expect(!failed.isVisible(at: now), "a dismissed failure leaves the notch at once")
     }
 
     mutating func runSessionVisibilityOnly() {

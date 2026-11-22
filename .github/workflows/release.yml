@@ -61,6 +61,21 @@ jobs:
       - name: Build and verify the DMG
         run: ./Scripts/build-public-dmg.sh "$TAG" "${{ github.run_number }}"
 
+      - name: Sign the update feed
+        # Installed copies update through Sparkle from this appcast.xml, and
+        # accept only downloads signed with the key their SUPublicEDKey
+        # matches. The private key lives only in this secret.
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SPARKLE_ED_PRIVATE_KEY" ]; then
+            echo "The SPARKLE_ED_PRIVATE_KEY secret is not set. Without a signed appcast.xml," >&2
+            echo "installed copies could not update to $TAG, so nothing is published." >&2
+            exit 1
+          fi
+          CHIMLO_RELEASE_TAG="$TAG" ./Scripts/generate-appcast.sh \
+            "dist/public/Claude-Overhead-${TAG#v}.dmg" dist/public/appcast.xml
+
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}

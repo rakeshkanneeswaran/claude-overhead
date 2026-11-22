@@ -23,10 +23,15 @@ OUTPUT_DIR="$PROJECT_DIR/dist/public"
 VERSIONED_DMG="$OUTPUT_DIR/Claude-Overhead-$VERSION.dmg"
 STABLE_DMG="$OUTPUT_DIR/Claude-Overhead.dmg"
 SUMS="$OUTPUT_DIR/SHA256SUMS.txt"
+APPCAST="$OUTPUT_DIR/appcast.xml"
 INSTALLER="$PROJECT_DIR/Scripts/install.sh"
 for file in "$VERSIONED_DMG" "$STABLE_DMG" "$SUMS" "$INSTALLER"; do
   [[ -f "$file" ]] || { print -u2 "Missing $file. Run Scripts/build-public-dmg.sh $VERSION first."; exit 1; }
 done
+# Without the signed feed, installed copies would never hear of this release.
+[[ -f "$APPCAST" ]] || { print -u2 "Missing $APPCAST. Run Scripts/generate-appcast.sh first."; exit 1; }
+/usr/bin/grep -q "<sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>" "$APPCAST" \
+  || { print -u2 "$APPCAST does not describe $VERSION."; exit 1; }
 (cd "$OUTPUT_DIR" && /usr/bin/shasum -a 256 -c SHA256SUMS.txt >/dev/null) \
   || { print -u2 "The DMGs no longer match SHA256SUMS.txt."; exit 1; }
 
@@ -66,9 +71,9 @@ if gh release view "$TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
     print -u2 "Release $TAG already exists. Set CHIMLO_REPLACE_ASSETS=1 to replace its files."
     exit 1
   fi
-  gh release upload "$TAG" "$STABLE_DMG" "$VERSIONED_DMG" "$SUMS" "$INSTALLER" --repo "$REPOSITORY" --clobber
+  gh release upload "$TAG" "$STABLE_DMG" "$VERSIONED_DMG" "$SUMS" "$INSTALLER" "$APPCAST" --repo "$REPOSITORY" --clobber
 else
-  gh release create "$TAG" "$STABLE_DMG" "$VERSIONED_DMG" "$SUMS" "$INSTALLER" \
+  gh release create "$TAG" "$STABLE_DMG" "$VERSIONED_DMG" "$SUMS" "$INSTALLER" "$APPCAST" \
     --repo "$REPOSITORY" \
     --verify-tag \
     --title "Claude Overhead $VERSION" \
@@ -99,7 +104,20 @@ INSTALL_URL="https://github.com/$REPOSITORY/releases/latest/download/install.sh"
 env -u GH_TOKEN -u GITHUB_TOKEN /usr/bin/curl -fsSL --retry 3 -o "$CHECK" "$INSTALL_URL" \
   && /usr/bin/cmp -s "$CHECK" "$INSTALLER" \
   || { print -u2 "$INSTALL_URL does not serve this release's install.sh."; exit 1; }
+# And the update feed installed copies poll must describe this version.
+FEED_URL="https://github.com/$REPOSITORY/releases/latest/download/appcast.xml"
+for attempt in 1 2 3 4 5 6; do
+  if env -u GH_TOKEN -u GITHUB_TOKEN /usr/bin/curl -fsSL --retry 2 -o "$CHECK" "$FEED_URL" \
+     && /usr/bin/cmp -s "$CHECK" "$APPCAST"; then
+    FEED_OK=1
+    break
+  fi
+  FEED_OK=0
+  sleep 10
+done
+(( FEED_OK )) || { print -u2 "$FEED_URL does not serve this release's appcast.xml yet."; exit 1; }
 print "Published $TAG"
+print "Update feed:     $FEED_URL"
 print "Install:         curl -fsSL $INSTALL_URL | bash"
 print "Stable download: $LATEST"
 print "This version:    https://github.com/$REPOSITORY/releases/download/$TAG/${VERSIONED_DMG:t}"

@@ -351,6 +351,8 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
     /// The closed notch's one line of live activity under the camera. Only
     /// layouts with an activity label show it, and Focus can hide it.
     public var showClosedNotchActivity: Bool
+    /// Lock Mode: the notch opens only when the owner opens it.
+    public var notchLocked: Bool
 
     /// Fractions of the context window, attention < critical, within 0.3...0.99.
     public var contextAttentionThreshold: Double
@@ -391,6 +393,7 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         notifications = NotificationPreferences()
         showAgents = true
         showClosedNotchActivity = true
+        notchLocked = false
         contextAttentionThreshold = 0.7
         contextCriticalThreshold = 0.9
         usageWarningThreshold = 0.8
@@ -475,7 +478,7 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         case theme, accent, appearance, animationIntensity, glowIntensity, layout, density
         case sessionSort, groupByProject, historyRetentionDays, storeConversationPreviews
         case notifications
-        case showAgents, showClosedNotchActivity
+        case showAgents, showClosedNotchActivity, notchLocked
         case contextAttentionThreshold, contextCriticalThreshold, usageWarningThreshold
         case showResetCountdowns, showCacheMetrics
         case github, focus
@@ -508,6 +511,7 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         notifications = c.lenient(NotificationPreferences.self, .notifications) ?? d.notifications
         showAgents = c.lenient(Bool.self, .showAgents) ?? d.showAgents
         showClosedNotchActivity = c.lenient(Bool.self, .showClosedNotchActivity) ?? d.showClosedNotchActivity
+        notchLocked = c.lenient(Bool.self, .notchLocked) ?? d.notchLocked
         contextAttentionThreshold = c.lenient(Double.self, .contextAttentionThreshold) ?? d.contextAttentionThreshold
         contextCriticalThreshold = c.lenient(Double.self, .contextCriticalThreshold) ?? d.contextCriticalThreshold
         usageWarningThreshold = c.lenient(Double.self, .usageWarningThreshold) ?? d.usageWarningThreshold
@@ -543,6 +547,7 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         try c.encode(notifications, forKey: .notifications)
         try c.encode(showAgents, forKey: .showAgents)
         try c.encode(showClosedNotchActivity, forKey: .showClosedNotchActivity)
+        try c.encode(notchLocked, forKey: .notchLocked)
         try c.encode(contextAttentionThreshold, forKey: .contextAttentionThreshold)
         try c.encode(contextCriticalThreshold, forKey: .contextCriticalThreshold)
         try c.encode(usageWarningThreshold, forKey: .usageWarningThreshold)

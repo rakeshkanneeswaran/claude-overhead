@@ -57,7 +57,7 @@ struct IslandRootView: View {
                             .overlay(alignment: .topTrailing) { standaloneGitHubButton }
                             .transition(.opacity)
                     case .update:
-                        if let presentation = model.updatePresentation {
+                        if let presentation = model.notchUpdatePresentation {
                             UpdateReminderView(model: model, presentation: presentation)
                                 .frame(width: model.panelSize.width, height: 52, alignment: .top)
                                 .padding(.top, max(model.islandLayout.expandedContentTopInset, 4))
@@ -193,49 +193,107 @@ private struct UpdateReminderView: View {
     @State private var isHovering = false
 
     var body: some View {
-        Button(action: model.installUpdate) {
-            HStack(spacing: 10) {
-                updateMark
-                    .frame(width: 18, height: 18)
-                    .offset(y: arrowOffset)
+        HStack(spacing: 8) {
+            Button(action: primaryAction) {
+                HStack(spacing: 10) {
+                    updateMark
+                        .frame(width: 18, height: 18)
+                        .offset(y: arrowOffset)
 
-                Text(presentation.title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.9)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(presentation.title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                        if let detail = presentation.detail {
+                            Text(detail)
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(detailColor)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.85)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(labelColor)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
             }
-            .foregroundStyle(labelColor)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
+            .buttonStyle(UpdateReminderButtonStyle())
+            .disabled(!isPrimaryEnabled)
+            .onHover { isHovering = $0 }
+            .accessibilityLabel([presentation.title, presentation.detail].compactMap(\.self).joined(separator: ". "))
+            .accessibilityHint(accessibilityHint)
+
+            if let failure = presentation.failure, failure.isRetryable {
+                Button("Retry") { model.retryUpdate() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(ChimloTheme.paper)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(ChimloTheme.paper.opacity(0.14)))
+                    .accessibilityHint("Starts a new update attempt.")
+            }
+
+            if presentation.isDismissible {
+                Button { model.dismissUpdateNotice() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(ChimloTheme.quietPaper)
+                .help(presentation.isAvailable ? "Not now" : "Close")
+                .accessibilityLabel(presentation.isAvailable ? "Not now" : "Close")
+            }
         }
-        .buttonStyle(UpdateReminderButtonStyle())
-        .disabled(!presentation.isActionable)
-        .onHover { isHovering = $0 }
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(
             model.accessibility.reduceMotion ? nil : .easeOut(duration: 0.12),
             value: isHovering
         )
-        .accessibilityLabel(presentation.title)
-        .accessibilityHint(accessibilityHint)
+    }
+
+    /// Only an offer and a retryable failure do something when clicked.
+    private var isPrimaryEnabled: Bool {
+        if presentation.isAvailable { return true }
+        return presentation.failure?.isRetryable == true
+    }
+
+    private func primaryAction() {
+        if presentation.failure != nil {
+            model.retryUpdate()
+        } else {
+            model.installUpdate()
+        }
     }
 
     private var arrowOffset: CGFloat {
-        guard presentation.isActionable, isHovering, !model.accessibility.reduceMotion else { return 0 }
+        guard isPrimaryEnabled, isHovering, !model.accessibility.reduceMotion else { return 0 }
         return 1
     }
 
     private var labelColor: Color {
-        if !presentation.isActionable { return ChimloTheme.quietPaper }
+        if !isPrimaryEnabled { return ChimloTheme.quietPaper }
         return isHovering ? ChimloTheme.paper : ChimloTheme.quietPaper
+    }
+
+    private var detailColor: Color {
+        presentation.failure == nil ? ChimloTheme.mutedPaper : ChimloTheme.clayText
     }
 
     private var accessibilityHint: String {
         switch presentation.phase {
         case .available:
-            "Downloads, installs, and relaunches Claude Overhead. Your settings stay unchanged."
-        case .upToDate, .failed:
-            "Checks for updates."
-        case .checking, .downloading, .preparing, .installing:
+            "Downloads, verifies, installs, and relaunches Claude Overhead. Your settings stay unchanged."
+        case let .failed(failure):
+            failure.recovery
+        case .upToDate, .updated:
+            "Nothing to do."
+        case .checking, .downloading, .preparing, .installing, .restarting:
             "Claude Overhead is updating."
         }
     }
@@ -245,11 +303,11 @@ private struct UpdateReminderView: View {
         switch presentation.phase {
         case .available:
             PixelUpdateArrow(color: labelColor)
-        case .upToDate:
+        case .upToDate, .updated:
             PixelText(text: "OK", pixelSize: 1.5, color: ChimloTheme.moss, spacing: 1)
         case .failed:
             PixelText(text: "!", pixelSize: 2, color: ChimloTheme.clayText, spacing: 1)
-        case .checking, .preparing, .installing:
+        case .checking, .preparing, .installing, .restarting:
             PixelUpdateProgress(progress: nil, color: ChimloTheme.quietPaper)
         case .downloading:
             PixelUpdateProgress(
@@ -384,6 +442,22 @@ private struct ExpandedStatusBand: View {
                             .help(model.isFocusModeActive ? "Turn off Focus mode" : "Turn on Focus mode")
                             .accessibilityLabel(model.isFocusModeActive ? "Turn off Focus mode" : "Turn on Focus mode")
                         }
+
+                        Button {
+                            model.isNotchLocked.toggle()
+                        } label: {
+                            Image(systemName: model.isNotchLocked ? "lock.fill" : "lock.open")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .buttonStyle(
+                            ExpandedControlButtonStyle(
+                                color: model.isNotchLocked ? ChimloTheme.providerOrange : ChimloTheme.quietPaper
+                            )
+                        )
+                        .help(model.isNotchLocked
+                              ? "Locked: the notch opens only when you click it. Click to unlock."
+                              : "Lock the notch: it stays closed until you click it. Sessions are still watched.")
+                        .accessibilityLabel(model.isNotchLocked ? "Unlock the notch" : "Lock the notch")
 
                         Button {
                             model.soundsEnabled.toggle()
@@ -1005,6 +1079,8 @@ private struct SessionListView: View {
                                 onArchive: session.needsAttention || session.isDemo
                                     ? nil
                                     : { model.archiveSession(session) },
+                                soundEnabled: model.isSoundEnabled(for: session.id),
+                                onToggleSound: session.isDemo ? nil : { model.toggleSound(for: session.id) },
                                 onPermissionDecision: { outcome in
                                     model.respondToSessionPermission(
                                         sessionID: session.id,
@@ -1126,6 +1202,9 @@ struct SessionRow: View {
     /// the feed and the jump mark beside the title goes to the terminal.
     var onInspect: (() -> Void)? = nil
     var onArchive: (() -> Void)? = nil
+    /// This session's own sound toggle (nil hides the bell, as for demos).
+    var soundEnabled = false
+    var onToggleSound: (() -> Void)? = nil
     var onPermissionDecision: ((ProviderPermissionOutcome) -> Void)? = nil
     var onQuestionOption: ((String) -> Void)? = nil
     var onSubmitQuestion: (() -> Void)? = nil
@@ -1349,6 +1428,32 @@ struct SessionRow: View {
     }
 
     private var trailingAccessory: some View {
+        HStack(spacing: 0) {
+            if let onToggleSound {
+                Button(action: onToggleSound) {
+                    Image(systemName: soundEnabled ? "bell.fill" : "bell.slash")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(soundEnabled ? ChimloTheme.providerOrange : ChimloTheme.mutedPaper)
+                        .opacity(soundEnabled || isHovering ? 1 : 0.55)
+                        .frame(width: 22, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(soundEnabled ? "Sounds on for this session. Click to silence it." : "Play sounds for this session")
+                .accessibilityLabel(soundEnabled ? "Sounds on for \(session.displayTitle)" : "Sounds off for \(session.displayTitle)")
+                .accessibilityHint("Only this session changes.")
+                .accessibilityAddTraits(soundEnabled ? .isSelected : [])
+            }
+            timeAndArchive
+        }
+        .padding(.top, trailingAccessoryTopPadding)
+        .padding(.trailing, 6)
+        .transaction { transaction in
+            transaction.animation = nil
+        }
+    }
+
+    private var timeAndArchive: some View {
         TimelineView(.periodic(from: .now, by: 30)) { timeline in
             ZStack {
                 SessionTimeBadge(
@@ -1380,14 +1485,9 @@ struct SessionRow: View {
             }
         }
         .frame(width: 34, height: 28)
-        .padding(.top, trailingAccessoryTopPadding)
-        .padding(.trailing, 6)
-        .transaction { transaction in
-            transaction.animation = nil
-        }
     }
 
-    private let trailingAccessoryInset: CGFloat = 36
+    private var trailingAccessoryInset: CGFloat { onToggleSound == nil ? 36 : 58 }
 
     private var neutralBadgeBackground: Color {
         isHovering ? ChimloTheme.hoveredBadgeInk : ChimloTheme.badgeInk

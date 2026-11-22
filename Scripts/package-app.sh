@@ -50,8 +50,10 @@ if [[ -n "${CHIMLO_PACKAGE_OUTPUT_PATH:-}" ]]; then
   fi
   case "$TARGET_APP_DIR" in
     "$PROJECT_DIR/dist/update-test/"*.app) ;;
+    # Or a temporary update-test folder (see Scripts/test-local-update.sh).
+    /private/tmp/*/update-test/*.app|/private/var/folders/*/update-test/*.app|/tmp/*/update-test/*.app) ;;
     *)
-      print -u2 "The update-test app must stay under dist/update-test: $TARGET_APP_DIR"
+      print -u2 "The update-test app must stay under dist/update-test or a temporary update-test folder: $TARGET_APP_DIR"
       exit 1
       ;;
   esac

@@ -28,6 +28,16 @@ without AppKit:
   work is never "running"), `SessionOrdering`, `NotchActivityFocus` and
   `CompactActivityLine` for the closed notch's activity strip, which
   `OverheadSettings.showsClosedNotchActivity` can turn off.
+- **Updates** (`AppUpdatePresentation.swift`): the update lifecycle
+  (`AppUpdatePhase`), failures in the owner's words from Sparkle's error codes
+  (`AppUpdateFailure`), the notch row that is dismissed or expires and so can
+  never stay (`AppUpdateNotice`), and version comparison. `ChimloUpdater`
+  drives Sparkle against the signed appcast of the latest GitHub release;
+  see Docs/RELEASING.md.
+- **Sound and Lock Mode** (`SessionSound.swift`): `SessionSoundPreferences`
+  (which sessions may sound, off for all by default, kept for the session's
+  lifetime), `SessionSoundGate` (a session's events need its toggle, one sound
+  per session per burst) and `NotchLockPolicy` (what may open the notch).
 - **Settings** (`OverheadSettings`, `SettingsStore`): one versioned, lenient
   `Codable` value with normalisation, plus themes (`ThemeLibrary`, with WCAG
   contrast checks), notch layouts (`NotchLayoutSpec`) and shortcuts

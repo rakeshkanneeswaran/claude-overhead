@@ -137,7 +137,10 @@ struct OverheadSettingsTests {
             }
             #expect(preference.enabled, "\(kind)")
             switch kind.priority {
-            case .critical: #expect(preference.sound, "\(kind)")
+            // An integration error belongs to no session, so it is the one
+            // critical event that stays silent by default (no session toggle
+            // can opt it in). Session events also need their session's toggle.
+            case .critical: #expect(preference.sound == (kind != .integrationError), "\(kind)")
             case .informational: #expect(preference.sound == (kind == .sessionCompleted), "\(kind)")
             case .ambient: #expect(!preference.sound, "\(kind)")
             }

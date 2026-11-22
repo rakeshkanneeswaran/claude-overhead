@@ -19,7 +19,11 @@ curl -fsSL https://github.com/rakeshkanneeswaran/claude-overhead/releases/latest
 [`install.sh`](Scripts/install.sh) downloads the latest release, checks it
 against the release's SHA-256 checksums, copies Claude Overhead into
 Applications (or `~/Applications` if Applications is not writable), and opens
-it. Run the same command again to update. Then Claude Overhead walks you
+it. From 1.0.4 on, Claude Overhead updates itself: it checks GitHub hourly
+(or when you click **Check for Updates**), verifies each download's
+signature before installing, and restarts into the new version; a failed
+update leaves your copy exactly as it was and says why. On 1.0.3 or earlier,
+run the same command once to update. Then Claude Overhead walks you
 through connecting Claude Code: it shows exactly what it adds to
 `~/.claude/settings.json` before changing anything, and keeps a backup.
 
@@ -52,6 +56,14 @@ Overhead, and move it to the Trash.
   and assignment values redacted.
 - **Session rows** show the latest tool call, the project, running subagents
   and the linked pull request, wherever that data really exists.
+- **Sound only where you want it.** Every session starts silent. Click a
+  session's bell in the notch to hear it when it finishes, fails or needs
+  you; other sessions stay quiet. Pick the sound, preview it and set its
+  volume in **Settings → Notifications**.
+- **Lock Mode.** The lock in the open notch keeps the notch closed until you
+  click it. Sessions are still watched and the sounds you turned on still
+  play; a permission request or question waits in the notch, never approved
+  or dropped, until you open it.
 - **Works without a notch.** On external displays it shows as a small pill
   below the menu bar.
 

@@ -334,7 +334,7 @@ private struct AboutSettingsPane: View {
                     }
 
                     Button(updateButtonTitle) {
-                        if model.updatePresentation?.phase == .available {
+                        if model.updatePresentation?.isAvailable == true || model.updatePresentation?.failure != nil {
                             model.installUpdate()
                         } else {
                             model.checkForUpdates()

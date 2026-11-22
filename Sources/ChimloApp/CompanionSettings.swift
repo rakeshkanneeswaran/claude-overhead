@@ -109,20 +109,47 @@ private struct GeneralPane: View {
                     Text("The display with the pointer").tag(DisplayPreference.displayWithPointer)
                 }
             }
+            Section {
+                Toggle("Lock the notch", isOn: settings.binding(\.notchLocked))
+            } footer: {
+                Text("While locked, the notch never opens by itself. Every session is still watched, the sounds you turned on still play, and a permission request or question waits in the notch, never approved or dropped, until you click the notch to answer it.")
+            }
             Section("Claude Code") {
                 ClaudeConnectionRow()
                 Button("Run setup again") { model.presentSetup?(true) }
             }
             Section("Updates") {
-                LabeledContent("Status", value: model.updatePresentation?.statusText ?? "Not checked yet")
+                LabeledContent("Status") {
+                    Text(model.updatePresentation?.statusText ?? "Not checked yet")
+                        .multilineTextAlignment(.trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Button(model.updatePresentation?.actionTitle ?? "Check for Updates") {
-                    if model.updatePresentation?.phase == .available {
+                    if model.updatePresentation?.isAvailable == true || model.updatePresentation?.failure != nil {
                         model.installUpdate()
                     } else {
                         model.checkForUpdates()
                     }
                 }
                 .disabled(model.updatePresentation.map { !$0.isActionable } ?? false)
+                if model.updatePresentation?.failure?.suggestsInstallCommand == true {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Or update from Terminal; it keeps your settings:")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        HStack(alignment: .top) {
+                            Text(AppUpdateFailure.installCommand)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer()
+                            Button("Copy") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(AppUpdateFailure.installCommand, forType: .string)
+                            }
+                        }
+                    }
+                }
             }
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development build")
@@ -421,6 +448,34 @@ private struct NotificationsPane: View {
         Form {
             Section {
                 Toggle("Play sounds", isOn: settings.binding(\.notifications.soundsEnabled))
+                HStack {
+                    Picker("Sound", selection: settings.binding(\.notifications.soundChoice)) {
+                        ForEach(NotificationSoundChoice.allCases) { choice in
+                            Text(choice.displayName).tag(choice)
+                        }
+                    }
+                    Button("Preview") { preview() }
+                        .accessibilityHint("Plays the chosen sound at the chosen volume.")
+                }
+                LabeledContent("Volume") {
+                    HStack(spacing: 8) {
+                        Image(systemName: "speaker.fill").foregroundStyle(.secondary)
+                        Slider(
+                            value: settings.binding(\.notifications.soundVolume),
+                            in: NotificationSoundVolume.range,
+                            onEditingChanged: { editing in if !editing { preview() } }
+                        )
+                        .frame(maxWidth: 220)
+                        .accessibilityLabel("Sound volume")
+                        Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("Sound")
+            } footer: {
+                Text("Every Claude session starts silent. Click a session's bell in the notch to hear it when it finishes, fails or needs you; other sessions stay quiet. The volume applies on top of your Mac's own.")
+            }
+            Section {
                 Toggle("Group completion banners", isOn: settings.binding(\.notifications.groupCompletions))
                 LabeledContent("macOS banners") {
                     switch services.bannerAuthorization {
@@ -463,6 +518,13 @@ private struct NotificationsPane: View {
             }
         }
         .onAppear { services.refreshBannerAuthorization() }
+    }
+
+    private func preview() {
+        services.model.previewSound(
+            settings.settings.notifications.soundChoice,
+            volume: settings.settings.notifications.soundVolume
+        )
     }
 
     private func priorityTitle(_ priority: NotificationPriority) -> String {

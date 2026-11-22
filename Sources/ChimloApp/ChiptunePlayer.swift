@@ -1,4 +1,5 @@
 import AppKit
+import ChimloCore
 import Foundation
 
 enum ChiptuneCue {
@@ -22,11 +23,30 @@ enum ChiptuneCue {
 final class ChiptunePlayer {
     private var activeSound: NSSound?
 
-    func play(_ cue: ChiptuneCue) {
-        guard let sound = NSSound(data: Self.waveData(for: cue)) else { return }
+    /// The built-in chime is a square wave, louder than the system sounds at
+    /// the same setting; this keeps the default (0.5) at its old level.
+    private static let chimeGain: Float = 0.56
+
+    /// Plays `cue` with the chosen sound at `volume` (0.05...1). NSSound plays
+    /// through the current output device under the Mac's own volume and mute.
+    func play(
+        _ cue: ChiptuneCue,
+        choice: NotificationSoundChoice = .chime,
+        volume: Double = NotificationSoundVolume.defaultValue
+    ) {
+        let level = Float(NotificationSoundVolume.clamped(volume))
+        let sound: NSSound?
+        if let name = choice.systemSoundName {
+            // Named sounds are shared instances; a copy can play over itself.
+            sound = NSSound(named: NSSound.Name(name))?.copy() as? NSSound
+            sound?.volume = level
+        } else {
+            sound = NSSound(data: Self.waveData(for: cue))
+            sound?.volume = level * Self.chimeGain
+        }
+        guard let sound else { return }
         activeSound?.stop()
         activeSound = sound
-        sound.volume = 0.28
         sound.play()
     }
 

@@ -255,7 +255,12 @@ final class ApplicationModel: ObservableObject {
     @Published private(set) var capacitySnapshots: [CapacityProvider: ProviderCapacitySnapshot] = [:]
     @Published private(set) var capacityClock = Date.now
     @Published private(set) var showsUsageDetails = false
+    /// The latest update state, for Settings.
     @Published private(set) var updatePresentation: AppUpdatePresentation?
+    /// The notch's update row: the same state, until it is closed or a
+    /// finished state's lifetime runs out.
+    @Published private(set) var updateNotice = AppUpdateNotice()
+    private var updateNoticeExpiryTask: Task<Void, Never>?
     /// The spectrum glow that says "Claude replied" after a finished turn.
     /// `showsCompletionGlow` drives its opacity; `animatesCompletionGlow` stays
     /// on through the fade-out so the colours keep flowing until it is gone.
@@ -297,6 +302,27 @@ final class ApplicationModel: ObservableObject {
     @Published var keepPreviewSession: Bool {
         didSet { defaults.set(keepPreviewSession, forKey: Keys.keepPreviewSession) }
     }
+    /// Lock Mode: the notch opens only when the owner opens it. Requests
+    /// still wait in it; nothing is approved or dropped.
+    @Published var isNotchLocked = false {
+        didSet {
+            guard isNotchLocked != oldValue else { return }
+            if isNotchLocked {
+                if panelMode == .update { panelMode = .compact }
+            } else if NotchLockPolicy.opensOnUnlock(hasPendingOwnerRequest: hasActiveOwnerInteraction),
+                      panelMode == .compact || panelMode == .update {
+                openPanel()
+            } else {
+                syncUpdatePanel()
+            }
+        }
+    }
+    /// Which sessions may make sounds: none until the owner turns a
+    /// session's bell on in the notch. Kept for the session's lifetime.
+    @Published private(set) var soundPreferences = SessionSoundPreferences()
+    private var soundGate = SessionSoundGate()
+    private var soundChoice: NotificationSoundChoice = .chime
+    private var soundVolume = NotificationSoundVolume.defaultValue
 
     private let defaults: UserDefaults
     private let updater = ChimloUpdater()
@@ -500,6 +526,11 @@ final class ApplicationModel: ObservableObject {
         )
         soundsEnabled = defaults.object(forKey: Keys.soundsEnabled) as? Bool ?? true
         keepPreviewSession = defaults.object(forKey: Keys.keepPreviewSession) as? Bool ?? true
+        if let data = defaults.data(forKey: Keys.sessionSounds),
+           var stored = try? JSONDecoder().decode(SessionSoundPreferences.self, from: data) {
+            stored.prune(now: .now)
+            soundPreferences = stored
+        }
         for provider in CapacityProvider.allCases {
             if let snapshot = try? ProviderCapacityFile.load(from: Self.capacityCacheURL(for: provider)) {
                 capacitySnapshots[provider] = snapshot
@@ -514,9 +545,16 @@ final class ApplicationModel: ObservableObject {
         guard !hasStarted else { return }
         hasStarted = true
 
+        announceUpdateIfJustInstalled()
+
         if isUpdateTestMode {
             panelMode = .compact
             updater.start()
+            // Scripts/test-local-update.sh --auto runs a whole update without
+            // clicks. Only update-test builds (ChimloUpdateTestMode) get here.
+            if ProcessInfo.processInfo.arguments.contains("--update-test-auto-install") {
+                updater.installAvailableUpdate()
+            }
             return
         }
 
@@ -682,7 +720,9 @@ final class ApplicationModel: ObservableObject {
         if inside {
             clearCompletionGlow()
             cancelCollapse()
-            guard panelMode == .compact, layoutSpec.expandsOnHover else { return }
+            guard panelMode == .compact,
+                  NotchLockPolicy.opens(.hover, isLocked: isNotchLocked, layoutExpandsOnHover: layoutSpec.expandsOnHover)
+            else { return }
             panelMode = .sessions
         } else {
             scheduleCollapseAfterHover()
@@ -716,10 +756,19 @@ final class ApplicationModel: ObservableObject {
         }
     }
 
+    /// The main update action: install an offer, retry a failure, or check.
     func installUpdate() {
-        guard updatePresentation?.isActionable == true else { return }
+        guard let presentation = updatePresentation else {
+            checkForUpdates()
+            return
+        }
+        guard presentation.isActionable else { return }
         cancelCollapse()
-        updater.installAvailableUpdate()
+        switch presentation.phase {
+        case .available: updater.installAvailableUpdate()
+        case .failed: updater.retry()
+        default: updater.checkForUpdates()
+        }
     }
 
     func checkForUpdates() {
@@ -727,32 +776,88 @@ final class ApplicationModel: ObservableObject {
         updater.checkForUpdates()
     }
 
+    /// A fresh attempt after a failure.
+    func retryUpdate() {
+        cancelCollapse()
+        updater.retry()
+    }
+
+    /// Closes the notch's update row. Settings keeps the state; a closed offer
+    /// is offered again by the next scheduled check.
+    func dismissUpdateNotice() {
+        if updatePresentation?.isAvailable == true { updater.dismissOffer() }
+        updateNotice.dismiss()
+        updateNoticeExpiryTask?.cancel()
+        updateNoticeExpiryTask = nil
+        syncUpdatePanel()
+    }
+
+    /// What the notch's update row shows, if it shows anything.
+    var notchUpdatePresentation: AppUpdatePresentation? {
+        updateNotice.isVisible(at: .now) ? updateNotice.presentation : nil
+    }
+
     private var preferredIdlePanelMode: PanelMode {
-        AppUpdatePresentationPolicy.shouldTakeIdlePanel(
-            presentation: updatePresentation,
+        guard NotchLockPolicy.opens(.updateNotice, isLocked: isNotchLocked) else { return .compact }
+        return AppUpdatePresentationPolicy.shouldTakeIdlePanel(
+            notice: updateNotice,
+            now: .now,
             hasOwnerInteraction: hasActiveOwnerInteraction,
             isOnboarding: panelMode == .onboarding
         ) ? .update : .compact
     }
 
     private func updatePresentationChanged(_ presentation: AppUpdatePresentation?) {
+        if isUpdateTestMode { UpdateTestLog.record(presentation, defaults: defaults) }
         updatePresentation = presentation
-        if presentation == nil {
-            if panelMode == .update { panelMode = .compact }
-            return
-        }
-        let shouldTakeIdlePanel = AppUpdatePresentationPolicy.shouldTakeIdlePanel(
-            presentation: presentation,
+        updateNotice.show(presentation, at: .now)
+        scheduleUpdateNoticeExpiry()
+        syncUpdatePanel()
+    }
+
+    /// Moves the idle notch into or out of its update row. An open notch is
+    /// left alone; the row appears when it next settles.
+    private func syncUpdatePanel() {
+        let takesPanel = AppUpdatePresentationPolicy.shouldTakeIdlePanel(
+            notice: updateNotice,
+            now: .now,
             hasOwnerInteraction: hasActiveOwnerInteraction,
             isOnboarding: panelMode == .onboarding
         )
-        guard shouldTakeIdlePanel else {
-            if panelMode == .update { panelMode = .compact }
+        if takesPanel {
+            guard panelMode == .compact,
+                  NotchLockPolicy.opens(.updateNotice, isLocked: isNotchLocked) else { return }
+            cancelCollapse()
+            showsUsageDetails = false
+            panelMode = .update
+        } else if panelMode == .update {
+            panelMode = .compact
+        }
+    }
+
+    /// A finished state leaves the notch on its own, so it can never stay.
+    private func scheduleUpdateNoticeExpiry() {
+        updateNoticeExpiryTask?.cancel()
+        updateNoticeExpiryTask = nil
+        guard let expiresAt = updateNotice.expiresAt else { return }
+        updateNoticeExpiryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(max(0, expiresAt.timeIntervalSinceNow)))
+            guard !Task.isCancelled, let self else { return }
+            updateNoticeExpiryTask = nil
+            objectWillChange.send()
+            syncUpdatePanel()
+        }
+    }
+
+    /// "Updated to 1.0.4" once, on the first launch after an update.
+    private func announceUpdateIfJustInstalled() {
+        guard let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String else {
             return
         }
-        cancelCollapse()
-        showsUsageDetails = false
-        panelMode = .update
+        let previous = defaults.string(forKey: Keys.lastLaunchedVersion)
+        defaults.set(current, forKey: Keys.lastLaunchedVersion)
+        guard let version = AppUpdateLaunch.updatedVersion(previous: previous, current: current) else { return }
+        updatePresentationChanged(AppUpdatePresentation(phase: .updated(version: version)))
     }
 
     func cancelCollapse() {
@@ -850,6 +955,9 @@ final class ApplicationModel: ObservableObject {
         if soundsEnabled != settings.notifications.soundsEnabled {
             soundsEnabled = settings.notifications.soundsEnabled
         }
+        if isNotchLocked != settings.notchLocked { isNotchLocked = settings.notchLocked }
+        soundChoice = settings.notifications.soundChoice
+        soundVolume = settings.notifications.soundVolume
         if contextAttentionThreshold != settings.contextAttentionThreshold {
             contextAttentionThreshold = settings.contextAttentionThreshold
         }
@@ -943,13 +1051,21 @@ final class ApplicationModel: ObservableObject {
         body: String
     ) -> NotificationDecision {
         let event = AttentionEvent(kind: kind, key: key, sessionID: sessionID, title: title, body: body)
-        if let attentionDecider { return attentionDecider(event) }
-        return NotificationDecision(
+        var decision = attentionDecider?(event) ?? NotificationDecision(
             showInNotch: true,
             expandNotch: kind.priority == .critical,
             playSound: soundsEnabled && kind.priority != .ambient,
             postSystemBanner: false
         )
+        // A session's events sound only if its bell is on, once per burst.
+        decision.playSound = soundGate.allows(
+            kind,
+            sessionID: sessionID,
+            policyAllows: decision.playSound,
+            preferences: soundPreferences,
+            now: .now
+        )
+        return decision
     }
 
     private func bannerTitle(for sessionID: String) -> String {
@@ -1065,7 +1181,47 @@ final class ApplicationModel: ObservableObject {
     }
 
     func playCue(_ cue: ChiptuneCue) {
-        if soundsEnabled { chiptunePlayer.play(cue) }
+        if soundsEnabled { playSound(cue) }
+    }
+
+    /// Every notification sound goes through here: the chosen sound, at the
+    /// chosen volume, under the Mac's own volume and mute.
+    private func playSound(_ cue: ChiptuneCue) {
+        chiptunePlayer.play(cue, choice: soundChoice, volume: soundVolume)
+    }
+
+    /// Settings' Preview button: plays even while muted, since it was asked for.
+    func previewSound(_ choice: NotificationSoundChoice, volume: Double) {
+        chiptunePlayer.play(.success, choice: choice, volume: volume)
+    }
+
+    func isSoundEnabled(for sessionID: String) -> Bool {
+        soundPreferences.isEnabled(sessionID)
+    }
+
+    /// The bell on one session's row. No other session changes. Turning it on
+    /// plays the sound once, so the owner hears what to expect.
+    func toggleSound(for sessionID: String) {
+        let enabled = soundPreferences.toggle(sessionID, at: .now)
+        saveSoundPreferences()
+        if enabled, soundsEnabled { playSound(.success) }
+    }
+
+    private func saveSoundPreferences() {
+        if let data = try? JSONEncoder().encode(soundPreferences) {
+            defaults.set(data, forKey: Keys.sessionSounds)
+        }
+    }
+
+    /// Live sessions keep their entries from expiring; checked at most daily.
+    private func refreshSoundPreferences(liveSessionIDs: [String]) {
+        let stale = liveSessionIDs.contains { id in
+            guard let seen = soundPreferences.enabledSessions[id] else { return false }
+            return Date.now.timeIntervalSince(seen) > 86_400
+        }
+        guard stale else { return }
+        soundPreferences.touch(liveSessionIDs, at: .now)
+        saveSoundPreferences()
     }
 
     func refreshAgentConnections() {
@@ -1247,6 +1403,13 @@ final class ApplicationModel: ObservableObject {
         if OwnerInteractionLifetime.endsPendingRequests(event.kind) {
             cancelOwnerInteractions(forEndedSession: event.sessionID)
         }
+        if event.kind == .sessionEnded {
+            soundGate.forget(event.sessionID)
+            if soundPreferences.isEnabled(event.sessionID) {
+                soundPreferences.forget(event.sessionID)
+                saveSoundPreferences()
+            }
+        }
         guard event.sequence == 0 else {
             consume(event, isDemo: false)
             if event.kind == .sessionEnded { scheduleSessionRemoval(event.sessionID) }
@@ -1311,8 +1474,8 @@ final class ApplicationModel: ObservableObject {
             announceLiveEvent(event)
         } else if soundsEnabled {
             switch event.kind {
-            case .sessionStarted: chiptunePlayer.play(.arrival)
-            case .permissionRequested, .questionRequested, .failed: chiptunePlayer.play(.attention)
+            case .sessionStarted: playSound(.arrival)
+            case .permissionRequested, .questionRequested, .failed: playSound(.attention)
             case .activity, .permissionResolved, .questionResolved, .completed, .sessionEnded: break
             }
         }
@@ -1320,7 +1483,8 @@ final class ApplicationModel: ObservableObject {
         if let session = reducer.sessions[event.sessionID],
            sessions.contains(where: { $0.id == event.sessionID }),
            (session.pendingRequest != nil || session.phase == .failed),
-           panelMode != .onboarding {
+           panelMode != .onboarding,
+           NotchLockPolicy.opens(session.phase == .failed ? .sessionFailure : .ownerRequest, isLocked: isNotchLocked) {
             cancelCollapse()
             showsUsageDetails = false
             panelMode = .sessions
@@ -1398,7 +1562,7 @@ final class ApplicationModel: ObservableObject {
 
         lastPresentedResponse[sessionID] = response
         if demoSessionIDs.contains(sessionID) {
-            if soundsEnabled { chiptunePlayer.play(.success) }
+            if soundsEnabled { playSound(.success) }
             return
         }
         let decision = announce(
@@ -1408,7 +1572,7 @@ final class ApplicationModel: ObservableObject {
             title: bannerTitle(for: sessionID),
             body: "Claude finished and is waiting for you."
         )
-        if decision.playSound { chiptunePlayer.play(.success) }
+        if decision.playSound { playSound(.success) }
     }
 
     /// Sounds and banners for a hook event, as the notification settings say.
@@ -1437,7 +1601,7 @@ final class ApplicationModel: ObservableObject {
         case .activity, .permissionResolved, .questionResolved, .completed, .sessionEnded:
             return
         }
-        if decision.playSound { chiptunePlayer.play(cue) }
+        if decision.playSound { playSound(cue) }
     }
 
     /// A context window crossing the attention threshold is worth one
@@ -1455,7 +1619,7 @@ final class ApplicationModel: ObservableObject {
                 title: bannerTitle(for: sessionID),
                 body: "Context is \(percent)% full. Claude Code will compact soon."
             )
-            if decision.playSound { chiptunePlayer.play(.attention) }
+            if decision.playSound { playSound(.attention) }
         }
     }
 
@@ -1476,7 +1640,7 @@ final class ApplicationModel: ObservableObject {
                 title: "Claude usage",
                 body: "You have used \(Int(window.usedPercentage.rounded()))% of your \(name) limit."
             )
-            if decision.playSound { chiptunePlayer.play(.attention) }
+            if decision.playSound { playSound(.attention) }
         }
     }
 
@@ -1557,6 +1721,7 @@ final class ApplicationModel: ObservableObject {
         resetSessionRevealIfNoOwnerInteraction()
         updateCompactActivity()
         scheduleSessionActivityExpiry(now: now)
+        refreshSoundPreferences(liveSessionIDs: sessions.map(\.id))
     }
 
     /// The closed notch's strip: the session that needs the owner, else the
@@ -1955,8 +2120,10 @@ final class ApplicationModel: ObservableObject {
                 showsAllSessionsDuringOwnerInteraction = false
                 pendingDecision = request
                 decisionContinuation = continuation
-                showsUsageDetails = false
-                panelMode = .sessions
+                if NotchLockPolicy.opens(.ownerRequest, isLocked: isNotchLocked) {
+                    showsUsageDetails = false
+                    panelMode = .sessions
+                }
                 scheduleDecisionExpiry(for: request)
             }
         } onCancel: {
@@ -2014,8 +2181,10 @@ final class ApplicationModel: ObservableObject {
                 permissionContinuations[request.id] = continuation
                 sessionPermissions[request.sessionID] = SessionPermissionPresentation(request: request)
                 presentPermissionEvent(for: request)
-                showsUsageDetails = false
-                panelMode = .sessions
+                if NotchLockPolicy.opens(.ownerRequest, isLocked: isNotchLocked) {
+                    showsUsageDetails = false
+                    panelMode = .sessions
+                }
                 schedulePermissionExpiry(for: request)
             }
         } onCancel: {
@@ -2143,8 +2312,10 @@ final class ApplicationModel: ObservableObject {
                 questionContinuations[request.id] = continuation
                 publishQuestion(flow)
                 presentQuestionEvent(for: flow)
-                showsUsageDetails = false
-                panelMode = .sessions
+                if NotchLockPolicy.opens(.ownerRequest, isLocked: isNotchLocked) {
+                    showsUsageDetails = false
+                    panelMode = .sessions
+                }
                 scheduleQuestionExpiry(for: request)
             }
         } onCancel: {
@@ -2368,6 +2539,8 @@ final class ApplicationModel: ObservableObject {
 
     private enum Keys {
         static let completedOnboarding = "overhead.onboarding.completed"
+        static let sessionSounds = "overhead.sound.sessions"
+        static let lastLaunchedVersion = "overhead.update.lastLaunchedVersion"
         static let soundsEnabled = "overhead.sound.enabled"
         static let keepPreviewSession = "overhead.preview.keepSession"
         static let archivedSessions = "overhead.sessions.archived"
@@ -2406,3 +2579,31 @@ private extension AgentEvent {
         )
     }
 }
+
+/// Records each update state for the local update test, so it can check the
+/// whole lifecycle across the relaunch. Update-test builds only; the path is
+/// remembered from the first launch's argument and must be the test's log.
+private enum UpdateTestLog {
+    private static let pathKey = "overhead.updateTest.logPath"
+
+    static func record(_ presentation: AppUpdatePresentation?, defaults: UserDefaults) {
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "--update-test-log"), index + 1 < arguments.count {
+            defaults.set(arguments[index + 1], forKey: pathKey)
+        }
+        guard let path = defaults.string(forKey: pathKey),
+              path.hasSuffix("/update-test/states.log") else { return }
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let phase = presentation.map { "\($0.phase)" } ?? "none"
+        let line = "\(version)\t\(phase)\t\(presentation?.statusText ?? "")\n"
+        guard let data = line.data(using: .utf8) else { return }
+        if let handle = FileHandle(forWritingAtPath: path) {
+            handle.seekToEndOfFile()
+            handle.write(data)
+            try? handle.close()
+        } else {
+            FileManager.default.createFile(atPath: path, contents: data)
+        }
+    }
+}
+

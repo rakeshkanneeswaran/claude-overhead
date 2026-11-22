@@ -80,6 +80,14 @@ final class OverheadServices: ObservableObject {
                 settings.settings.notifications.soundsEnabled = enabled
             }
             .store(in: &cancellables)
+        // The notch's lock button writes the model; it persists as a setting.
+        model.$isNotchLocked
+            .removeDuplicates()
+            .sink { [weak self] locked in
+                guard let self, settings.settings.notchLocked != locked else { return }
+                settings.settings.notchLocked = locked
+            }
+            .store(in: &cancellables)
 
 
         history.start()

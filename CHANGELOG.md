@@ -9,6 +9,24 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+- Claude Overhead updates itself. The in-app updater never worked in any
+  Claude Overhead release: the update feed and signing key were removed when
+  it was forked from Chimlo and never replaced, so every attempt failed before
+  reaching the network and the notch stuck on "Try update again". Releases
+  now publish a signed `appcast.xml`, and the app shows each step (checking,
+  downloading, verifying, installing, restarting, "Updated to …"). A failure
+  says what went wrong and what to do, has **Retry** and a close button, and
+  leaves the notch on its own after a minute; the installed app is never
+  touched by a failed update. Copies on 1.0.3 or earlier update once with the
+  Terminal command.
+- Sound per session: every session starts silent, and a bell on each session
+  in the notch turns its sounds on. Choose the sound, preview it and set its
+  volume in **Settings → Notifications**. A burst of events from one session
+  makes one sound.
+- Lock Mode: the lock in the open notch keeps the notch closed until you
+  click it, while every session is still watched and enabled sounds still
+  play. Requests wait in the notch, never approved or dropped.
+
 - A permission or question card leaves the notch as soon as Claude Code stops
   waiting for it (you answered in the terminal, interrupted the turn, or the
   session ended). Before, it could stay for up to 10 minutes and keep the next

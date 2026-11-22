@@ -3,7 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
-TEST_ROOT="$PROJECT_DIR/dist/update-test"
+# Outside a macOS-protected folder (Documents, Desktop) the test apps never
+# trigger a Files and Folders prompt; set CHIMLO_UPDATE_TEST_ROOT to a
+# temporary folder named update-test for that.
+TEST_ROOT="${CHIMLO_UPDATE_TEST_ROOT:-$PROJECT_DIR/dist/update-test}"
 HOST_APP_PATH="$TEST_ROOT/host/Claude Overhead.app"
 UPDATE_APP_PATH="$TEST_ROOT/update/Claude Overhead.app"
 FEED_DIR="$TEST_ROOT/feed"
@@ -22,19 +25,44 @@ UPDATE_VERSION="99.0.0"
 UPDATE_BUILD="9900"
 MODE="${1:-}"
 TEST_BUNDLE_IDENTIFIER="com.rakesh.overhead.update-test"
+STATES_LOG="$TEST_ROOT/states.log"
+AUTO_TIMEOUT_SECONDS="${CHIMLO_UPDATE_TEST_TIMEOUT:-240}"
 
-if [[ -n "$MODE" && "$MODE" != "--prepare-only" ]]; then
-  print -u2 "Usage: $0 [--prepare-only]"
-  exit 64
+# Public releases are ad-hoc signed (no Developer ID), so the test signs the
+# same way by default. Set CHIMLO_CODE_SIGN_IDENTITY to test identity signing.
+export CHIMLO_CODE_SIGN_IDENTITY="${CHIMLO_CODE_SIGN_IDENTITY:--}"
+if [[ "$CHIMLO_CODE_SIGN_IDENTITY" == "-" ]]; then
+  export CHIMLO_ALLOW_ADHOC_RELEASE=1
 fi
+
+# The EdDSA key: a key file (SPARKLE_ED_KEY_FILE) or the Keychain account.
+typeset -a SPARKLE_KEY_ARGS
+if [[ -n "${SPARKLE_ED_KEY_FILE:-}" ]]; then
+  SPARKLE_KEY_ARGS=(--ed-key-file "$SPARKLE_ED_KEY_FILE")
+else
+  SPARKLE_KEY_ARGS=(--account "$SPARKLE_ACCOUNT")
+fi
+
+case "$MODE" in
+  ""|--prepare-only|--auto|--auto-tampered|--auto-offline) ;;
+  *)
+    print -u2 "Usage: $0 [--prepare-only | --auto | --auto-tampered | --auto-offline]"
+    print -u2 "  --auto            update unattended; pass when 98 becomes 99 and relaunches"
+    print -u2 "  --auto-tampered   the download is altered after signing; pass when it is refused"
+    print -u2 "  --auto-offline    nothing serves the feed; pass when the failure is explained"
+    exit 64
+    ;;
+esac
 
 if [[ ! "$PORT" =~ '^[0-9]+$' ]] || (( PORT < 1024 || PORT > 65535 )); then
   print -u2 "CHIMLO_UPDATE_TEST_PORT must be between 1024 and 65535."
   exit 64
 fi
 
-if [[ "$TEST_ROOT" != "$PROJECT_DIR/dist/update-test" ]]; then
+if [[ "$TEST_ROOT" != "$PROJECT_DIR/dist/update-test" ]] \
+   && [[ "${TEST_ROOT:t}" != "update-test" || ( "$TEST_ROOT" != /private/tmp/* && "$TEST_ROOT" != /private/var/folders/* && "$TEST_ROOT" != /tmp/* ) ]]; then
   print -u2 "Refusing to replace an unexpected test directory: $TEST_ROOT"
+  print -u2 "Use $PROJECT_DIR/dist/update-test or a temporary folder named update-test."
   exit 1
 fi
 
@@ -61,7 +89,7 @@ fi
 
 FEED_BASE_URL="http://localhost:$PORT"
 FEED_URL="$FEED_BASE_URL/appcast.xml"
-TEST_PROCESS_PATTERN='dist/update-test/(host|update)/Claude Overhead\.app/Contents/MacOS/Claude Overhead'
+TEST_PROCESS_PATTERN='update-test/(host|update)/Claude Overhead\.app/Contents/MacOS/Overhead'
 
 if /usr/bin/pgrep -f "$TEST_PROCESS_PATTERN" >/dev/null 2>&1; then
   print -u2 "Claude Overhead Update Test is still running."
@@ -86,7 +114,7 @@ CHIMLO_PACKAGE_APP_PATH="$UPDATE_APP_PATH" \
 
 print "Generating the signed local appcast..."
 "$GENERATE_APPCAST" \
-  --account "$SPARKLE_ACCOUNT" \
+  "${SPARKLE_KEY_ARGS[@]}" \
   --download-url-prefix "$FEED_BASE_URL/" \
   --link "https://github.com/rakeshkanneeswaran/claude-overhead" \
   --maximum-versions 1 \
@@ -100,7 +128,7 @@ if [[ ! -f "$APPCAST_PATH" ]]; then
 fi
 
 /usr/bin/xmllint --noout "$APPCAST_PATH"
-"$SIGN_UPDATE" --account "$SPARKLE_ACCOUNT" --verify "$APPCAST_PATH"
+"$SIGN_UPDATE" "${SPARKLE_KEY_ARGS[@]}" --verify "$APPCAST_PATH"
 
 ACTUAL_URL="$(/usr/bin/xmllint --xpath \
   'string(//*[local-name()="enclosure"]/@url)' "$APPCAST_PATH")"
@@ -126,7 +154,7 @@ if [[ -z "$ARCHIVE_SIGNATURE" \
   exit 1
 fi
 
-"$SIGN_UPDATE" --account "$SPARKLE_ACCOUNT" \
+"$SIGN_UPDATE" "${SPARKLE_KEY_ARGS[@]}" \
   --verify "$DMG_PATH" "$ARCHIVE_SIGNATURE"
 
 print "Building the older signed host ($HOST_VERSION)..."
@@ -173,7 +201,11 @@ HOST_REQUIREMENT="$(/usr/bin/codesign -d -r- "$HOST_APP_PATH" 2>&1 \
 UPDATE_REQUIREMENT="$(/usr/bin/codesign -d -r- "$UPDATE_APP_PATH" 2>&1 \
   | /usr/bin/sed -n 's/^designated => //p')"
 
-if [[ -z "$HOST_REQUIREMENT" || "$HOST_REQUIREMENT" != "$UPDATE_REQUIREMENT" ]]; then
+if [[ "$CHIMLO_CODE_SIGN_IDENTITY" == "-" ]]; then
+  # Ad-hoc requirements are each build's own hash, so they never match.
+  # Sparkle then relies on the EdDSA signature, which is what releases use.
+  print "Ad-hoc signed: the update is trusted through its EdDSA signature."
+elif [[ -z "$HOST_REQUIREMENT" || "$HOST_REQUIREMENT" != "$UPDATE_REQUIREMENT" ]]; then
   print -u2 "The two local test apps do not share a designated requirement."
   exit 1
 fi
@@ -191,6 +223,11 @@ if [[ "$MODE" == "--prepare-only" ]]; then
   exit 0
 fi
 
+if [[ "$MODE" == "--auto-tampered" ]]; then
+  # Altered after signing, as a compromised mirror would serve it.
+  print -n "tampered" >> "$DMG_PATH"
+fi
+
 SERVER_PID=0
 cleanup_server() {
   if (( SERVER_PID > 0 )) && /bin/kill -0 "$SERVER_PID" >/dev/null 2>&1; then
@@ -200,6 +237,8 @@ cleanup_server() {
 }
 trap cleanup_server EXIT INT TERM
 
+SERVER_READY=1
+if [[ "$MODE" != "--auto-offline" ]]; then
 "$PYTHON_BIN" -m http.server "$PORT" \
   --bind 127.0.0.1 \
   --directory "$FEED_DIR" \
@@ -214,6 +253,7 @@ for _ in {1..50}; do
   fi
   /bin/sleep 0.1
 done
+fi
 
 if (( ! SERVER_READY )); then
   print -u2 "The local update server did not start."
@@ -222,6 +262,51 @@ if (( ! SERVER_READY )); then
 fi
 
 /usr/bin/defaults delete "$TEST_BUNDLE_IDENTIFIER" >/dev/null 2>&1 || true
+
+if [[ "$MODE" == --auto* ]]; then
+  # Unattended: the host checks, downloads, verifies, installs and relaunches
+  # on its own, logging every state. Pass when the bundle on disk is the
+  # update and the relaunched app reports "Updated to".
+  : > "$STATES_LOG"
+  /usr/bin/open -n "$HOST_APP_PATH" --args --update-test-auto-install --update-test-log "$STATES_LOG"
+  HOST_PLIST="$HOST_APP_PATH/Contents/Info.plist"
+  RESULT="timeout"
+  for _ in $(seq 1 "$AUTO_TIMEOUT_SECONDS"); do
+    /bin/sleep 1
+    if /usr/bin/grep -q "failed(" "$STATES_LOG" 2>/dev/null; then RESULT="failed"; break; fi
+    installed="$(/usr/bin/plutil -extract CFBundleShortVersionString raw "$HOST_PLIST" 2>/dev/null || true)"
+    if [[ "$installed" == "$UPDATE_VERSION" ]] \
+       && /usr/bin/grep -q "^$UPDATE_VERSION	updated(version: \"$UPDATE_VERSION\")" "$STATES_LOG" 2>/dev/null; then
+      RESULT="passed"; break
+    fi
+  done
+  /usr/bin/pkill -f "$TEST_PROCESS_PATTERN" >/dev/null 2>&1 || true
+  print
+  print "States the app went through:"
+  /usr/bin/cut -f1,2 "$STATES_LOG" | /usr/bin/sed 's/^/  /'
+  if [[ "$MODE" != "--auto" ]]; then
+    # A failure must explain itself and leave the installed app as it was.
+    still="$(/usr/bin/plutil -extract CFBundleShortVersionString raw "$HOST_PLIST" 2>/dev/null || print unreadable)"
+    reason="$(/usr/bin/grep -o 'failed([^)]*)' "$STATES_LOG" | /usr/bin/head -1)"
+    message="$(/usr/bin/grep 'failed(' "$STATES_LOG" | /usr/bin/head -1 | /usr/bin/cut -f3)"
+    if [[ "$RESULT" == "failed" && "$still" == "$HOST_VERSION" ]] \
+       && /usr/bin/codesign --verify --deep --strict "$HOST_APP_PATH"; then
+      print "PASS: refused with $reason: $message"
+      print "      The installed $HOST_VERSION is untouched and its signature verifies."
+      exit 0
+    fi
+    print -u2 "FAIL ($RESULT): expected an explained failure with $HOST_VERSION left in place (found $still)."
+    exit 1
+  fi
+  if [[ "$RESULT" == "passed" ]]; then
+    /usr/bin/codesign --verify --deep --strict "$HOST_APP_PATH"
+    print "PASS: $HOST_VERSION updated itself to $UPDATE_VERSION, relaunched, and the result verifies."
+    exit 0
+  fi
+  print -u2 "FAIL ($RESULT). The bundle on disk reports: $(/usr/bin/plutil -extract CFBundleShortVersionString raw "$HOST_PLIST" 2>/dev/null || print unreadable)"
+  exit 1
+fi
+
 /usr/bin/open -n "$HOST_APP_PATH"
 
 print

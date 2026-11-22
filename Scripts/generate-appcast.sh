@@ -46,14 +46,45 @@ appcast_args=(
   "$STAGING_ROOT"
 )
 
-"$GENERATE_APPCAST" \
-  --account "${SPARKLE_KEY_ACCOUNT:-com.rakesh.overhead}" \
-  "${appcast_args[@]}"
+SIGN_UPDATE="${GENERATE_APPCAST:h}/sign_update"
+
+# The private EdDSA key, in order of preference: SPARKLE_ED_PRIVATE_KEY (the
+# key itself, as CI passes its secret; sent on stdin, never written or
+# printed), SPARKLE_ED_KEY_FILE, or the login Keychain account.
+with_key() {
+  if [[ -n "${SPARKLE_ED_PRIVATE_KEY:-}" ]]; then
+    print -rn -- "$SPARKLE_ED_PRIVATE_KEY" | "$@" --ed-key-file -
+  elif [[ -n "${SPARKLE_ED_KEY_FILE:-}" ]]; then
+    "$@" --ed-key-file "$SPARKLE_ED_KEY_FILE"
+  else
+    "$@" --account "${SPARKLE_KEY_ACCOUNT:-com.rakesh.overhead}"
+  fi
+}
+
+with_key "$GENERATE_APPCAST" "${appcast_args[@]}"
 
 if [[ ! -f "$STAGING_ROOT/appcast.xml" ]]; then
   print -u2 "Sparkle did not generate appcast.xml."
   exit 1
 fi
+
+# Installed apps refuse a feed or a download that is not signed with the key
+# their SUPublicEDKey matches, so check both before anything is published.
+/usr/bin/xmllint --noout "$STAGING_ROOT/appcast.xml"
+with_key "$SIGN_UPDATE" --verify "$STAGING_ROOT/appcast.xml"
+ARCHIVE_SIGNATURE="$(/usr/bin/xmllint --xpath \
+  'string(//*[local-name()="enclosure"]/@*[local-name()="edSignature"])' "$STAGING_ROOT/appcast.xml")"
+ENCLOSURE_URL="$(/usr/bin/xmllint --xpath \
+  'string(//*[local-name()="enclosure"]/@url)' "$STAGING_ROOT/appcast.xml")"
+EXPECTED_URL="https://github.com/rakeshkanneeswaran/claude-overhead/releases/download/$RELEASE_TAG/${ARCHIVE_PATH:t}"
+if [[ -z "$ARCHIVE_SIGNATURE" || "$ENCLOSURE_URL" != "$EXPECTED_URL" ]]; then
+  print -u2 "The appcast does not point at a signed $EXPECTED_URL."
+  exit 1
+fi
+with_key "$SIGN_UPDATE" --verify "$ARCHIVE_PATH" "$ARCHIVE_SIGNATURE"
+# The decisive check: the key installed apps carry accepts this download.
+PUBLIC_KEY="$(/usr/bin/plutil -extract SUPublicEDKey raw "$PROJECT_DIR/Packaging/Info.plist")"
+swift "$SCRIPT_DIR/verify-update-signature.swift" "$PUBLIC_KEY" "$ARCHIVE_PATH" "$ARCHIVE_SIGNATURE"
 
 mkdir -p "${OUTPUT_PATH:h}"
 cp "$STAGING_ROOT/appcast.xml" "$OUTPUT_PATH"

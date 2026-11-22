@@ -44,5 +44,9 @@
     <true/>
     <key>SURequireSignedFeed</key>
     <true/>
+    <key>SUFeedURL</key>
+    <string>https://github.com/rakeshkanneeswaran/claude-overhead/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>YTmuEjjmWFU+CRYS+1W8FewMNqfcxv95dXXc1Qk7nqo=</string>
 </dict>
 </plist>
