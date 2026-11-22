@@ -2,12 +2,11 @@ import AppKit
 import ChimloCore
 import SwiftUI
 
-enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, personalization, layouts, themes, sessions, notifications, agents
-    case contextUsage, github, focus, shortcuts, privacy, advanced
+/// Settings panes come from Core (`SettingsPaneID`). GitHub is not among
+/// them: it is configured in the GitHub page's Integration section.
+typealias SettingsPane = SettingsPaneID
 
-    var id: String { rawValue }
-
+extension SettingsPaneID {
     var title: String {
         switch self {
         case .general: "General"
@@ -18,7 +17,6 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .notifications: "Notifications"
         case .agents: "Agents"
         case .contextUsage: "Context & Usage"
-        case .github: "GitHub"
         case .focus: "Focus Mode"
         case .shortcuts: "Shortcuts"
         case .privacy: "Privacy & Data"
@@ -36,7 +34,6 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .notifications: "bell.badge"
         case .agents: "point.3.connected.trianglepath.dotted"
         case .contextUsage: "gauge.with.dots.needle.33percent"
-        case .github: "arrow.triangle.pull"
         case .focus: "moon"
         case .shortcuts: "command"
         case .privacy: "hand.raised"
@@ -81,7 +78,6 @@ private struct SettingsPaneView: View {
             case .notifications: NotificationsPane()
             case .agents: AgentsPane()
             case .contextUsage: ContextUsagePane()
-            case .github: GitHubPane()
             case .focus: FocusPane()
             case .shortcuts: ShortcutsPane()
             case .privacy: PrivacyPane()
@@ -404,6 +400,8 @@ private struct SessionsPane: View {
 private struct NotificationsPane: View {
     @EnvironmentObject private var settings: SettingsModel
     @EnvironmentObject private var services: OverheadServices
+    @EnvironmentObject private var github: GitHubModel
+    @EnvironmentObject private var navigation: CompanionNavigation
 
     var body: some View {
         Form {
@@ -428,8 +426,14 @@ private struct NotificationsPane: View {
                 }
             }
             Section("GitHub") {
-                ForEach(OverheadEventKind.allCases.filter(\.isGitHub), id: \.self) { kind in
-                    EventPreferenceRow(kind: kind)
+                HStack {
+                    Text("GitHub's notifications, per event and per repository, are set where GitHub lives.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("GitHub → Integration") {
+                        github.companionRequest = .tab(.integration)
+                        navigation.show(.github)
+                    }
                 }
             }
             Section {
@@ -456,7 +460,7 @@ private struct NotificationsPane: View {
     }
 }
 
-private struct EventPreferenceRow: View {
+struct EventPreferenceRow: View {
     let kind: OverheadEventKind
     @EnvironmentObject private var settings: SettingsModel
 

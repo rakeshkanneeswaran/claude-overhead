@@ -603,7 +603,7 @@ struct GitHubRepositorySwitcher: View {
                 }
             }
             .scrollIndicators(.hidden)
-            Button("Manage repositories…") { model.openGitHubSettings?() }.buttonStyle(GitHubPillButtonStyle())
+            Button("Manage repositories…") { model.openGitHubIntegration?() }.buttonStyle(GitHubPillButtonStyle())
         }
     }
 

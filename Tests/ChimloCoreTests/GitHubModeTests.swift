@@ -755,3 +755,64 @@ struct GitHubMergeTests {
         #expect(decoded.mergeMethods == ["101": .squash])
     }
 }
+
+// MARK: - One GitHub destination
+
+@Suite("GitHub destination")
+struct GitHubDestinationTests {
+    @Test("The companion sidebar has exactly one GitHub destination")
+    func oneDestination() {
+        #expect(CompanionDestination.allCases.filter { $0 == .github }.count == 1)
+        #expect(CompanionDestination.allCases.map(\.rawValue).filter { $0.lowercased().contains("github") } == ["github"])
+    }
+
+    @Test("Settings has no GitHub pane")
+    func noSettingsPane() {
+        #expect(!SettingsPaneID.allCases.contains { $0.rawValue.lowercased().contains("github") })
+        // Every pane that existed apart from GitHub is still there, in order.
+        #expect(SettingsPaneID.allCases.map(\.rawValue) == [
+            "general", "personalization", "layouts", "themes", "sessions", "notifications", "agents",
+            "contextUsage", "focus", "shortcuts", "privacy", "advanced",
+        ])
+    }
+
+    @Test("The GitHub page holds every section, configuration included")
+    func sections() {
+        #expect(GitHubPageTab.allCases == [.overview, .repositories, .actions, .pullRequests, .reviews, .integration])
+        #expect(GitHubPageTab.allCases.filter { !$0.needsConnection } == [.integration])
+    }
+
+    @Test("The page opens on Overview once set up, otherwise on Integration")
+    func landing() {
+        #expect(GitHubPageTab.landing(enabled: true, connected: true, monitoredRepositories: 3) == .overview)
+        #expect(GitHubPageTab.landing(enabled: false, connected: false, monitoredRepositories: 0) == .integration)
+        #expect(GitHubPageTab.landing(enabled: true, connected: false, monitoredRepositories: 3) == .integration, "signed out")
+        #expect(GitHubPageTab.landing(enabled: true, connected: true, monitoredRepositories: 0) == .integration, "nothing monitored yet")
+    }
+
+    @Test("Requests from the notch land on the right section")
+    func requests() {
+        #expect(GitHubPageRequest.tab(.integration).tab == .integration)
+        #expect(GitHubPageRequest.detail(.run(repositoryID: 1, runID: 2)).tab == .actions)
+        #expect(GitHubPageRequest.detail(.pullRequest(repositoryID: 1, number: 2)).tab == .pullRequests)
+        #expect(GitHubPageRequest.detail(.repositories).tab == .repositories)
+    }
+
+    @Test("One selection drives both the page and GitHub Mode: focusing a repository is visible to both")
+    func sharedSelection() throws {
+        // The page and the notch both read `settings.github.selection`; there is
+        // no second store. A change written once is what both decode.
+        var settings = OverheadSettings()
+        settings.github.selection = GitHubRepositorySelection(repositories: [api, web, tools], focusedID: 101)
+        settings.github.selection.focus(103)
+        settings.github.selection.deselect(102)
+        let data = try JSONEncoder().encode(settings)
+        let reloaded = try JSONDecoder().decode(OverheadSettings.self, from: data)
+        #expect(reloaded.github.selection.ids == [101, 103])
+        #expect(reloaded.github.selection.focused == tools)
+        // GitHub Mode's overview is built from exactly those repositories.
+        let overview = GitHubOverview.make(reloaded.github.selection.repositories.map { GitHubRepoSnapshot(ref: $0) }, reviewRequests: [], viewer: nil)
+        #expect(overview.openPullRequests == 0)
+        #expect(reloaded.github.selection.repositories.map(\.fullName) == ["acme/api", "octo/tools"])
+    }
+}

@@ -1,9 +1,10 @@
 import ChimloCore
 import SwiftUI
 
-/// Settings → GitHub: configuration only. Using GitHub (runs, pull requests,
-/// reviews) happens in GitHub Mode and the companion window's GitHub page.
-struct GitHubPane: View {
+/// GitHub → Integration: signing in, which repositories are monitored, and
+/// every GitHub preference. It sits beside Overview, Actions and the rest on the
+/// one GitHub page, and edits the same settings GitHub Mode in the notch reads.
+struct GitHubIntegrationView: View {
     @EnvironmentObject private var settings: SettingsModel
     @EnvironmentObject private var github: GitHubModel
     @Environment(\.overheadPalette) private var palette
@@ -42,6 +43,7 @@ struct GitHubPane: View {
                 }
                 notchSection
                 monitoringSection
+                notificationsSection
             }
             Section("Privacy") {
                 Text("Overhead signs in with the GitHub CLI (`gh auth token`) when it is installed, or with a token you save to the Keychain. It reads pull requests, reviews, checks and Actions runs for the repositories you select, and writes only one thing: a merge you confirm. Requests go to api.github.com and nowhere else. Logs are never downloaded.")
@@ -100,8 +102,22 @@ struct GitHubPane: View {
                 value: settings.binding(\.github.refreshMinutes),
                 in: GitHubPreferences.refreshRange
             )
-            Text("Sound, banners, quiet hours and Focus for each GitHub event are under Notifications. Each repository's notification level is set in its row above.")
+            Text("Sound and banners for each GitHub event are below.")
                 .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Sound and banners for each GitHub event. Quiet hours, Focus and the
+    /// global mute still apply from Settings → Notifications.
+    private var notificationsSection: some View {
+        Section {
+            ForEach(OverheadEventKind.allCases.filter(\.isGitHub), id: \.self) { kind in
+                EventPreferenceRow(kind: kind)
+            }
+        } header: {
+            Text("GitHub notifications")
+        } footer: {
+            Text("Each repository's own level is set in its row above. Quiet hours, Focus and the global mute in Settings → Notifications apply here too.")
         }
     }
 

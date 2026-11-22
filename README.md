@@ -76,13 +76,15 @@ shortcut (⌃⌥ and comma), or by opening the app again.
 - **Usage:** context per session against your thresholds, the 5-hour and
   weekly limits with reset countdowns, and prompt-cache hit rates with a
   warm/cold estimate.
-- **GitHub:** the deeper version of GitHub Mode on the same data: overview,
-  repositories, Actions with jobs and steps, pull requests with full
-  descriptions, reviews and checks, and your review queue.
+- **GitHub:** the one place for GitHub. Overview, Repositories, Actions (jobs
+  and steps), Pull Requests (descriptions, reviews, checks, merge) and Reviews,
+  plus **Integration**: sign-in, which repositories are monitored, and every
+  GitHub preference. It shares its data and settings with GitHub Mode in the
+  notch.
 - **Settings:** General, Personalization, Notch Layouts, Themes (Midnight,
   Graphite, Obsidian, Warm Amber, Arctic, Match System), Sessions,
-  Notifications, Agents, Context & Usage, GitHub, Focus Mode, Shortcuts,
-  Privacy & Data, Advanced.
+  Notifications, Agents, Context & Usage, Focus Mode, Shortcuts, Privacy &
+  Data, Advanced. GitHub is configured on the GitHub page, not here.
 
 ### Notifications that respect you
 
@@ -108,7 +110,7 @@ permission.
   GitHub turned on, plus Claude Code's own usage check.
 - GitHub sign-in reuses the GitHub CLI (`gh auth token`). If you would rather
   paste a personal access token, it is stored only in the macOS Keychain.
-  Overhead reads only the repositories you select in **Settings → GitHub**
+  Overhead reads only the repositories you select in **GitHub → Integration**
   (each stored by GitHub's numeric id), and its only write is a merge you
   confirm (turn merging off there if you like). Workflow logs are never
   downloaded; they open on github.com.

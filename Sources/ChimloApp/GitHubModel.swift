@@ -58,8 +58,8 @@ final class GitHubModel: ObservableObject {
     @Published private(set) var pullRequestDetails: [String: Load<GitHubPullRequestDetail>] = [:]
     /// When the owner last looked at GitHub Mode, for the "new activity" dot.
     @Published private(set) var lastViewed: Date?
-    /// A detail the notch asked the companion window to show.
-    @Published var companionRequest: GitHubDetail?
+    /// What the notch or another page asked the GitHub page to show.
+    @Published var companionRequest: GitHubPageRequest?
     /// What GitHub says about each monitored repository: merge methods, push access.
     @Published private(set) var repositorySettings: [Int64: GitHubRepositoryInfo] = [:]
     @Published private(set) var merges: [String: MergeState] = [:]

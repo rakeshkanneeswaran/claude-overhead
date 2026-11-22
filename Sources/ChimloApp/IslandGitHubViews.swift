@@ -377,7 +377,7 @@ private struct GitHubConnectionMessage: View {
             if case .checking = github.connection {
                 ProgressView().controlSize(.small)
             } else {
-                Button("Open GitHub settings") { model.openGitHubSettings?() }
+                Button("Set up GitHub") { model.openGitHubIntegration?() }
                     .buttonStyle(GitHubPillButtonStyle())
             }
             Spacer(minLength: 0)
@@ -423,7 +423,7 @@ private struct GitHubEmptySelection: View {
             Text("Choose the repositories to watch. You can pick as many as you like, across your organizations.")
                 .font(.system(size: 11.5)).foregroundStyle(ChimloTheme.quietPaper)
                 .multilineTextAlignment(.center).frame(maxWidth: 320)
-            Button("Choose repositories") { model.openGitHubSettings?() }
+            Button("Choose repositories") { model.openGitHubIntegration?() }
                 .buttonStyle(GitHubPillButtonStyle())
             Spacer(minLength: 0)
         }
@@ -536,7 +536,7 @@ private struct GitHubOverviewView: View {
             Text(github.snapshots.count == 1 ? "1 repository" : "\(github.snapshots.count) repositories")
             if overview.unavailableRepositories > 0 {
                 Text("·")
-                Button("\(overview.unavailableRepositories) unavailable") { model.openGitHubSettings?() }
+                Button("\(overview.unavailableRepositories) unavailable") { model.openGitHubIntegration?() }
                     .buttonStyle(.plain)
                     .foregroundStyle(ChimloTheme.attention)
             }

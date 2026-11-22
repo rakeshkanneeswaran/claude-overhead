@@ -5,11 +5,11 @@ import SwiftUI
 
 /// The companion window's sections. The notch stays the hero; this window is
 /// where the owner goes to look deeper or to change how the notch behaves.
-enum CompanionSection: String, CaseIterable, Identifiable {
-    case overview, sessions, projects, agents, history, usage, github, settings
+/// The sidebar's order and identity live in Core (`CompanionDestination`),
+/// where tests pin that GitHub appears exactly once.
+typealias CompanionSection = CompanionDestination
 
-    var id: String { rawValue }
-
+extension CompanionDestination {
     var title: String {
         switch self {
         case .overview: "Overview"

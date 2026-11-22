@@ -1,104 +1,172 @@
 import ChimloCore
 import SwiftUI
 
-/// The companion window's GitHub page: the deeper version of GitHub Mode,
-/// on the same `GitHubModel`, so both always agree. The focused repository
-/// is shared with the notch; choosing one here focuses it there too.
+/// The one GitHub destination. Using GitHub (Overview, Repositories, Actions,
+/// Pull Requests, Reviews) and configuring it (Integration) are sections of
+/// the same page, on the same `GitHubModel` and the same settings that GitHub
+/// Mode in the notch reads. Choosing a focused repository here focuses it there.
 struct GitHubPage: View {
-    enum Tab: String, CaseIterable, Identifiable {
-        case overview, repositories, actions, pullRequests, reviews
-        var id: String { rawValue }
-        var title: String {
-            switch self {
-            case .overview: "Overview"
-            case .repositories: "Repositories"
-            case .actions: "Actions"
-            case .pullRequests: "Pull requests"
-            case .reviews: "Reviews"
-            }
-        }
-    }
-
     @EnvironmentObject private var github: GitHubModel
     @EnvironmentObject private var settings: SettingsModel
     @EnvironmentObject private var navigation: CompanionNavigation
     @Environment(\.overheadPalette) private var palette
-    @State private var tab: Tab = .overview
+    @State private var tab: GitHubPageTab?
     /// nil shows every monitored repository; otherwise one repository id.
     @State private var scope: Int64?
     @State private var filter: GitHubPRFilter = .open
     @State private var selectedRun: Int?
     @State private var selectedPR: Int?
 
+    private var currentTab: GitHubPageTab {
+        tab ?? GitHubPageTab.landing(
+            enabled: settings.settings.github.enabled,
+            connected: github.connection.isConnected,
+            monitoredRepositories: github.snapshots.count
+        )
+    }
+
     var body: some View {
-        PageScaffold(title: "GitHub", subtitle: subtitle) {
-            if !settings.settings.github.enabled || !github.connection.isConnected {
-                Card {
-                    Text(connectionText).font(.system(size: 12)).foregroundStyle(palette.textSecondary)
-                    Button("Open GitHub settings") { navigation.show(.settings, settingsPane: .github) }
-                }
-            } else if github.snapshots.isEmpty {
-                EmptyStateView(symbol: "square.stack.3d.up", title: "No repositories selected",
-                               message: "Choose the repositories to monitor in Settings → GitHub. Pick as many as you like.")
-                Button("Choose repositories") { navigation.show(.settings, settingsPane: .github) }
+        VStack(alignment: .leading, spacing: 0) {
+            header
+                .padding(.horizontal, 28)
+                .padding(.top, 34)
+                .padding(.bottom, 14)
+            Picker("Section", selection: Binding(get: { currentTab }, set: { tab = $0 })) {
+                ForEach(GitHubPageTab.allCases) { Text($0.displayName).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 28)
+            .padding(.bottom, 12)
+            if currentTab == .integration {
+                GitHubIntegrationView()
+                    .formStyle(.grouped)
+                    .scrollContentBackground(.hidden)
             } else {
-                Picker("View", selection: $tab) {
-                    ForEach(Tab.allCases) { Text($0.title).tag($0) }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        operational
+                    }
+                    .padding(.horizontal, 28)
+                    .padding(.top, 4)
+                    .padding(.bottom, 28)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                if tab == .actions || tab == .pullRequests {
-                    scopePicker
-                }
-                switch tab {
-                case .overview: overview
-                case .repositories: repositories
-                case .actions: actions
-                case .pullRequests: pullRequests
-                case .reviews: reviews
-                }
-                footer
             }
         }
         .onAppear(perform: consumeRequest)
         .onChange(of: github.companionRequest) { _, _ in consumeRequest() }
     }
 
-    private var subtitle: String {
-        if let login = github.viewerLogin {
-            return "Signed in as \(login) · \(github.snapshots.count) monitored \(github.snapshots.count == 1 ? "repository" : "repositories")"
+    // MARK: Header
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("GitHub")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(palette.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                HStack(spacing: 6) {
+                    Circle().fill(statusColor).frame(width: 7, height: 7)
+                    Text(statusLine).font(.system(size: 13)).foregroundStyle(palette.textSecondary)
+                }
+                .accessibilityElement(children: .combine)
+            }
+            Spacer()
+            if github.connection.isConnected {
+                Button { github.refreshNow() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                    .disabled(github.isRefreshing)
+                    .help(github.lastRefresh.map { "Updated \(CompanionFormat.relative($0))" } ?? "Refresh now")
+            }
+            Button { tab = .integration } label: { Label("Integration", systemImage: "slider.horizontal.3") }
+                .help("Sign-in, monitored repositories and GitHub preferences")
         }
-        return "Workflows and pull requests for the repositories you monitor."
+    }
+
+    private var statusColor: Color {
+        switch github.connection {
+        case .connected: palette.success
+        case .checking: palette.warning
+        case .off: palette.textTertiary
+        case .signedOut, .failed: palette.failure
+        }
+    }
+
+    private var statusLine: String {
+        let count = github.snapshots.count
+        let monitored = "\(count) \(count == 1 ? "repository" : "repositories") monitored"
+        switch github.connection {
+        case let .connected(login, source):
+            return "Connected as \(login) via \(source == .githubCLI ? "GitHub CLI" : "personal access token") · \(monitored)"
+        case .checking: return "Connecting to GitHub…"
+        case .off: return "GitHub is off"
+        case .signedOut: return "Not signed in"
+        case let .failed(reason): return reason
+        }
+    }
+
+    // MARK: Sections
+
+    @ViewBuilder
+    private var operational: some View {
+        if !settings.settings.github.enabled || !github.connection.isConnected {
+            EmptyStateView(symbol: "point.3.connected.trianglepath.dotted", title: connectionTitle, message: connectionText)
+            Button("Set up GitHub") { tab = .integration }
+                .frame(maxWidth: .infinity)
+        } else if github.snapshots.isEmpty {
+            EmptyStateView(symbol: "square.stack.3d.up", title: "No repositories monitored yet",
+                           message: "Choose the repositories to watch in Integration. Pick as many as you like, across your organizations.")
+            Button("Choose repositories") { tab = .integration }
+                .frame(maxWidth: .infinity)
+        } else {
+            if currentTab == .actions || currentTab == .pullRequests {
+                scopePicker
+            }
+            switch currentTab {
+            case .overview: overview
+            case .repositories: repositories
+            case .actions: actions
+            case .pullRequests: pullRequests
+            case .reviews: reviews
+            case .integration: EmptyView()
+            }
+            footer
+        }
+    }
+
+    private var connectionTitle: String {
+        settings.settings.github.enabled ? "GitHub isn't connected" : "GitHub is off"
     }
 
     private var connectionText: String {
         switch github.connection {
-        case .off: "GitHub is off. Turn it on and choose repositories in Settings → GitHub."
+        case .off: "Turn GitHub on in Integration, sign in, and choose the repositories to watch."
         case .checking: "Connecting to GitHub…"
-        case .signedOut: "Not signed in. Sign in with `gh auth login`, or save a token in Settings → GitHub."
-        case let .failed(reason): reason
+        case .signedOut: "Sign in with `gh auth login`, or save a token in Integration."
+        case let .failed(reason): "\(reason) Fix it in Integration."
         case .connected: ""
         }
     }
 
-    /// The notch asked for a run or pull request: show it here.
+    /// The notch, another page or a shortcut asked for a section or a detail.
     private func consumeRequest() {
         guard let request = github.companionRequest else { return }
         github.companionRequest = nil
-        switch request {
+        tab = request.tab
+        guard case let .detail(detail) = request else { return }
+        switch detail {
         case let .run(repositoryID, runID):
             scope = repositoryID
             github.focus(repositoryID)
-            tab = .actions
             selectedRun = runID
         case let .pullRequest(repositoryID, number):
             scope = repositoryID
             github.focus(repositoryID)
-            tab = .pullRequests
             filter = .all
             selectedPR = number
         case .repositories:
-            tab = .repositories
+            break
         }
     }
 
@@ -200,7 +268,7 @@ struct GitHubPage: View {
                 })) {
                     switch snapshot.availability {
                     case .notFound:
-                        Text("GitHub can't find this repository with your sign-in. It may be deleted, renamed beyond reach, or private to someone else. Remove it in Settings → GitHub.")
+                        Text("GitHub can't find this repository with your sign-in. It may be deleted, renamed beyond reach, or private to someone else. Remove it in Integration.")
                             .font(.system(size: 12)).foregroundStyle(palette.warning)
                     case let .forbidden(message):
                         Text(message ?? "This sign-in can't read part of this repository.").font(.system(size: 12)).foregroundStyle(palette.warning)
@@ -214,7 +282,7 @@ struct GitHubPage: View {
                     }
                 }
             }
-            Button("Manage repositories in Settings") { navigation.show(.settings, settingsPane: .github) }
+            Button("Change monitored repositories") { tab = .integration }
         }
     }
 
@@ -225,7 +293,7 @@ struct GitHubPage: View {
         return HStack(alignment: .top, spacing: 16) {
             Card("Workflow runs") {
                 if runs.isEmpty {
-                    Text(settings.settings.github.monitorActions ? "No recent runs." : "Actions monitoring is off in Settings → GitHub.")
+                    Text(settings.settings.github.monitorActions ? "No recent runs." : "Actions monitoring is off in Integration.")
                         .font(.system(size: 12)).foregroundStyle(palette.textSecondary)
                 }
                 ForEach(runs.prefix(40)) { run in
@@ -417,23 +485,44 @@ struct GitHubPage: View {
     // MARK: Reviews
 
     private var reviews: some View {
-        Card("Waiting on your review") {
-            if !settings.settings.github.reviewNotifications {
-                Text("Review requests are off in Settings → GitHub.").font(.system(size: 12)).foregroundStyle(palette.textSecondary)
-            } else if github.reviewRequests.isEmpty {
-                Text("No pull requests are waiting on your review.").font(.system(size: 12)).foregroundStyle(palette.textSecondary)
-            }
-            ForEach(github.reviewRequests) { pr in
-                HStack {
-                    PullRequestLine(pr: pr)
-                    if let id = github.repositoryID(named: pr.repository) {
-                        Button("Details") {
-                            scope = id; github.focus(id); tab = .pullRequests; filter = .all
-                            selectedPR = pr.number; selectedRepositoryForPR = pr.repository
-                        }
-                        .controlSize(.small)
-                    }
+        let viewer = github.viewerLogin?.lowercased()
+        let mine = github.snapshots.flatMap(\.pullRequests).filter { $0.isOpen && $0.author?.lowercased() == viewer }
+        let changes = mine.filter { $0.reviewState == .changesRequested }
+        let approved = mine.filter { $0.reviewState == .approved }
+        let waitingOnOthers = mine.filter { $0.reviewState == .reviewRequired }
+        return VStack(alignment: .leading, spacing: 14) {
+            Card("Waiting on your review") {
+                if !settings.settings.github.reviewNotifications {
+                    Text("Review requests are off in Integration.").font(.system(size: 12)).foregroundStyle(palette.textSecondary)
+                } else if github.reviewRequests.isEmpty {
+                    Text("No pull requests are waiting on your review.").font(.system(size: 12)).foregroundStyle(palette.textSecondary)
                 }
+                ForEach(github.reviewRequests) { pr in reviewLine(pr) }
+            }
+            reviewCard("Changes requested on your pull requests", changes, empty: "None of your open pull requests has requested changes.")
+            reviewCard("Approved", approved, empty: "None of your open pull requests is approved yet.")
+            reviewCard("Waiting for reviewers", waitingOnOthers, empty: "None of your open pull requests is waiting for a reviewer.")
+        }
+    }
+
+    private func reviewCard(_ title: String, _ prs: [GitHubPullRequest], empty: String) -> some View {
+        Card(title) {
+            if prs.isEmpty {
+                Text(empty).font(.system(size: 12)).foregroundStyle(palette.textSecondary)
+            }
+            ForEach(prs) { pr in reviewLine(pr) }
+        }
+    }
+
+    private func reviewLine(_ pr: GitHubPullRequest) -> some View {
+        HStack {
+            PullRequestLine(pr: pr)
+            if let id = github.repositoryID(named: pr.repository) {
+                Button("Details") {
+                    scope = id; github.focus(id); tab = .pullRequests; filter = .all
+                    selectedPR = pr.number; selectedRepositoryForPR = pr.repository
+                }
+                .controlSize(.small)
             }
         }
     }

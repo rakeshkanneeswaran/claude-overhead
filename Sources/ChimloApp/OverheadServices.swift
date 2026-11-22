@@ -121,10 +121,14 @@ final class OverheadServices: ObservableObject {
             guard let self, settings.settings.github.mergeMethods[String(repositoryID)] != method else { return }
             settings.settings.github.mergeMethods[String(repositoryID)] = method
         }
-        model.openGitHubSettings = { [weak self] in self?.openCompanion?(.settings, .github) }
+        model.openGitHubIntegration = { [weak self] in
+            guard let self else { return }
+            github.companionRequest = .tab(.integration)
+            openCompanion?(.github, nil)
+        }
         model.openGitHubInCompanion = { [weak self] detail in
             guard let self else { return }
-            github.companionRequest = detail
+            github.companionRequest = detail.map(GitHubPageRequest.detail)
             openCompanion?(.github, nil)
         }
         Publishers.MergeMany(

@@ -211,8 +211,9 @@ final class ApplicationModel: ObservableObject {
     @Published private(set) var github = GitHubNotchPresentation()
     /// Called when the owner enters GitHub Mode, to mark activity as seen.
     var onGitHubModeOpened: (() -> Void)?
-    /// Opens Settings on the GitHub pane; set by the services.
-    var openGitHubSettings: (() -> Void)?
+    /// Opens the GitHub page on Integration (sign-in, repositories,
+    /// preferences); set by the services.
+    var openGitHubIntegration: (() -> Void)?
     /// Opens the companion window's GitHub page, optionally on one detail.
     var openGitHubInCompanion: ((GitHubDetail?) -> Void)?
     @Published private(set) var onboardingStep: OnboardingStep = .working
