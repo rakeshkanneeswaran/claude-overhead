@@ -17,6 +17,8 @@ final class HistoryModel: ObservableObject {
     private var lastUpserted: [String: SessionHistoryRecord] = [:]
     private var refreshTask: Task<Void, Never>?
 
+    static let activitySaveInterval: TimeInterval = 60
+
     static var defaultFileURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Overhead/history", isDirectory: true)
@@ -57,7 +59,17 @@ final class HistoryModel: ObservableObject {
         var changed = false
         for session in sessions where !session.isDemo {
             let record = Self.record(from: session, firstSeen: firstSeenDate(for: session, now: now))
-            guard lastUpserted[session.id] != record else { continue }
+            if let previous = lastUpserted[session.id] {
+                guard previous != record else { continue }
+                // A working session's activity time moves constantly; save it
+                // at most once a minute unless something else changed.
+                var sameApartFromTime = record
+                sameApartFromTime.lastActivityAt = previous.lastActivityAt
+                if sameApartFromTime == previous,
+                   record.lastActivityAt.timeIntervalSince(previous.lastActivityAt) < Self.activitySaveInterval {
+                    continue
+                }
+            }
             lastUpserted[session.id] = record
             changed = true
             let store = store

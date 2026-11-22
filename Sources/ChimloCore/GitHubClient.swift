@@ -1,6 +1,7 @@
 import Foundation
 
-/// Sends one request. Injected so tests never touch the network.
+/// Sends one request. Always injected: Core does no networking itself, so
+/// tests never touch the network and the app owns the real URLSession.
 public typealias GitHubTransport = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
 
 /// A small read-only GitHub REST client for pull request and CI status.
@@ -21,26 +22,6 @@ public struct GitHubClient: Sendable {
     /// extra requests, so only the most recently updated ones get them.
     public static let detailLimit = 10
 
-    /// A dedicated session with no URL cache or cookies: ETags are handled
-    /// here, and a shared cache could answer a conditional request on our
-    /// behalf, hiding the 304 the ETag cache relies on.
-    private static let session: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.urlCache = nil
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.httpShouldSetCookies = false
-        configuration.httpCookieAcceptPolicy = .never
-        configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 40
-        return URLSession(configuration: configuration)
-    }()
-
-    public static let urlSessionTransport: GitHubTransport = { request in
-        let (data, response) = try await GitHubClient.session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-        return (data, http)
-    }
-
     /// The REST root for a remote: api.github.com for GitHub, and the
     /// Enterprise Server convention `https://<host>/api/v3` otherwise.
     public static func apiBaseURL(for remote: GitRemote) -> URL? {
@@ -60,7 +41,7 @@ public struct GitHubClient: Sendable {
     public init(
         credential: GitHubCredential,
         baseURL: URL = GitHubClient.defaultBaseURL,
-        transport: @escaping GitHubTransport = GitHubClient.urlSessionTransport
+        transport: @escaping GitHubTransport
     ) {
         self.credential = credential
         self.baseURL = baseURL

@@ -7,9 +7,15 @@ disappear just because one of them is unavailable:
 - incremental metadata-only reads of recent Claude Code JSONL records
 - Claude Code's documented command hooks
 
-All reconciliation happens on this Mac. Claude Overhead does not use Keychain or
-upload session data. Claude Code questions and tool permissions can be answered
-in Claude Overhead, with Claude Code's native UI as the fallback.
+All reconciliation happens on this Mac. Claude Overhead never uploads session
+data. (Its only Keychain item is an optional GitHub token; see
+[ARCHITECTURE.md](ARCHITECTURE.md).) Claude Code questions and tool permissions
+can be answered in Claude Overhead, with Claude Code's native UI as the
+fallback.
+
+A fourth, optional signal is `claude agents --json`, Claude Code's own listing
+of live interactive and background sessions. Claude Overhead runs it every 15
+seconds when the Claude Code command line is installed.
 
 The packaged helper is:
 
@@ -30,11 +36,25 @@ deliberate exception is Claude Code's blocking owner interactions: an
 path, and bounded action preview, live in memory only while Claude is waiting.
 They are never written to Claude Overhead's session cache or archive.
 
-The JSONL scanner follows the same boundary. It extracts only session ID,
-workspace path, model label, timestamp, and lifecycle record type. Reads are
-incremental after the first bounded scan. Prompt bodies, assistant content,
-tool arguments, tool results, and file contents never enter Claude Overhead's
-session model or local session cache.
+The `PreToolUse` observer turns the tool name into a live activity label
+("Running a command", "Reading files", "Searching", "Delegating to agents"),
+and `UserPromptSubmit` and `PostToolUse` mean "Thinking". Tool inputs are not
+kept.
+
+The JSONL reader extracts session metadata (session ID, workspace path, model,
+timestamps, lifecycle) and, for the insights shown in the notch and companion
+window, a bounded set of facts: token usage and prompt-cache counters, context
+compactions, the git branch Claude Code recorded, subagent launches (their
+description, type and model, never their prompt), linked pull requests, the
+reported cost and line counts, the paths of files Claude edited, and test-runner
+commands with environment assignments removed. Reads are incremental after the
+first bounded scan (a 128 KB head plus a 2 MB tail). Tool results and file
+contents are never read into Claude Overhead's model.
+
+The session list shows your latest prompt and Claude's latest reply, as Claude
+Code's transcript has them. Session history keeps them only while
+**Settings → Privacy & Data → Keep your last prompt and Claude's last reply**
+is on.
 
 ## Configure Claude Code
 
@@ -64,8 +84,10 @@ restores your original status line.
 
 Claude Code multiple-choice questions can be answered directly in Claude
 Overhead. A single-select choice is sent immediately; multi-select questions
-require an explicit Send action. **Answer in Claude Code** releases the hook
-without an answer so the native prompt takes over.
+require an explicit Send action. **Other…** opens a text field for a typed
+answer, the same as Claude Code's own "Other": it must be non-blank and at most
+1,000 characters, or the hook falls back to Claude Code. **Answer in Claude
+Code** releases the hook without an answer so the native prompt takes over.
 
 Claude Code tool permissions show the real bounded action preview with
 **Deny**, **Allow Once**, and **Allow All**. Allow All always stays in memory

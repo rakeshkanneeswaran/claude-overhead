@@ -155,7 +155,7 @@ final class GitHubModel: ObservableObject {
                 connection = .signedOut(await GitHubCLI().status())
                 return nil
             }
-            let candidate = GitHubClient(credential: credential)
+            let candidate = GitHubClient(credential: credential, transport: GitHubNetwork.transport)
             do {
                 let login = try await candidate.viewerLogin()
                 client = candidate

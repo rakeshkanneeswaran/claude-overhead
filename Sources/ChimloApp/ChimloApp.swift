@@ -61,13 +61,6 @@ final class ChimloAppDelegate: NSObject, NSApplicationDelegate {
         // The model starts first: setup's verification pings its listener.
         model.start()
         services.start()
-        // SNAPSHOT-HOOK (temporary, removed after verification)
-        if let raw = ProcessInfo.processInfo.environment["OVERHEAD_SNAPSHOT_SECTION"] {
-            let parts = raw.split(separator: ":").map(String.init)
-            if let section = CompanionSection(rawValue: parts[0]) {
-                companion.show(section, settingsPane: parts.count > 1 ? SettingsPane(rawValue: parts[1]) : nil)
-            }
-        }
         if let flow = SetupFlow.atLaunch(
             hasCompletedSetup: model.hasCompletedSetup,
             integrationInstalled: model.claudeConnectionState.isInstalled,

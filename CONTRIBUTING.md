@@ -15,25 +15,26 @@ safety-backed changes.
 
 ```sh
 git clone https://github.com/rakeshkanneeswaran/claude-overhead.git
-cd overhead
+cd claude-overhead
 
 # Run the check suite (framework-independent core + loopback verification)
 make check
 
-# Run the full test suite (requires full Xcode installation)
+# Run the Swift Testing suites (works with the Command Line Tools)
 make test
 
-# Launch the app from source
-./Scripts/swift.sh run ChimloApp
+# Build the app bundle and open it
+make app
+open "dist/Claude Overhead Dev.app"
 ```
 
 ### Project Structure
 
 | Directory | Purpose |
 |:---|:---|
-| `Sources/ChimloCore` | Pure domain values, deterministic reducer, display math |
+| `Sources/ChimloCore` | Pure domain values, reducer, display math, and every testable rule: insights, settings, notification policy, history, git and GitHub |
 | `Sources/ChimloProtocol` | Authenticated loopback transport and framing |
-| `Sources/ChimloApp` | AppKit lifecycle, NSPanel, SwiftUI island views |
+| `Sources/ChimloApp` | AppKit lifecycle, NSPanel, SwiftUI island and companion window, services wiring |
 | `Sources/ChimloCLI` | Hook executable and development event injection |
 | `Sources/ChimloChecks` | Framework-independent verification suite |
 | `Tests/` | Swift Testing suites for Core and Protocol |
@@ -42,10 +43,18 @@ make test
 
 📖 See [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) for a detailed layer breakdown.
 
+### Where code goes
+
+`ChimloApp` is an executable target, so tests cannot import it. Put every
+decision a feature makes (a mapping, a threshold, a merge rule, a parser) in
+`ChimloCore` with a Swift Testing suite, and keep `ChimloApp` to wiring and
+views. `ChimloCore` does no networking itself: inject a transport, as
+`GitHubClient` does.
+
 ## Before Opening a Pull Request
 
 1. **Keep agent-specific formats behind an adapter boundary.**
-2. **Add reducer or protocol tests** for every new event path.
+2. **Add Core tests** for every new event path, rule, or parser.
 3. **Include asset provenance** for art, sound, or type changes.
 4. **Run `make test`** with a matching Swift and macOS SDK.
 5. **Exercise every changed control** with keyboard and pointer input.
@@ -70,7 +79,9 @@ data, or extracted files from another application in issues, PRs, or fixtures.
 
 - Follow the existing Swift style in the codebase
 - Use Swift's structured concurrency (`async`/`await`, actors)
-- Keep layers isolated — `ChimloCore` must not import AppKit or Foundation networking
+- Keep layers isolated: `ChimloCore` must not import AppKit or SwiftUI, or use URLSession
+- Run external tools with `Process` and fixed argument lists (see `CommandRunner`), never through a shell
+- Never log tokens, prompts, or transcript content
 
 ## Need Help?
 

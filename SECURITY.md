@@ -28,7 +28,14 @@ The following areas are in scope for security reports:
   format
 - **ChimloApp** — Runtime descriptor access, session data handling, agent
   configuration merges
-- **ChimloCore** — Reducer logic affecting approval state transitions
+- **ChimloCore**: reducer logic affecting approval state transitions, the
+  question-answer validation, history storage, and git or GitHub parsing
+- **GitHub credentials**: Keychain storage of a pasted token, borrowing the
+  GitHub CLI's token, and anything that could log or persist a token
+- **Local history**: the history file's permissions, retention, and whether it
+  can hold more than documented
+- **Terminal focus and resume**: AppleScript built from session data (terminal
+  device paths and session ids are validated before use)
 
 ## Out of Scope
 
@@ -56,3 +63,7 @@ principles:
 - Runtime descriptors are private to the local user and short-lived
 - The app being offline returns control to the native terminal interaction
 - A transport error never becomes an approval
+- No telemetry; the only network destination is api.github.com, and only while
+  GitHub is turned on
+- A pasted GitHub token lives only in the Keychain and is never logged
+- External tools run with fixed argument lists, never through a shell

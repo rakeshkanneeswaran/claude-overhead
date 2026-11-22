@@ -85,7 +85,10 @@ keys the visible form to the originating session. A correlated
 
 The blocking Claude helper accepts only `PreToolUse:AskUserQuestion`. On an
 explicit answer it echoes Claude's original `questions` array and adds the
-answer map to `updatedInput`. Any cancellation, invalid option, timeout, app
+answer map to `updatedInput`. An answer is valid when it is one of the
+question's labels, a list of its labels for a multi-select question, or typed
+text (trimmed, non-empty, at most 1,000 characters), which matches Claude
+Code's own "Other" choice. Any cancellation, invalid answer, timeout, app
 shutdown, authentication failure, or transport error returns `{}` so Claude
 Code presents its native question instead. Question payloads and answers never
 enter Claude Overhead's persisted session registry.

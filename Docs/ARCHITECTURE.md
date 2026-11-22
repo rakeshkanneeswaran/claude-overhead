@@ -11,6 +11,34 @@ file locations, or vendor configuration files. Hook events, process evidence,
 cache restores, and JSONL metadata all merge through the same reducer. A live actionable request cannot be overwritten by weaker
 metadata. Onboarding demo events pass through this exact reducer too.
 
+Core also holds every rule the app's features depend on, so each is testable
+without AppKit:
+
+- **Transcript insights** (`TranscriptInsightsScanner`): context tokens and
+  window, compactions, prompt-cache counters, the current tool activity,
+  subagents, git branch, linked PRs, reported cost, touched files and test
+  runs, read from the same JSONL lines the session scanner sees.
+- **Settings** (`OverheadSettings`, `SettingsStore`): one versioned, lenient
+  `Codable` value with normalisation, plus themes (`ThemeLibrary`, with WCAG
+  contrast checks), notch layouts (`NotchLayoutSpec`) and shortcuts
+  (`ShortcutValidator`).
+- **Notification policy** (`NotificationPolicy.decide`): priority, per-event
+  preferences, quiet hours, Focus, de-duplication through a bounded
+  `DeliveryLedger`, and completion grouping. Events that block Claude can
+  never be hidden.
+- **Attention rules** (`AttentionRules.swift`): threshold crossings, session
+  cycling, which transcript is current for a moved session, and GitHub event
+  kinds.
+- **History** (`SessionHistoryStore` actor): records, merge rules, retention,
+  corruption recovery (the damaged file is moved aside, never deleted),
+  read-only handling of a newer schema, search, receipts, Project Pulse,
+  timelines and the daily recap.
+- **Git and GitHub**: `GitRepositoryReader` runs `/usr/bin/git` with
+  `--no-optional-locks` and fixed arguments (never a shell); `GitRemote`
+  parses remotes; `GitHubClient` is a read-only REST client with ETag caching
+  and an injected transport; `GitHubEventDiff` turns snapshots into events.
+  Core does no networking itself.
+
 ## ChimloProtocol
 
 Authenticated loopback transport, bounded message framing, runtime descriptor
@@ -22,14 +50,31 @@ never becomes an approval.
 
 AppKit owns the accessory-app lifecycle, top-center `NSPanel`, and screen
 geometry, including a pill just below the menu bar on displays without a notch.
-SwiftUI renders the island, sessions, onboarding, and
-settings. The panel is non-activating until an interaction requires keyboard
-focus. The app runtime has two narrow adapters:
+SwiftUI renders the island, sessions, onboarding, setup, and the companion
+window. The panel is non-activating until an interaction requires keyboard
+focus.
 
-- `LocalSessionRuntime` restores its small privacy-safe cache, publishes the
-  newest Claude transcript first, then enriches recent history. Cold
-  transcript reads are bounded to a metadata head plus recent tail and continue
-  incrementally from EOF; terminal-process liveness remains independent.
+- `ApplicationModel` owns sessions, the panel, and the owner interactions. It
+  reads the notch-facing settings (`applySettings`) and asks an injected
+  `attentionDecider` how loudly to announce each event.
+- `OverheadServices` owns the long-lived services and the wiring between
+  them: `SettingsModel` (the single owner of preferences), `AttentionRouter`
+  (applies the notification policy, posts banners through `SystemNotifier`),
+  `HistoryModel`, `GitHubModel`, Carbon global hot keys, and the login item.
+- `CompanionWindowCoordinator` hosts the companion window: Overview, Sessions,
+  Projects, Agents, History, Usage, GitHub and Settings, styled by the active
+  theme palette.
+- `LocalSessionRuntime` restores its small cache, publishes the newest Claude
+  transcript first, then enriches recent history. Cold transcript reads are
+  bounded to a 128 KB head plus a 2 MB tail and continue incrementally from
+  EOF. When one session has transcripts in two project folders, the most
+  recently written file is current.
+- `claude agents --json`, polled every 15 seconds, lists live interactive and
+  background sessions with exact process ids.
+- `SessionHostService` resolves, on demand, which terminal tab or editor window
+  runs a session (`ps` and `lsof`, then a parent-process walk) and focuses it
+  with AppleScript (Terminal, iTerm) or `NSWorkspace` (VS Code, Cursor,
+  Windsurf). A terminal device is validated before it reaches AppleScript.
 - `AgentIntegrationManager` installs and repairs the stable helper plus marked
   Claude observer entries after a complete preview and confirmation.
   Claude's separately marked `AskUserQuestion` and `PermissionRequest` hooks are
@@ -78,8 +123,18 @@ session remains open.
 - The app being offline returns control to the native terminal interaction.
 - Agent configuration changes require a preview, semantic validation, atomic
   replacement, marker-scoped uninstall, and an explicit user action.
-- Persisted session entries contain only provider, title, generic status, model,
+- The session cache contains only provider, title, generic status, model,
   project path, terminal label, jump URL, phase, and timestamps.
+- Session history (`~/Library/Application Support/Overhead/history`, mode
+  0600) holds a summary per session. It includes the last prompt and reply
+  only while **Keep your last prompt and Claude's last reply** is on, capped at
+  2,000 characters, and test commands with environment assignments removed.
+  It never copies transcripts, tool inputs or outputs, or file contents.
+- The GitHub token, when one is pasted, lives only in the Keychain
+  (`com.rakesh.overhead.github`). Tokens borrowed from `gh` stay in memory.
+  Neither is logged, and `GitHubCredential` redacts itself in descriptions.
+- GitHub URLs from the API are opened only when they are `https` on
+  github.com; repository metadata never runs as code or reaches a shell.
 - Claude question text, option descriptions, and selected answers exist only in
   memory for the lifetime of the blocking hook request.
 - Claude permission paths and bounded tool previews also exist only in memory.
