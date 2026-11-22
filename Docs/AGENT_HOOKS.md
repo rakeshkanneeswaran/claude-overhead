@@ -53,7 +53,7 @@ contents are never read into Claude Overhead's model.
 
 The session list shows your latest prompt and Claude's latest reply, as Claude
 Code's transcript has them. Session history keeps them only while
-**Settings → Privacy & Data → Keep your last prompt and Claude's last reply**
+**Settings → Privacy → Keep your last prompt and Claude's last reply**
 is on.
 
 ## Configure Claude Code

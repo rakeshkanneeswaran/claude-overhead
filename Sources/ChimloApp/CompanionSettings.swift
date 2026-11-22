@@ -2,61 +2,72 @@ import AppKit
 import ChimloCore
 import SwiftUI
 
-/// Settings panes come from Core (`SettingsPaneID`). GitHub is not among
-/// them: it is configured in the GitHub page's Integration section.
+/// Settings panes come from Core (`SettingsPaneID`): seven, one place for
+/// each kind of choice. GitHub's pane is the integration only.
 typealias SettingsPane = SettingsPaneID
 
 extension SettingsPaneID {
     var title: String {
         switch self {
         case .general: "General"
-        case .personalization: "Personalization"
-        case .layouts: "Notch Layouts"
-        case .themes: "Themes"
-        case .sessions: "Sessions"
+        case .appearance: "Appearance"
         case .notifications: "Notifications"
-        case .agents: "Agents"
-        case .contextUsage: "Context & Usage"
-        case .focus: "Focus Mode"
+        case .usage: "Usage"
         case .shortcuts: "Shortcuts"
-        case .privacy: "Privacy & Data"
-        case .advanced: "Advanced"
+        case .github: "GitHub"
+        case .privacy: "Privacy"
         }
     }
 
     var symbol: String {
         switch self {
         case .general: "gearshape"
-        case .personalization: "paintbrush"
-        case .layouts: "rectangle.topthird.inset.filled"
-        case .themes: "circle.lefthalf.filled"
-        case .sessions: "list.bullet.rectangle"
+        case .appearance: "paintbrush"
         case .notifications: "bell.badge"
-        case .agents: "point.3.connected.trianglepath.dotted"
-        case .contextUsage: "gauge.with.dots.needle.33percent"
-        case .focus: "moon"
+        case .usage: "gauge.with.dots.needle.33percent"
         case .shortcuts: "command"
+        case .github: "point.3.connected.trianglepath.dotted"
         case .privacy: "hand.raised"
-        case .advanced: "wrench.and.screwdriver"
         }
     }
 }
 
+/// Settings: a row of tabs across the top, as Mac settings windows have,
+/// rather than a second sidebar beside the window's own.
 struct CompanionSettingsView: View {
     @ObservedObject var navigation: CompanionNavigation
     @Environment(\.overheadPalette) private var palette
 
     var body: some View {
-        HStack(spacing: 0) {
-            List(selection: $navigation.settingsPane) {
+        VStack(spacing: 0) {
+            HStack(spacing: 2) {
                 ForEach(SettingsPane.allCases) { pane in
-                    Label(pane.title, systemImage: pane.symbol).tag(pane)
+                    Button { navigation.settingsPane = pane } label: {
+                        VStack(spacing: 3) {
+                            Image(systemName: pane.symbol)
+                                .font(.system(size: 15, weight: .regular))
+                                .frame(height: 18)
+                            Text(pane.title)
+                                .font(.system(size: 11))
+                        }
+                        .frame(minWidth: 66)
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(navigation.settingsPane == pane ? palette.accentColor.opacity(0.16) : Color.clear)
+                        )
+                        .foregroundStyle(navigation.settingsPane == pane ? palette.accentColor : palette.textSecondary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(pane.title)
+                    .accessibilityAddTraits(navigation.settingsPane == pane ? [.isSelected, .isButton] : .isButton)
                 }
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-            .frame(width: 200)
-            .padding(.top, 28)
+            .padding(.top, 30)
+            .padding(.bottom, 8)
+            .frame(maxWidth: .infinity)
             Divider()
             SettingsPaneView(pane: navigation.settingsPane)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -71,17 +82,12 @@ private struct SettingsPaneView: View {
         Group {
             switch pane {
             case .general: GeneralPane()
-            case .personalization: PersonalizationPane()
-            case .layouts: LayoutsPane()
-            case .themes: ThemesPane()
-            case .sessions: SessionsPane()
+            case .appearance: AppearancePane()
             case .notifications: NotificationsPane()
-            case .agents: AgentsPane()
-            case .contextUsage: ContextUsagePane()
-            case .focus: FocusPane()
+            case .usage: ContextUsagePane()
             case .shortcuts: ShortcutsPane()
+            case .github: GitHubIntegrationView()
             case .privacy: PrivacyPane()
-            case .advanced: AdvancedPane()
             }
         }
         .formStyle(.grouped)
@@ -95,6 +101,16 @@ private struct GeneralPane: View {
     @EnvironmentObject private var services: OverheadServices
     @EnvironmentObject private var model: ApplicationModel
     @EnvironmentObject private var settings: SettingsModel
+    @State private var confirmReset = false
+
+    private var listenerText: String {
+        switch model.serverState {
+        case .stopped: "Stopped"
+        case .starting: "Starting"
+        case let .listening(port): "Listening on 127.0.0.1:\(port) only"
+        case let .failed(message): "Failed: \(message)"
+        }
+    }
 
     var body: some View {
         Form {
@@ -114,9 +130,15 @@ private struct GeneralPane: View {
             } footer: {
                 Text("While locked, the notch never opens by itself. Every session is still watched, the sounds you turned on still play, and a permission request or question waits in the notch, never approved or dropped, until you click the notch to answer it.")
             }
-            Section("Claude Code") {
+            Section {
                 ClaudeConnectionRow()
+                LabeledContent("Local listener", value: listenerText)
                 Button("Run setup again") { model.presentSetup?(true) }
+                Toggle("Keep the preview session after setup", isOn: $model.keepPreviewSession)
+            } header: {
+                Text("Claude Code")
+            } footer: {
+                Text("Overhead adds hooks to ~/.claude/settings.json only after you confirm, keeps a backup, and removes only its own entries when you disconnect.")
             }
             Section("Updates") {
                 LabeledContent("Status") {
@@ -157,6 +179,112 @@ private struct GeneralPane: View {
                 Text("Claude Overhead is a fork of Chimlo by Kartike Bansal, used under the GPL-3.0. It is not made by or affiliated with Anthropic.")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Quit Claude Overhead") { NSApp.terminate(nil) }
+            }
+            Section {
+                Button("Reset all settings to defaults…") { confirmReset = true }
+            } footer: {
+                Text("History, the Claude Code connection and your Keychain token are kept.")
+            }
+        }
+        .confirmationDialog("Reset every Overhead setting?", isPresented: $confirmReset) {
+            Button("Reset settings", role: .destructive) { settings.settings = OverheadSettings() }
+        } message: {
+            Text("History, the Claude Code connection and your Keychain token are kept.")
+        }
+    }
+}
+
+// MARK: - Appearance
+
+/// The notch's layout and what it shows, the companion window's look, and
+/// motion: what used to be Personalization, Notch Layouts, Themes and the
+/// display parts of Sessions and Agents.
+private struct AppearancePane: View {
+    @EnvironmentObject private var settings: SettingsModel
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(NotchLayout.allCases) { layout in
+                    Button { settings.settings.layout = layout } label: {
+                        LayoutCard(layout: layout, selected: settings.settings.layout == layout)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(settings.settings.layout == layout ? .isSelected : [])
+                }
+            } header: {
+                Text("Notch layout")
+            } footer: {
+                Text("Each layout changes what the closed notch shows and how the panel opens.")
+            }
+            Section("In the notch") {
+                Toggle("Show live activity in the closed notch", isOn: settings.binding(\.showClosedNotchActivity))
+                    .disabled(!settings.settings.layout.spec.showsActivityLabel)
+                Toggle("Show subagents", isOn: settings.binding(\.showAgents))
+                Picker("Session rows", selection: settings.binding(\.density)) {
+                    Text("Comfortable (branch, context and agents)").tag(RowDensity.comfortable)
+                    Text("Compact").tag(RowDensity.compact)
+                }
+            }
+            Section {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 10)], spacing: 10) {
+                    ForEach(ThemeID.allCases) { theme in
+                        Button { settings.settings.theme = theme } label: {
+                            ThemeSwatch(
+                                theme: theme,
+                                palette: ThemeLibrary.palette(for: theme, systemIsDark: scheme == .dark),
+                                selected: settings.settings.theme == theme
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(theme.displayName) theme")
+                        .accessibilityAddTraits(settings.settings.theme == theme ? .isSelected : [])
+                    }
+                }
+                .padding(.vertical, 4)
+                Picker("Light or dark", selection: settings.binding(\.appearance)) {
+                    Text("Match macOS").tag(AppearancePreference.system)
+                    Text("Dark").tag(AppearancePreference.dark)
+                    Text("Light").tag(AppearancePreference.light)
+                }
+                Picker("Accent colour", selection: settings.binding(\.accent)) {
+                    ForEach(AccentChoice.allCases) { accent in
+                        HStack {
+                            Circle().fill(accent.color(isDark: true).color).frame(width: 10, height: 10)
+                            Text(accent.displayName)
+                        }
+                        .tag(accent)
+                    }
+                }
+            } header: {
+                Text("Companion window")
+            } footer: {
+                Text("Themes colour this window and keep text at WCAG AA contrast. The notch stays dark so it blends with the camera housing.")
+            }
+            Section("Sessions and Overview") {
+                Picker("Sort sessions by", selection: settings.binding(\.sessionSort)) {
+                    Text("Needs you first").tag(SessionSort.attentionFirst)
+                    Text("Recent activity").tag(SessionSort.recentActivity)
+                    Text("Project").tag(SessionSort.project)
+                }
+                Toggle("Group sessions by project", isOn: settings.binding(\.groupByProject))
+                Toggle("Show today's recap on Overview", isOn: settings.binding(\.dailyRecapEnabled))
+            }
+            Section {
+                Picker("Animation", selection: settings.binding(\.animationIntensity)) {
+                    Text("Full").tag(AnimationIntensity.full)
+                    Text("Reduced").tag(AnimationIntensity.reduced)
+                    Text("Minimal").tag(AnimationIntensity.minimal)
+                }
+                LabeledContent("Completion glow") {
+                    Slider(value: settings.binding(\.glowIntensity), in: 0...1)
+                        .frame(width: 200)
+                }
+            } header: {
+                Text("Motion")
+            } footer: {
+                Text("macOS Reduce Motion always wins over these settings.")
             }
         }
     }
@@ -202,86 +330,9 @@ struct ClaudeConnectionRow: View {
 
 // MARK: - Personalization
 
-private struct PersonalizationPane: View {
-    @EnvironmentObject private var settings: SettingsModel
-
-    var body: some View {
-        Form {
-            Section("Accent") {
-                Picker("Accent colour", selection: settings.binding(\.accent)) {
-                    ForEach(AccentChoice.allCases) { accent in
-                        HStack {
-                            Circle().fill(accent.color(isDark: true).color).frame(width: 10, height: 10)
-                            Text(accent.displayName)
-                        }
-                        .tag(accent)
-                    }
-                }
-            }
-            Section("Appearance") {
-                Picker("Companion window", selection: settings.binding(\.appearance)) {
-                    Text("Match macOS").tag(AppearancePreference.system)
-                    Text("Dark").tag(AppearancePreference.dark)
-                    Text("Light").tag(AppearancePreference.light)
-                }
-                Text("The notch itself stays dark so it blends with the camera housing.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Motion") {
-                Picker("Animation", selection: settings.binding(\.animationIntensity)) {
-                    Text("Full").tag(AnimationIntensity.full)
-                    Text("Reduced").tag(AnimationIntensity.reduced)
-                    Text("Minimal").tag(AnimationIntensity.minimal)
-                }
-                LabeledContent("Completion glow") {
-                    Slider(value: settings.binding(\.glowIntensity), in: 0...1)
-                        .frame(width: 200)
-                }
-                Text("macOS Reduce Motion always wins over these settings.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }
-    }
-}
 
 // MARK: - Layouts
 
-private struct LayoutsPane: View {
-    @EnvironmentObject private var settings: SettingsModel
-    @Environment(\.overheadPalette) private var palette
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Notch Layouts").font(.title2.bold())
-                Text("Each layout changes what the closed notch shows and how the panel behaves.")
-                    .foregroundStyle(.secondary)
-                ForEach(NotchLayout.allCases) { layout in
-                    Button { settings.settings.layout = layout } label: {
-                        LayoutCard(layout: layout, selected: settings.settings.layout == layout)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(settings.settings.layout == layout ? .isSelected : [])
-                }
-                Divider().padding(.vertical, 4)
-                Toggle("Show live activity in the closed notch", isOn: settings.binding(\.showClosedNotchActivity))
-                    .disabled(!settings.settings.layout.spec.showsActivityLabel)
-                Text(closedNotchActivityNote)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(24)
-        }
-    }
-
-    private var closedNotchActivityNote: String {
-        guard settings.settings.layout.spec.showsActivityLabel else {
-            return "\(settings.settings.layout.displayName) keeps the closed notch still. Classic, Expanded and Agent View can show live activity."
-        }
-        return "One line under the camera with what Claude is doing right now, such as Bash · Run tests. Focus mode hides it while Focus is on, if Hide activity labels is set."
-    }
-}
 
 private struct LayoutCard: View {
     let layout: NotchLayout
@@ -349,35 +400,6 @@ private struct NotchPreview: View {
 
 // MARK: - Themes
 
-private struct ThemesPane: View {
-    @EnvironmentObject private var settings: SettingsModel
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Themes").font(.title2.bold())
-                Text("Themes colour the companion window. Every theme keeps text at WCAG AA contrast.")
-                    .foregroundStyle(.secondary)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
-                    ForEach(ThemeID.allCases) { theme in
-                        Button { settings.settings.theme = theme } label: {
-                            ThemeSwatch(
-                                theme: theme,
-                                palette: ThemeLibrary.palette(for: theme, systemIsDark: scheme == .dark),
-                                selected: settings.settings.theme == theme
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("\(theme.displayName) theme")
-                        .accessibilityAddTraits(settings.settings.theme == theme ? .isSelected : [])
-                    }
-                }
-            }
-            .padding(24)
-        }
-    }
-}
 
 private struct ThemeSwatch: View {
     let theme: ThemeID
@@ -406,35 +428,6 @@ private struct ThemeSwatch: View {
 
 // MARK: - Sessions
 
-private struct SessionsPane: View {
-    @EnvironmentObject private var settings: SettingsModel
-    @EnvironmentObject private var model: ApplicationModel
-
-    var body: some View {
-        Form {
-            Section("Order") {
-                Picker("Sort sessions by", selection: settings.binding(\.sessionSort)) {
-                    Text("Needs you first").tag(SessionSort.attentionFirst)
-                    Text("Recent activity").tag(SessionSort.recentActivity)
-                    Text("Project").tag(SessionSort.project)
-                }
-                Toggle("Group by project in the companion window", isOn: settings.binding(\.groupByProject))
-            }
-            Section {
-                Toggle("Show today's recap on Overview", isOn: settings.binding(\.dailyRecapEnabled))
-            } footer: {
-                Text("Built on this Mac from your session history and, when GitHub is on, today's pull request and CI activity.")
-            }
-            Section("Notch panel") {
-                Picker("Row density", selection: settings.binding(\.density)) {
-                    Text("Comfortable (with branch, context and agents)").tag(RowDensity.comfortable)
-                    Text("Compact").tag(RowDensity.compact)
-                }
-                Toggle("Keep the preview session after onboarding", isOn: $model.keepPreviewSession)
-            }
-        }
-    }
-}
 
 // MARK: - Notifications
 
@@ -494,16 +487,32 @@ private struct NotificationsPane: View {
                     }
                 }
             }
-            Section("GitHub") {
-                HStack {
-                    Text("GitHub's notifications, per event and per repository, are set where GitHub lives.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("GitHub → Integration") {
-                        github.companionRequest = .tab(.integration)
-                        navigation.show(.github)
-                    }
+            Section {
+                ForEach(OverheadEventKind.allCases.filter(\.isGitHub), id: \.self) { kind in
+                    EventPreferenceRow(kind: kind)
                 }
+            } header: {
+                Text("GitHub")
+            } footer: {
+                Text("Each repository's own alert level is set in Settings → GitHub.")
+            }
+            Section {
+                Toggle("Focus mode", isOn: settings.binding(\.focus.isOn))
+                Toggle("Hide informational notifications", isOn: settings.binding(\.focus.suppressInformational))
+                Toggle("Mute sounds", isOn: settings.binding(\.focus.muteSounds))
+                Toggle("Reduce animations", isOn: settings.binding(\.focus.reduceAnimations))
+                Toggle("Hide activity labels", isOn: settings.binding(\.focus.hideActivityLabels))
+                Toggle("Turn Focus on automatically", isOn: settings.binding(\.focus.scheduleEnabled))
+                if settings.settings.focus.scheduleEnabled {
+                    DailyWindowEditor(window: Binding(
+                        get: { settings.settings.focus.schedule ?? DailyWindow(startMinutes: 9 * 60, endMinutes: 12 * 60, weekdaysOnly: true) },
+                        set: { settings.settings.focus.schedule = $0 }
+                    ))
+                }
+            } header: {
+                Text("Focus mode")
+            } footer: {
+                Text("Focus keeps the notch calm while you concentrate (the moon in the notch, or ⌃⌥F). Permission requests and questions still show, because Claude cannot continue without you.")
             }
             Section {
                 Toggle("Quiet hours", isOn: settings.binding(\.notifications.quietHoursEnabled))
@@ -595,22 +604,6 @@ private struct DailyWindowEditor: View {
 
 // MARK: - Agents
 
-private struct AgentsPane: View {
-    @EnvironmentObject private var settings: SettingsModel
-
-    var body: some View {
-        Form {
-            Section {
-                Toggle("Show subagents", isOn: settings.binding(\.showAgents))
-            } footer: {
-                Text("Subagents come from each session's transcript: what Claude asked the agent to do, its type and model, and whether it finished. Their prompts are never stored.")
-            }
-            Section("Completion") {
-                EventPreferenceRow(kind: .agentCompleted)
-            }
-        }
-    }
-}
 
 // MARK: - Context & Usage
 
@@ -656,34 +649,6 @@ private struct ContextUsagePane: View {
 
 // MARK: - Focus
 
-private struct FocusPane: View {
-    @EnvironmentObject private var settings: SettingsModel
-
-    var body: some View {
-        Form {
-            Section {
-                Toggle("Focus mode", isOn: settings.binding(\.focus.isOn))
-            } footer: {
-                Text("Focus keeps the notch calm while you concentrate. Permission requests and questions still show, because Claude cannot continue without you.")
-            }
-            Section("While Focus is on") {
-                Toggle("Hide informational notifications", isOn: settings.binding(\.focus.suppressInformational))
-                Toggle("Mute sounds", isOn: settings.binding(\.focus.muteSounds))
-                Toggle("Reduce animations", isOn: settings.binding(\.focus.reduceAnimations))
-                Toggle("Hide activity labels", isOn: settings.binding(\.focus.hideActivityLabels))
-            }
-            Section("Schedule") {
-                Toggle("Turn on automatically", isOn: settings.binding(\.focus.scheduleEnabled))
-                if settings.settings.focus.scheduleEnabled {
-                    DailyWindowEditor(window: Binding(
-                        get: { settings.settings.focus.schedule ?? DailyWindow(startMinutes: 9 * 60, endMinutes: 12 * 60, weekdaysOnly: true) },
-                        set: { settings.settings.focus.schedule = $0 }
-                    ))
-                }
-            }
-        }
-    }
-}
 
 // MARK: - Shortcuts
 
@@ -866,36 +831,3 @@ private struct PrivacyPane: View {
 
 // MARK: - Advanced
 
-private struct AdvancedPane: View {
-    @EnvironmentObject private var model: ApplicationModel
-    @EnvironmentObject private var settings: SettingsModel
-    @State private var confirmReset = false
-
-    var body: some View {
-        Form {
-            Section("Claude Code integration") {
-                ClaudeConnectionRow()
-                LabeledContent("Local listener", value: listenerText)
-                Text("Overhead adds hooks to ~/.claude/settings.json only after you confirm, keeps a backup, and removes only its own entries when you disconnect.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Settings") {
-                Button("Reset all settings to defaults…") { confirmReset = true }
-            }
-        }
-        .confirmationDialog("Reset every Overhead setting?", isPresented: $confirmReset) {
-            Button("Reset settings", role: .destructive) { settings.settings = OverheadSettings() }
-        } message: {
-            Text("History, the Claude Code connection and your Keychain token are kept.")
-        }
-    }
-
-    private var listenerText: String {
-        switch model.serverState {
-        case .stopped: "Stopped"
-        case .starting: "Starting"
-        case let .listening(port): "Listening on 127.0.0.1:\(port) only"
-        case let .failed(message): "Failed: \(message)"
-        }
-    }
-}

@@ -27,7 +27,7 @@ run the same command once to update. Then Claude Overhead walks you
 through connecting Claude Code: it shows exactly what it adds to
 `~/.claude/settings.json` before changing anything, and keeps a backup.
 
-To remove it, click **Disconnect** in **Settings > Agents**, quit Claude
+To remove it, click **Disconnect** in **Settings > General**, quit Claude
 Overhead, and move it to the Trash.
 
 ## Features
@@ -48,7 +48,7 @@ Overhead, and move it to the Trash.
   and agent dots), Focus (still, opens only on click) and Agent View.
 - **Live activity.** The closed notch shows what Claude is doing right now in
   its own words, such as `Bash · Run tests and commit the logo change` (turn
-  it off in **Settings → Notch Layouts**). The open notch lists every session
+  it off in **Settings → Appearance**). The open notch lists every session
   (needs-you first, then running, waiting for you, recently finished), and
   clicking one opens its live feed: every tool call with its description, the
   command or file, the time, and whether it finished, failed, or never
@@ -117,15 +117,16 @@ shortcut (⌃⌥ and comma), or by opening the app again.
   Code reports for your plan (5-hour, weekly, and per-model weekly limits such
   as Fable) with reset countdowns; and prompt-cache hit rates with a warm/cold
   estimate.
-- **GitHub:** the one place for GitHub. Overview, Repositories, Actions (jobs
-  and steps), Pull Requests (descriptions, reviews, checks, merge) and Reviews,
-  plus **Integration**: sign-in, which repositories are monitored, and every
-  GitHub preference. It shares its data and settings with GitHub Mode in the
-  notch.
-- **Settings:** General, Personalization, Notch Layouts, Themes (Midnight,
-  Graphite, Obsidian, Warm Amber, Arctic, Match System), Sessions,
-  Notifications, Agents, Context & Usage, Focus Mode, Shortcuts, Privacy &
-  Data, Advanced. GitHub is configured on the GitHub page, not here.
+- **GitHub:** Overview, Repositories, Actions (jobs and steps), Pull
+  Requests (descriptions, reviews, checks, merge) and Reviews. It shares its
+  data with GitHub Mode in the notch. Until GitHub is connected it explains
+  what it offers and has a **Connect GitHub** button; nothing else in Claude
+  Overhead depends on it.
+- **Settings:** seven tabs, one place for each choice. **General** (Claude
+  Code, Lock Mode, login, display, updates), **Appearance** (notch layout,
+  themes, motion), **Notifications** (sound and volume, every event including
+  GitHub's, quiet hours, Focus), **Usage**, **Shortcuts**, **GitHub** (the
+  integration: sign-in, repositories, what it watches) and **Privacy**.
 
 ### Notifications that respect you
 
@@ -151,7 +152,7 @@ permission.
   GitHub turned on, plus Claude Code's own usage check.
 - GitHub sign-in reuses the GitHub CLI (`gh auth token`). If you would rather
   paste a personal access token, it is stored only in the macOS Keychain.
-  Overhead reads only the repositories you select in **GitHub → Integration**
+  Overhead reads only the repositories you select in **Settings → GitHub**
   (each stored by GitHub's numeric id), and its only write is a merge you
   confirm (turn merging off there if you like). Workflow logs are never
   downloaded; they open on github.com.
@@ -159,7 +160,7 @@ permission.
   `~/Library/Application Support/Overhead/history/sessions.json`, readable
   only by you (mode 0600). By default it keeps your last prompt and Claude's
   last reply (capped at 2,000 characters) so you can search them. Turn that off
-  in **Settings → Privacy & Data**, where you can also set retention, export,
+  in **Settings → Privacy**, where you can also set retention, export,
   or delete history. Claude Code's own transcripts are never copied or
   changed.
 - **Permissions.** Claude Overhead needs no Accessibility or Screen Recording

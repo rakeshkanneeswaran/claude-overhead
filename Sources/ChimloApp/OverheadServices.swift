@@ -133,9 +133,7 @@ final class OverheadServices: ObservableObject {
             settings.settings.github.mergeMethods[String(repositoryID)] = method
         }
         model.openGitHubIntegration = { [weak self] in
-            guard let self else { return }
-            github.companionRequest = .tab(.integration)
-            openCompanion?(.github, nil)
+            self?.openCompanion?(.settings, .github)
         }
         model.openGitHubInCompanion = { [weak self] detail in
             guard let self else { return }

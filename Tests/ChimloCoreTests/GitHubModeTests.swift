@@ -795,33 +795,34 @@ struct GitHubDestinationTests {
         #expect(CompanionDestination.allCases.map(\.rawValue).filter { $0.lowercased().contains("github") } == ["github"])
     }
 
-    @Test("Settings has no GitHub pane")
-    func noSettingsPane() {
-        #expect(!SettingsPaneID.allCases.contains { $0.rawValue.lowercased().contains("github") })
-        // Every pane that existed apart from GitHub is still there, in order.
+    @Test("Settings is one short list, with GitHub's integration as one pane")
+    func settingsPanes() {
         #expect(SettingsPaneID.allCases.map(\.rawValue) == [
-            "general", "personalization", "layouts", "themes", "sessions", "notifications", "agents",
-            "contextUsage", "focus", "shortcuts", "privacy", "advanced",
+            "general", "appearance", "notifications", "usage", "shortcuts", "github", "privacy",
         ])
     }
 
-    @Test("The GitHub page holds every section, configuration included")
+    @Test("The GitHub page shows GitHub; configuring it is Settings")
     func sections() {
-        #expect(GitHubPageTab.allCases == [.overview, .repositories, .actions, .pullRequests, .reviews, .integration])
-        #expect(GitHubPageTab.allCases.filter { !$0.needsConnection } == [.integration])
+        #expect(GitHubPageTab.allCases == [.overview, .repositories, .actions, .pullRequests, .reviews])
     }
 
-    @Test("The page opens on Overview once set up, otherwise on Integration")
-    func landing() {
-        #expect(GitHubPageTab.landing(enabled: true, connected: true, monitoredRepositories: 3) == .overview)
-        #expect(GitHubPageTab.landing(enabled: false, connected: false, monitoredRepositories: 0) == .integration)
-        #expect(GitHubPageTab.landing(enabled: true, connected: false, monitoredRepositories: 3) == .integration, "signed out")
-        #expect(GitHubPageTab.landing(enabled: true, connected: true, monitoredRepositories: 0) == .integration, "nothing monitored yet")
+    @Test("Before GitHub is set up, the page explains and offers the next step")
+    func setupStates() {
+        #expect(GitHubSetupState.from(enabled: true, connected: true, monitoredRepositories: 3) == .ready)
+        #expect(GitHubSetupState.from(enabled: false, connected: false, monitoredRepositories: 0) == .off)
+        #expect(GitHubSetupState.from(enabled: false, connected: true, monitoredRepositories: 3) == .off, "turned off")
+        #expect(GitHubSetupState.from(enabled: true, connected: false, monitoredRepositories: 3) == .notConnected, "signed out")
+        #expect(GitHubSetupState.from(enabled: true, connected: true, monitoredRepositories: 0) == .noRepositories)
+        #expect(GitHubSetupState.off.actionTitle == "Connect GitHub")
+        #expect(GitHubSetupState.notConnected.actionTitle == "Connect GitHub")
+        #expect(GitHubSetupState.noRepositories.actionTitle == "Choose repositories")
+        #expect(GitHubSetupState.ready.actionTitle == nil)
     }
 
     @Test("Requests from the notch land on the right section")
     func requests() {
-        #expect(GitHubPageRequest.tab(.integration).tab == .integration)
+        #expect(GitHubPageRequest.tab(.reviews).tab == .reviews)
         #expect(GitHubPageRequest.detail(.run(repositoryID: 1, runID: 2)).tab == .actions)
         #expect(GitHubPageRequest.detail(.pullRequest(repositoryID: 1, number: 2)).tab == .pullRequests)
         #expect(GitHubPageRequest.detail(.repositories).tab == .repositories)

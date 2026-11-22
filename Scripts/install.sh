@@ -125,7 +125,7 @@ main() {
 
   bold "Claude Overhead $app_version is installed."
   echo "The setup window walks you through connecting Claude Code. To remove it later,"
-  echo "click Disconnect in Settings > Agents, then move \"$destination\" to the Trash."
+  echo "click Disconnect in Settings > General, then move \"$destination\" to the Trash."
 }
 
 main "$@"

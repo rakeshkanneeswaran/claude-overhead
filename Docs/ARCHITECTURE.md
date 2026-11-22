@@ -105,11 +105,13 @@ focus.
   `IslandGitHubDetails`). `ApplicationModel.notchContent` resolves to Claude
   whenever Claude waits on the owner, so a permission request or question is
   never hidden; GitHub's place is kept for afterwards.
-- GitHub has one destination in the companion window, `GitHubPage`, whose
-  sections (`GitHubPageTab`: Overview, Repositories, Actions, Pull Requests,
-  Reviews, Integration) cover both using and configuring it. Settings has no
-  GitHub pane (`SettingsPaneID`). The notch's "set up" links and the page all
-  edit `settings.github`, which `GitHubModel` and GitHub Mode read.
+- Using GitHub is the companion window's `GitHubPage` (`GitHubPageTab`:
+  Overview, Repositories, Actions, Pull Requests, Reviews); setting it up is
+  Settings → GitHub (`GitHubIntegrationView`), the integration only. Before
+  GitHub is set up the page shows `GitHubSetupState`'s explanation and a
+  Connect GitHub button that opens that pane, and the notch's "set up" links
+  open it too. Both edit `settings.github`, which `GitHubModel` and GitHub
+  Mode read. Settings is seven tabs (`SettingsPaneID`), one place per choice.
 - `CompanionWindowCoordinator` hosts the companion window: Overview, Sessions,
   Projects, Agents, History, Usage, GitHub and Settings, styled by the active
   theme palette.

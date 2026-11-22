@@ -1,9 +1,10 @@
 import ChimloCore
 import SwiftUI
 
-/// GitHub → Integration: signing in, which repositories are monitored, and
-/// every GitHub preference. It sits beside Overview, Actions and the rest on the
-/// one GitHub page, and edits the same settings GitHub Mode in the notch reads.
+/// Settings → GitHub: the integration only. Signing in and out, which
+/// repositories are monitored, and what the integration watches. Using GitHub
+/// (Overview, Actions, Pull Requests and so on) is the GitHub page; GitHub's
+/// notification choices are in Settings → Notifications.
 struct GitHubIntegrationView: View {
     @EnvironmentObject private var settings: SettingsModel
     @EnvironmentObject private var github: GitHubModel
@@ -43,7 +44,6 @@ struct GitHubIntegrationView: View {
                 }
                 notchSection
                 monitoringSection
-                notificationsSection
             }
             Section("Privacy") {
                 Text("Overhead signs in with the GitHub CLI (`gh auth token`) when it is installed, or with a token you save to the Keychain. It reads pull requests, reviews, checks and Actions runs for the repositories you select, and writes only one thing: a merge you confirm. Requests go to api.github.com and nowhere else. Logs are never downloaded.")
@@ -102,7 +102,7 @@ struct GitHubIntegrationView: View {
                     Text(GitHubPreferences.refreshLabel(seconds)).tag(seconds)
                 }
             }
-            Text("Sound and banners for each GitHub event are below.")
+            Text("Sound and banners for each GitHub event are in Settings → Notifications.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -112,18 +112,6 @@ struct GitHubIntegrationView: View {
     /// The offered intervals, plus one carried over from an older version.
     private var refreshChoices: [Int] {
         Array(Set(GitHubPreferences.refreshChoices + [settings.settings.github.refreshSeconds])).sorted()
-    }
-
-    private var notificationsSection: some View {
-        Section {
-            ForEach(OverheadEventKind.allCases.filter(\.isGitHub), id: \.self) { kind in
-                EventPreferenceRow(kind: kind)
-            }
-        } header: {
-            Text("GitHub notifications")
-        } footer: {
-            Text("Each repository's own level is set in its row above. Quiet hours, Focus and the global mute in Settings → Notifications apply here too.")
-        }
     }
 
     private func eventBinding(_ kind: OverheadEventKind) -> Binding<Bool> {

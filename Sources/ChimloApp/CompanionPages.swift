@@ -44,8 +44,7 @@ private struct OverviewPage: View {
                          tint: waiting.isEmpty ? nil : palette.permission)
                 StatTile(label: "Completed today", value: "\(recap.sessionsCompleted)",
                          detail: recap.sessionsFailed > 0 ? "\(recap.sessionsFailed) failed" : "No failures")
-                StatTile(label: "Reported cost", value: CompanionFormat.cost(recap.costUSD),
-                         detail: "Sessions active today, as Claude Code reports")
+                usageTile
             }
 
             if !waiting.isEmpty {
@@ -127,6 +126,23 @@ private struct OverviewPage: View {
                 }
             }
         }
+    }
+
+    /// "Am I near my limits?": the limit closest to running out, in the
+    /// same used-percentage Claude Code's /usage shows.
+    private var usageTile: some View {
+        let readings = model.claudeCapacityRows.compactMap { entry -> (name: String, used: Double)? in
+            guard let used = entry.reading.usedPercentage else { return nil }
+            return (entry.row.name, used)
+        }
+        let highest = readings.max { $0.used < $1.used }
+        let warns = highest.map { $0.used / 100 >= settings.settings.usageWarningThreshold } ?? false
+        return StatTile(
+            label: "Claude usage",
+            value: highest.map { "\(Int($0.used.rounded()))%" } ?? "—",
+            detail: highest.map { "of your \($0.name) limit" } ?? "Not reported yet",
+            tint: warns ? palette.permission : nil
+        )
     }
 
     private var failingPRs: Int {

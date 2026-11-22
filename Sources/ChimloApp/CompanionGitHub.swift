@@ -1,10 +1,11 @@
 import ChimloCore
 import SwiftUI
 
-/// The one GitHub destination. Using GitHub (Overview, Repositories, Actions,
-/// Pull Requests, Reviews) and configuring it (Integration) are sections of
-/// the same page, on the same `GitHubModel` and the same settings that GitHub
-/// Mode in the notch reads. Choosing a focused repository here focuses it there.
+/// The GitHub destination: Overview, Repositories, Actions, Pull Requests and
+/// Reviews, on the same `GitHubModel` and settings that GitHub Mode in the
+/// notch reads. Setting the integration up is Settings → GitHub; until it is
+/// set up, the page explains and offers Connect GitHub. Choosing a focused
+/// repository here focuses it there.
 struct GitHubPage: View {
     @EnvironmentObject private var github: GitHubModel
     @EnvironmentObject private var settings: SettingsModel
@@ -17,12 +18,19 @@ struct GitHubPage: View {
     @State private var selectedRun: Int?
     @State private var selectedPR: Int?
 
-    private var currentTab: GitHubPageTab {
-        tab ?? GitHubPageTab.landing(
+    private var currentTab: GitHubPageTab { tab ?? .overview }
+
+    private var setupState: GitHubSetupState {
+        GitHubSetupState.from(
             enabled: settings.settings.github.enabled,
             connected: github.connection.isConnected,
             monitoredRepositories: github.snapshots.count
         )
+    }
+
+    /// Settings → GitHub, where the integration is set up.
+    private func openIntegrationSettings() {
+        navigation.show(.settings, settingsPane: .github)
     }
 
     var body: some View {
@@ -38,20 +46,14 @@ struct GitHubPage: View {
             .labelsHidden()
             .padding(.horizontal, 28)
             .padding(.bottom, 12)
-            if currentTab == .integration {
-                GitHubIntegrationView()
-                    .formStyle(.grouped)
-                    .scrollContentBackground(.hidden)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        operational
-                    }
-                    .padding(.horizontal, 28)
-                    .padding(.top, 4)
-                    .padding(.bottom, 28)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    operational
                 }
+                .padding(.horizontal, 28)
+                .padding(.top, 4)
+                .padding(.bottom, 28)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .onAppear(perform: consumeRequest)
@@ -79,8 +81,8 @@ struct GitHubPage: View {
                     .disabled(github.isRefreshing)
                     .help(github.lastRefresh.map { "Updated \(CompanionFormat.relative($0))" } ?? "Refresh now")
             }
-            Button { tab = .integration } label: { Label("Integration", systemImage: "slider.horizontal.3") }
-                .help("Sign-in, monitored repositories and GitHub preferences")
+            Button(action: openIntegrationSettings) { Label("Settings", systemImage: "slider.horizontal.3") }
+                .help("Sign-in, monitored repositories and what GitHub watches: Settings → GitHub")
         }
     }
 
@@ -110,14 +112,15 @@ struct GitHubPage: View {
 
     @ViewBuilder
     private var operational: some View {
-        if !settings.settings.github.enabled || !github.connection.isConnected {
+        if setupState == .off || setupState == .notConnected {
             EmptyStateView(symbol: "point.3.connected.trianglepath.dotted", title: connectionTitle, message: connectionText)
-            Button("Set up GitHub") { tab = .integration }
+            Button(setupState.actionTitle ?? "Connect GitHub", action: openIntegrationSettings)
+                .buttonStyle(.borderedProminent)
                 .frame(maxWidth: .infinity)
-        } else if github.snapshots.isEmpty {
+        } else if setupState == .noRepositories {
             EmptyStateView(symbol: "square.stack.3d.up", title: "No repositories monitored yet",
-                           message: "Choose the repositories to watch in Integration. Pick as many as you like, across your organizations.")
-            Button("Choose repositories") { tab = .integration }
+                           message: "Choose the repositories to watch in Settings → GitHub. Pick as many as you like, across your organizations.")
+            Button(setupState.actionTitle ?? "Choose repositories", action: openIntegrationSettings)
                 .frame(maxWidth: .infinity)
         } else {
             if currentTab == .actions || currentTab == .pullRequests {
@@ -129,22 +132,21 @@ struct GitHubPage: View {
             case .actions: actions
             case .pullRequests: pullRequests
             case .reviews: reviews
-            case .integration: EmptyView()
             }
             footer
         }
     }
 
     private var connectionTitle: String {
-        settings.settings.github.enabled ? "GitHub isn't connected" : "GitHub is off"
+        settings.settings.github.enabled ? "GitHub isn't connected" : "GitHub isn't connected yet"
     }
 
     private var connectionText: String {
         switch github.connection {
-        case .off: "Turn GitHub on in Integration, sign in, and choose the repositories to watch."
+        case .off: "Connect GitHub to see pull requests, workflow runs and reviews for the repositories you choose. Everything else in Claude Overhead works without it."
         case .checking: "Connecting to GitHub…"
-        case .signedOut: "Sign in with `gh auth login`, or save a token in Integration."
-        case let .failed(reason): "\(reason) Fix it in Integration."
+        case .signedOut: "Sign in with `gh auth login`, or save a token in Settings → GitHub."
+        case let .failed(reason): "\(reason) Fix it in Settings → GitHub."
         case .connected: ""
         }
     }
@@ -295,7 +297,7 @@ struct GitHubPage: View {
                 })) {
                     switch snapshot.availability {
                     case .notFound:
-                        Text("GitHub can't find this repository with your sign-in. It may be deleted, renamed beyond reach, or private to someone else. Remove it in Integration.")
+                        Text("GitHub can't find this repository with your sign-in. It may be deleted, renamed beyond reach, or private to someone else. Remove it in Settings → GitHub.")
                             .font(.system(size: 12)).foregroundStyle(palette.warning)
                     case let .forbidden(message):
                         Text(message ?? "This sign-in can't read part of this repository.").font(.system(size: 12)).foregroundStyle(palette.warning)
@@ -309,7 +311,7 @@ struct GitHubPage: View {
                     }
                 }
             }
-            Button("Change monitored repositories") { tab = .integration }
+            Button("Change monitored repositories", action: openIntegrationSettings)
         }
     }
 
@@ -320,7 +322,7 @@ struct GitHubPage: View {
         return HStack(alignment: .top, spacing: 16) {
             Card("Workflow runs") {
                 if runs.isEmpty {
-                    Text(settings.settings.github.monitorActions ? "No recent runs." : "Actions monitoring is off in Integration.")
+                    Text(settings.settings.github.monitorActions ? "No recent runs." : "Actions monitoring is off in Settings → GitHub.")
                         .font(.system(size: 12)).foregroundStyle(palette.textSecondary)
                 }
                 ForEach(runs.prefix(40)) { run in
@@ -520,7 +522,7 @@ struct GitHubPage: View {
         return VStack(alignment: .leading, spacing: 14) {
             Card("Waiting on your review") {
                 if !settings.settings.github.reviewNotifications {
-                    Text("Review requests are off in Integration.").font(.system(size: 12)).foregroundStyle(palette.textSecondary)
+                    Text("Review requests are off in Settings → GitHub.").font(.system(size: 12)).foregroundStyle(palette.textSecondary)
                 } else if github.reviewRequests.isEmpty {
                     Text("No pull requests are waiting on your review.").font(.system(size: 12)).foregroundStyle(palette.textSecondary)
                 }

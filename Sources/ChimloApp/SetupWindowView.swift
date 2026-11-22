@@ -520,7 +520,7 @@ private struct ChangesPopover: View {
             ChangeLine("Saves a one-time copy of your original file as settings.json.overhead-backup before the first change.")
             ChangeLine("Routes the status line through a small bridge that keeps any status line you already have.")
             ChangeLine("Installs a small helper in ~/Library/Application Support/Overhead.")
-            ChangeLine("Disconnect any time in Settings → Agents. Only Overhead's own entries are removed.")
+            ChangeLine("Disconnect any time in Settings → General. Only Overhead's own entries are removed.")
 
             if let preview = setup.settingsPreview {
                 ScrollView {
