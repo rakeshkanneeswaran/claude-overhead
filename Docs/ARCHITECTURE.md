@@ -150,10 +150,11 @@ payload and configures its documented `refreshInterval` at 60 seconds. Installin
 the bridge preserves and later restores any existing custom status-line
 configuration, including its previous refresh interval.
 
-When the Claude cache is more than five minutes old and the owner opens the
-Usage disclosure, Claude Overhead may launch one bounded, tool-disabled, probe-owned
+When the Claude cache is more than five minutes old and usage is on screen
+(the open notch, which shows it top left, or a usage card in the companion
+window), Claude Overhead may launch one bounded, tool-disabled, probe-owned
 Claude Code terminal and parse the provider-owned `/usage` panel. This fallback
-runs only while capacity details are disclosed, reuses one probe-owned session
+runs only while usage is on screen, reuses one probe-owned session
 identity, removes its dedicated transcript artifacts after exit, and is excluded
 from local-session discovery. A failed probe cools down for five minutes.
 
@@ -165,7 +166,9 @@ provider-reported relative or timezone-qualified reset labels. A still-valid
 timestamp from the status-line payload remains preferred because it is more
 precise. When no trustworthy value is available, Claude Overhead reports Capacity
 unavailable. Claude's status line continues refreshing while an otherwise idle
-session remains open.
+session remains open. The status line is a terminal feature: sessions in an
+editor extension may never run it, and then this fallback is the only source,
+which is why it also runs whenever usage is shown.
 
 ## Safety boundaries
 

@@ -189,6 +189,8 @@ private struct UsageGlance: View {
                     .foregroundStyle(palette.textSecondary)
             }
         }
+        .onAppear { model.usageCardAppeared() }
+        .onDisappear { model.usageCardDisappeared() }
     }
 }
 

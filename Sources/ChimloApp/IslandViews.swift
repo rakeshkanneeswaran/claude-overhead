@@ -409,12 +409,12 @@ private struct ExpandedStatusBand: View {
 
                 HStack(spacing: 0) {
                     Group {
+                        // Usage always sits top left in the open notch, in
+                        // every layout, so the limits are a glance away.
                         if model.notchContent == .github {
                             GitHubModeWing(model: model)
-                        } else if model.layoutSpec.expandedShowsUsage {
-                            InlineCapacityView(model: model)
                         } else {
-                            Color.clear
+                            InlineCapacityView(model: model)
                         }
                     }
                         .padding(.leading, expandedHorizontalGutter)

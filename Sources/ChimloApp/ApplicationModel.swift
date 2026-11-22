@@ -223,6 +223,8 @@ final class ApplicationModel: ObservableObject {
         // A closed notch reopens on Claude. GitHub Mode keeps its tab and
         // detail for the next time the owner enters it.
         didSet {
+            // The open notch shows usage top left: freshen it if it is old.
+            if panelMode == .sessions, oldValue != .sessions { refreshClaudeCapacityFromCLIIfNeeded() }
             guard panelMode == .compact else { return }
             if githubNavigation.content == .github { githubNavigation.returnToClaude() }
             // A closed notch reopens on the session list.
@@ -1894,7 +1896,11 @@ final class ApplicationModel: ObservableObject {
                 guard !Task.isCancelled, let self else { return }
                 capacityClock = .now
                 refreshClaudeCapacityFromCache()
-                if showsUsageDetails {
+                // While usage is on screen (the open notch, the companion's
+                // usage card), keep it fresh. The probe runs only when the
+                // saved numbers are over five minutes old, and backs off
+                // after a failure (CapacityPolicy.shouldProbeClaudeUsage).
+                if showsUsageDetails || panelMode == .sessions || usageViewers > 0 {
                     refreshClaudeCapacityFromCLIIfNeeded()
                 }
             }
@@ -1909,6 +1915,19 @@ final class ApplicationModel: ObservableObject {
             return
         }
         receiveCapacity(snapshot, persist: false)
+    }
+
+    /// Usage cards in the companion window that are on screen.
+    private var usageViewers = 0
+
+    /// A companion usage card appeared: count it, and freshen old numbers.
+    func usageCardAppeared() {
+        usageViewers += 1
+        refreshClaudeCapacityFromCLIIfNeeded()
+    }
+
+    func usageCardDisappeared() {
+        usageViewers = max(0, usageViewers - 1)
     }
 
     private func refreshClaudeCapacityFromCLIIfNeeded() {

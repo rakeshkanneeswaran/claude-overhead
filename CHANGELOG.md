@@ -9,6 +9,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+- Usage stays current. Claude Code's status line, the main source, may never
+  run for sessions in an editor extension such as VS Code, and the `/usage`
+  fallback ran only when the usage details were opened, so the notch could
+  show hours-old numbers (64% after a reset to 19%). The fallback now
+  freshens numbers over five minutes old whenever usage is on screen.
+- The open notch always shows usage top left, in every layout.
+
 ## [1.0.4] - 2026-11-23
 
 - Questions and permission requests in the notch have a × too. It hands the
