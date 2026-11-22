@@ -160,6 +160,10 @@ session remains open.
 - Pending decisions, provider permissions, and questions are keyed by request
   and session, not screen position.
 - Duplicate messages and stale per-session sequence numbers are ignored.
+- A permission, question or decision request lives only as long as the hook
+  helper's connection: when Claude Code stops the helper, the listener
+  cancels the request (never approving it), and a session that ends closes
+  its open requests (`OwnerInteractionLifetime`).
 - Payloads and frames have explicit size limits.
 - Runtime descriptors are private to the local user and short lived.
 - The app being offline returns control to the native terminal interaction.

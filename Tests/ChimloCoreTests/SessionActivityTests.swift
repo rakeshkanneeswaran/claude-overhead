@@ -540,3 +540,21 @@ struct SessionLifecycleTests {
         #expect(path.text == "Sources/ClaudeCodeMark.swift")
     }
 }
+
+@Suite("Owner interaction lifetime")
+struct OwnerInteractionLifetimeTests {
+    @Test("Only the session ending closes an open request; turns, tools and subagents never do")
+    func onlySessionEndCloses() {
+        #expect(OwnerInteractionLifetime.endsPendingRequests(.sessionEnded))
+        // A background subagent can still be waiting on a real permission
+        // while the main agent stops (completed also covers SubagentStop),
+        // the owner types a new prompt (activity), or a parallel tool reports.
+        let neverClose: [AgentEventKind] = [
+            .sessionStarted, .activity, .completed, .failed,
+            .permissionRequested, .permissionResolved, .questionRequested, .questionResolved,
+        ]
+        for kind in neverClose {
+            #expect(!OwnerInteractionLifetime.endsPendingRequests(kind), "\(kind)")
+        }
+    }
+}

@@ -140,7 +140,9 @@ public final class ChimloServer: @unchecked Sendable {
                     connection.cancel()
                     return
                 }
-                let responseMessage = await response(to: envelope)
+                let responseMessage = envelope.message.waitsForOwner
+                    ? await respondUnlessAbandoned(to: envelope, over: connection)
+                    : await response(to: envelope)
                 let response = ChimloEnvelope(
                     authenticationToken: authenticationToken,
                     message: responseMessage
@@ -152,6 +154,20 @@ public final class ChimloServer: @unchecked Sendable {
             }
             connection.cancel()
         }
+    }
+
+    /// A request that waits for the owner is held open by the hook helper.
+    /// Claude Code ends a hook it no longer needs (the owner answered in the
+    /// terminal, interrupted the turn, the session ended) by stopping the
+    /// helper, which closes this connection. The handler is then cancelled so
+    /// the notch drops the request. Cancellation is never an approval.
+    private func respondUnlessAbandoned(
+        to envelope: ChimloEnvelope,
+        over connection: NWConnection
+    ) async -> ChimloWireMessage {
+        let work = Task { await self.response(to: envelope) }
+        NetworkFrameIO.onPeerClose(connection) { work.cancel() }
+        return await work.value
     }
 
     private func response(to envelope: ChimloEnvelope) async -> ChimloWireMessage {
@@ -337,6 +353,17 @@ private enum NetworkFrameIO {
         }
     }
 
+    /// Runs `handler` once the peer closes the connection or it fails. The
+    /// client sends one frame and then only waits, so anything that arrives
+    /// here (end of stream, an error, stray bytes) means it is gone or
+    /// misbehaving. Also fires when this side cancels the connection, which
+    /// is harmless once the reply has been sent.
+    static func onPeerClose(_ connection: NWConnection, _ handler: @escaping @Sendable () -> Void) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1) { _, _, _, _ in
+            handler()
+        }
+    }
+
     static func receiveFrame(from connection: NWConnection) async throws -> Data {
         var buffer = Data()
         while true {
@@ -376,6 +403,16 @@ private enum NetworkFrameIO {
                     continuation.resume(returning: Data())
                 }
             }
+        }
+    }
+}
+
+private extension ChimloWireMessage {
+    /// Requests that stay open until the owner answers in the notch.
+    var waitsForOwner: Bool {
+        switch self {
+        case .decisionRequest, .permissionRequest, .questionRequest: true
+        case .event, .ping, .decisionResponse, .permissionResponse, .questionResponse, .acknowledgement, .error: false
         }
     }
 }

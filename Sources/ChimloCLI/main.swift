@@ -146,6 +146,12 @@ enum ChimloCommand {
             FileHandle.standardOutput.write(ClaudePermissionHook.fallbackOutput)
             return
         }
+        // dontAsk and bypassPermissions: the owner chose not to be asked, so
+        // Claude Code decides as that mode says, without the notch.
+        guard hook.asksOwner else {
+            FileHandle.standardOutput.write(ClaudePermissionHook.fallbackOutput)
+            return
+        }
 
         let response = await client.requestPermission(hook.request)
         FileHandle.standardOutput.write(hook.output(for: response))

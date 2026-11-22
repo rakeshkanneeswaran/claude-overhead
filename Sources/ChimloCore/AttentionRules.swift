@@ -24,6 +24,18 @@ public struct ThresholdCrossingTracker: Sendable, Equatable {
 }
 
 /// Keyboard navigation through a list that can change between presses.
+/// Which hook events close a request still open in the notch. The main
+/// signal is Claude Code ending the hook itself (the helper's connection
+/// closes). Of the events, only the session ending is safe: a background
+/// subagent can still be waiting on a real permission while the main agent
+/// stops or the owner types a new prompt, and `completed` also covers
+/// SubagentStop, so none of those may clear a card.
+public enum OwnerInteractionLifetime {
+    public static func endsPendingRequests(_ kind: AgentEventKind) -> Bool {
+        kind == .sessionEnded
+    }
+}
+
 public enum SelectionCycle {
     /// The id `offset` steps from `current`, wrapping at both ends. With no
     /// current selection (or one no longer listed), forward starts at the

@@ -119,16 +119,11 @@ public enum PrivacySafeHookMapper {
                 // Same reason as PermissionRequest: the blocking bridge owns it.
                 return nil
             case "agent_needs_input", "idle_prompt":
-                return Mapping(
-                    kind: .questionRequested,
-                    detail: "Needs input in \(source.displayName)",
-                    request: .question(
-                        AgentQuestion(
-                            id: "\(source.rawValue)-input",
-                            prompt: "Continue in \(source.displayName)"
-                        )
-                    )
-                )
+                // Not a question. idle_prompt means Claude finished a while
+                // ago and is waiting for the next prompt; agent_needs_input
+                // also covers auto mode's billing notice. Real questions
+                // arrive through the AskUserQuestion bridge.
+                return nil
             case "agent_completed":
                 return Mapping(kind: .completed, detail: "Turn complete")
             default:

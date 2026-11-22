@@ -96,6 +96,14 @@ narrows its destination to `session`, and uses Claude's `acceptEdits` session
 mode for file changes when no compatible suggestion exists. Persistent settings
 changes and `bypassPermissions` are never surfaced or returned.
 
+A request leaves the notch as soon as Claude Code stops waiting for it: when
+you answer in the terminal, interrupt the turn, or the session ends, Claude
+Code stops the helper, its connection closes, and Claude Overhead cancels the
+request without answering it. In `dontAsk` and `bypassPermissions` modes, where
+you chose never to be asked, permission requests are left to Claude Code and
+never reach the notch. Claude Code's idle notices ("Claude is waiting for your
+input") are not questions and never become one.
+
 A missing app, timeout, malformed payload, or transport error can never imply
 approval or fabricate an answer.
 

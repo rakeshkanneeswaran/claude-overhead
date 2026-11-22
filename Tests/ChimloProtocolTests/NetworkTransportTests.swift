@@ -87,6 +87,99 @@ struct NetworkTransportTests {
         #expect(response.outcome.grantsPermission)
     }
 
+    @Test("When the hook disconnects, the pending permission is cancelled and grants nothing")
+    func disconnectCancelsPendingPermission() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("overhead-network-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = RuntimeDescriptorStore(descriptorURL: directory.appendingPathComponent("runtime.json"))
+        let probe = CancellationProbe()
+        let server = try ChimloServer(
+            descriptorStore: store,
+            eventHandler: { _ in },
+            permissionHandler: { request in
+                // Waits for the owner, as the notch does, until cancelled.
+                await probe.waitUntilCancelled()
+                return ProviderPermissionResponse(requestID: request.id, outcome: .cancelled)
+            }
+        )
+        defer { server.stop() }
+        _ = try await server.start()
+        // The client gives up quickly and closes its connection, as a hook
+        // helper does when Claude Code stops it.
+        let client = try ChimloClient(descriptorStore: store, timeout: .milliseconds(200))
+        let request = ProviderPermissionRequest(
+            sessionID: "claude-1", agent: .claude, title: "overhead",
+            toolName: "Bash", prompt: "Run this command?"
+        )
+
+        let response = await client.requestPermission(request)
+
+        #expect(!response.outcome.grantsPermission)
+        #expect(await probe.wasCancelled(within: .seconds(3)))
+    }
+
+    @Test("A question is cancelled too when its hook disconnects")
+    func disconnectCancelsPendingQuestion() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("overhead-network-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = RuntimeDescriptorStore(descriptorURL: directory.appendingPathComponent("runtime.json"))
+        let probe = CancellationProbe()
+        let server = try ChimloServer(
+            descriptorStore: store,
+            eventHandler: { _ in },
+            questionHandler: { request in
+                await probe.waitUntilCancelled()
+                return ProviderQuestionResponse(requestID: request.id, outcome: .cancelled)
+            }
+        )
+        defer { server.stop() }
+        _ = try await server.start()
+        let client = try ChimloClient(descriptorStore: store, timeout: .milliseconds(200))
+        let request = ProviderQuestionRequest(
+            sessionID: "claude-1", agent: .claude, title: "overhead",
+            questions: [ProviderQuestion(prompt: "Ship it?", options: [ProviderQuestionOption(label: "Yes")])]
+        )
+
+        let response = await client.requestQuestion(request)
+
+        #expect(response.outcome != .answered)
+        #expect(await probe.wasCancelled(within: .seconds(3)))
+    }
+
+    @Test("An answer that arrives after the hook gave up never grants anything")
+    func lateAnswerNeverGrants() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("overhead-network-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = RuntimeDescriptorStore(descriptorURL: directory.appendingPathComponent("runtime.json"))
+        let server = try ChimloServer(
+            descriptorStore: store,
+            eventHandler: { _ in },
+            permissionHandler: { request in
+                // Ignores cancellation and approves late.
+                try? await Task.sleep(for: .milliseconds(600))
+                return ProviderPermissionResponse(requestID: request.id, outcome: .allowedOnce)
+            }
+        )
+        defer { server.stop() }
+        _ = try await server.start()
+        let client = try ChimloClient(descriptorStore: store, timeout: .milliseconds(150))
+        let request = ProviderPermissionRequest(
+            sessionID: "claude-1", agent: .claude, title: "overhead",
+            toolName: "Bash", prompt: "Run this command?"
+        )
+
+        let response = await client.requestPermission(request)
+
+        #expect(response.outcome == .unavailable)
+        #expect(!response.outcome.grantsPermission)
+        // The server survives writing to the closed connection.
+        try? await Task.sleep(for: .milliseconds(700))
+        try await ChimloClient(descriptorStore: store, timeout: .seconds(1)).ping()
+    }
+
     @Test("A server without a permission handler never grants access")
     func serverDefaultsPermissionsToUnavailable() async throws {
         let directory = FileManager.default.temporaryDirectory
@@ -177,5 +270,27 @@ struct NetworkTransportTests {
 
         #expect(response.outcome == .unavailable)
         #expect(response.answers.isEmpty)
+    }
+}
+
+/// Records whether a handler's task was cancelled.
+private actor CancellationProbe {
+    private var cancelled = false
+
+    func markCancelled() { cancelled = true }
+
+    nonisolated func waitUntilCancelled() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        await markCancelled()
+    }
+
+    func wasCancelled(within limit: Duration) async -> Bool {
+        let deadline = ContinuousClock.now + limit
+        while !cancelled, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return cancelled
     }
 }

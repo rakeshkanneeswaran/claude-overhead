@@ -122,6 +122,40 @@ struct ClaudePermissionHookTests {
         #expect(try PrivacySafeHookMapper.event(from: notification, source: .claude) == nil)
     }
 
+    @Test("Only dontAsk and bypassPermissions keep a permission out of the notch")
+    func permissionModes() throws {
+        func hook(mode: String?) throws -> ClaudePermissionHook {
+            var root = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+            root["permission_mode"] = mode
+            return try ClaudePermissionHook(data: JSONSerialization.data(withJSONObject: root))
+        }
+        // Claude Code asks in these, so the notch may show the same prompt.
+        for mode in ["default", "plan", "acceptEdits", "auto"] {
+            let parsed = try hook(mode: mode)
+            #expect(parsed.permissionMode == mode)
+            #expect(parsed.asksOwner, "\(mode)")
+        }
+        // The owner chose never to be asked.
+        for mode in ["dontAsk", "bypassPermissions"] {
+            #expect(try !hook(mode: mode).asksOwner, "\(mode)")
+        }
+        // Older Claude Code without the field, or a mode added later: ask, as Claude Code would.
+        #expect(try hook(mode: nil).permissionMode == nil)
+        #expect(try hook(mode: nil).asksOwner)
+        #expect(try hook(mode: "somethingNew").asksOwner)
+        #expect(try hook(mode: String(repeating: "x", count: 65)).permissionMode == nil)
+    }
+
+    @Test("Idle and background-input notices never become a question in the notch")
+    func idleNoticesAreNotQuestions() throws {
+        for type in ["idle_prompt", "agent_needs_input"] {
+            let notification = Data(
+                #"{"session_id":"claude-1","hook_event_name":"Notification","notification_type":"\#(type)","message":"Claude is waiting for your input"}"#.utf8
+            )
+            #expect(try PrivacySafeHookMapper.event(from: notification, source: .claude) == nil, "\(type)")
+        }
+    }
+
     private func decision(from output: Data) throws -> [String: Any] {
         let root = try #require(JSONSerialization.jsonObject(with: output) as? [String: Any])
         let specific = try #require(root["hookSpecificOutput"] as? [String: Any])

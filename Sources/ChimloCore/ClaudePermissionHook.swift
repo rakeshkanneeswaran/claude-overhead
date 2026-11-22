@@ -24,7 +24,23 @@ public struct ClaudePermissionHook: Sendable {
     public static let fallbackOutput = Data("{}\n".utf8)
 
     public let request: ProviderPermissionRequest
+    /// Claude Code's `permission_mode`: "default" (shown as Manual), "plan",
+    /// "acceptEdits", "auto", "dontAsk" or "bypassPermissions". Absent from
+    /// older Claude Code versions.
+    public let permissionMode: String?
     private let sessionPermissionUpdateJSON: Data?
+
+    /// Modes where the owner chose never to be asked. Claude Code still runs
+    /// PermissionRequest where it would otherwise deny without asking, so in
+    /// these the notch stays out of it and Claude Code does what the mode says.
+    public static let modesThatNeverAsk: Set<String> = ["dontAsk", "bypassPermissions"]
+
+    /// Whether this request may be shown in the notch at all. An unknown or
+    /// missing mode asks, the same as Claude Code's own prompt would.
+    public var asksOwner: Bool {
+        guard let permissionMode else { return true }
+        return !Self.modesThatNeverAsk.contains(permissionMode)
+    }
 
     public init(data: Data, expiresAt: Date? = nil) throws {
         guard data.count <= Self.maximumPayloadBytes else {
@@ -45,6 +61,7 @@ public struct ClaudePermissionHook: Sendable {
         let sessionID = rawSessionID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sessionID.isEmpty else { throw ClaudePermissionHookError.invalidPermission }
 
+        permissionMode = Self.optionalBoundedString(root["permission_mode"], maximumBytes: 64)
         let cwd = Self.optionalBoundedString(root["cwd"], maximumBytes: 4_096)
         let projectName = cwd.map { URL(fileURLWithPath: $0).lastPathComponent }
             .flatMap { $0.isEmpty ? nil : $0 }

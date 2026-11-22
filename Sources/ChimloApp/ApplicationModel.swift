@@ -1244,6 +1244,9 @@ final class ApplicationModel: ObservableObject {
     private func receiveLiveEvent(_ event: AgentEvent) {
         hiddenSessionIDs.formUnion(previewSessionIDs)
         recordReceipt(for: event.agent)
+        if OwnerInteractionLifetime.endsPendingRequests(event.kind) {
+            cancelOwnerInteractions(forEndedSession: event.sessionID)
+        }
         guard event.sequence == 0 else {
             consume(event, isDemo: false)
             if event.kind == .sessionEnded { scheduleSessionRemoval(event.sessionID) }
@@ -1940,15 +1943,41 @@ final class ApplicationModel: ObservableObject {
         guard pendingDecision == nil, decisionContinuation == nil else {
             return .unavailable(for: request.id, reason: "Another decision is already awaiting the owner")
         }
+        guard !Task.isCancelled else {
+            return ChimloDecisionResponse(requestID: request.id, outcome: .cancelled, note: Self.stoppedWaitingNote)
+        }
 
-        return await withCheckedContinuation { continuation in
-            cancelCollapse()
-            showsAllSessionsDuringOwnerInteraction = false
-            pendingDecision = request
-            decisionContinuation = continuation
-            showsUsageDetails = false
-            panelMode = .sessions
-            scheduleDecisionExpiry(for: request)
+        // The transport cancels this task when the helper's connection
+        // closes; the request then leaves the notch without an answer.
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                cancelCollapse()
+                showsAllSessionsDuringOwnerInteraction = false
+                pendingDecision = request
+                decisionContinuation = continuation
+                showsUsageDetails = false
+                panelMode = .sessions
+                scheduleDecisionExpiry(for: request)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self, pendingDecision?.id == request.id else { return }
+                finishPendingDecision(outcome: .cancelled, note: Self.stoppedWaitingNote)
+            }
+        }
+    }
+
+    /// Why a request left the notch when Claude Code ended its hook.
+    private static let stoppedWaitingNote = "Claude Code stopped waiting for an answer"
+
+    /// A session that ended takes its open requests with it. Its hooks are
+    /// gone, so nothing is waiting for an answer any more.
+    private func cancelOwnerInteractions(forEndedSession sessionID: String) {
+        for (id, request) in permissionRequests where request.sessionID == sessionID {
+            finishPermission(requestID: id, outcome: .cancelled, note: Self.stoppedWaitingNote)
+        }
+        for (id, flow) in questionFlows where flow.request.sessionID == sessionID {
+            finishQuestion(requestID: id, outcome: .cancelled, answers: [:], note: Self.stoppedWaitingNote)
         }
     }
 
@@ -1970,17 +1999,29 @@ final class ApplicationModel: ObservableObject {
                 reason: "This session already has a pending owner interaction"
             )
         }
+        guard !Task.isCancelled else {
+            return ProviderPermissionResponse(requestID: request.id, outcome: .cancelled, note: Self.stoppedWaitingNote)
+        }
 
-        return await withCheckedContinuation { continuation in
-            cancelCollapse()
-            showsAllSessionsDuringOwnerInteraction = false
-            permissionRequests[request.id] = request
-            permissionContinuations[request.id] = continuation
-            sessionPermissions[request.sessionID] = SessionPermissionPresentation(request: request)
-            presentPermissionEvent(for: request)
-            showsUsageDetails = false
-            panelMode = .sessions
-            schedulePermissionExpiry(for: request)
+        // Claude Code stopped waiting (answered in the terminal, interrupted
+        // the turn, ended the session): the transport cancels this task and
+        // the card goes, granting nothing.
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                cancelCollapse()
+                showsAllSessionsDuringOwnerInteraction = false
+                permissionRequests[request.id] = request
+                permissionContinuations[request.id] = continuation
+                sessionPermissions[request.sessionID] = SessionPermissionPresentation(request: request)
+                presentPermissionEvent(for: request)
+                showsUsageDetails = false
+                panelMode = .sessions
+                schedulePermissionExpiry(for: request)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.finishPermission(requestID: request.id, outcome: .cancelled, note: Self.stoppedWaitingNote)
+            }
         }
     }
 
@@ -2087,18 +2128,29 @@ final class ApplicationModel: ObservableObject {
               sessionPermissions[request.sessionID] == nil else {
             return .unavailable(for: request.id, reason: "This session already has a pending question")
         }
+        guard !Task.isCancelled else {
+            return ProviderQuestionResponse(requestID: request.id, outcome: .cancelled, answers: [:], note: Self.stoppedWaitingNote)
+        }
 
-        return await withCheckedContinuation { continuation in
-            cancelCollapse()
-            showsAllSessionsDuringOwnerInteraction = false
-            let flow = QuestionFlow(request: request)
-            questionFlows[request.id] = flow
-            questionContinuations[request.id] = continuation
-            publishQuestion(flow)
-            presentQuestionEvent(for: flow)
-            showsUsageDetails = false
-            panelMode = .sessions
-            scheduleQuestionExpiry(for: request)
+        // As for permissions: when Claude Code ends the hook, the question
+        // leaves the notch unanswered.
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                cancelCollapse()
+                showsAllSessionsDuringOwnerInteraction = false
+                let flow = QuestionFlow(request: request)
+                questionFlows[request.id] = flow
+                questionContinuations[request.id] = continuation
+                publishQuestion(flow)
+                presentQuestionEvent(for: flow)
+                showsUsageDetails = false
+                panelMode = .sessions
+                scheduleQuestionExpiry(for: request)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.finishQuestion(requestID: request.id, outcome: .cancelled, answers: [:], note: Self.stoppedWaitingNote)
+            }
         }
     }
 

@@ -9,6 +9,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+- A permission or question card leaves the notch as soon as Claude Code stops
+  waiting for it (you answered in the terminal, interrupted the turn, or the
+  session ended). Before, it could stay for up to 10 minutes and keep the next
+  real prompt out of the notch.
+- In `dontAsk` and `bypassPermissions` modes, permission requests are left to
+  Claude Code: the notch no longer asks where Claude Code would not.
+
 ## [1.0.3] - 2026-11-22
 
 - The notch's usage panel shows how much of each limit you have used, the same
