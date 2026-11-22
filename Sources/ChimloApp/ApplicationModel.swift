@@ -282,7 +282,7 @@ final class ApplicationModel: ObservableObject {
         cameraHousingLeftEdge: nil,
         cameraHousingRightEdge: nil
     )
-    private var contextWarnedSessions: Set<String> = []
+    private var contextWarnings = ThresholdCrossingTracker()
     private var usageWarnedWindows: Set<String> = []
 
     var panelSize: CGSize {
@@ -713,16 +713,9 @@ final class ApplicationModel: ObservableObject {
     /// Moves the highlight through the sessions in panel order and opens the
     /// panel so the owner sees where it landed.
     func selectSession(offset: Int) {
-        let ordered = displayedSessions.filter { !$0.isDemo }
-        guard !ordered.isEmpty else { return }
-        let current = selectedSessionID.flatMap { id in ordered.firstIndex { $0.id == id } }
-        let next: Int
-        if let current {
-            next = (current + offset % ordered.count + ordered.count) % ordered.count
-        } else {
-            next = offset >= 0 ? 0 : ordered.count - 1
-        }
-        selectedSessionID = ordered[next].id
+        let ids = displayedSessions.filter { !$0.isDemo }.map(\.id)
+        guard let next = SelectionCycle.next(in: ids, current: selectedSessionID, offset: offset) else { return }
+        selectedSessionID = next
         openPanel()
         scheduleCollapseAfterHover(delayMilliseconds: 4_000)
     }
@@ -1252,14 +1245,9 @@ final class ApplicationModel: ObservableObject {
     /// informational nudge per crossing; compaction re-arms it.
     private func announceContextWarnings() {
         for (sessionID, insight) in sessionInsights {
-            guard let fraction = insight.contextFraction else { continue }
-            if fraction < contextAttentionThreshold {
-                contextWarnedSessions.remove(sessionID)
-                continue
-            }
-            guard !contextWarnedSessions.contains(sessionID),
+            guard let fraction = insight.contextFraction,
+                  contextWarnings.crossed(sessionID, value: fraction, threshold: contextAttentionThreshold),
                   sessions.contains(where: { $0.id == sessionID && !$0.isDemo }) else { continue }
-            contextWarnedSessions.insert(sessionID)
             let percent = Int((fraction * 100).rounded())
             let decision = announce(
                 .contextWarning,

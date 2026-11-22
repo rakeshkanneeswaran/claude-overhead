@@ -207,6 +207,9 @@ final class LocalTranscriptDiscovery: @unchecked Sendable {
     private var cursors: [String: TranscriptCursor] = [:]
     /// The latest insights per session, read by the same pass that finds sessions.
     private var insightsBySessionID: [String: TranscriptInsights] = [:]
+    /// Which file the insights came from. A session moved between projects
+    /// has a transcript in each; the most recently written one is current.
+    private var insightsSource: [String: TranscriptSourcePreference.Source] = [:]
 
     init(
         homeURL: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -292,7 +295,13 @@ final class LocalTranscriptDiscovery: @unchecked Sendable {
             fallbackUpdatedAt: modifiedAt
         )
         cursors[key] = cursor
-        if let id = candidate?.id { insightsBySessionID[id] = cursor.insights.insights }
+        if let id = candidate?.id {
+            let source = TranscriptSourcePreference.Source(path: key, modifiedAt: modifiedAt)
+            if TranscriptSourcePreference.shouldReplace(insightsSource[id], with: source) {
+                insightsSource[id] = source
+                insightsBySessionID[id] = cursor.insights.insights
+            }
+        }
         return candidate
     }
 

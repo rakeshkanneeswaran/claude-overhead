@@ -186,13 +186,15 @@ final class HistoryModel: ObservableObject {
         let projectName = session.projectPath
             .map { URL(fileURLWithPath: $0).lastPathComponent }
             .flatMap { $0.isEmpty ? nil : $0 } ?? session.title
-        let status: HistoryStatus = switch session.mood {
-        case .working: .running
-        case .waiting, .question: .waiting
-        case .success: .completed
+        let state: SessionActivityState = switch session.mood {
+        case .working: .working
+        case .waiting: .waitingForPermission
+        case .question: .waitingForAnswer
+        case .success: .finished
         case .failed: .failed
-        case .idle: .unknown
+        case .idle: .idle
         }
+        let status = state.historyStatus
         let ended = status == .completed || status == .failed ? session.updatedAt : nil
         var events: [HistoryEvent] = [HistoryEvent(kind: .started, at: firstSeen)]
         for compaction in insights?.compactions ?? [] {

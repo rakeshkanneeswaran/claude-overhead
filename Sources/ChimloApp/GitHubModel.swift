@@ -288,27 +288,27 @@ final class GitHubModel: ObservableObject {
     // MARK: Events
 
     private func emit(_ event: GitHubEvent, in prs: [GitHubPullRequest]) {
-        guard let pr = prs.first(where: { $0.id == event.prID }) else { return }
-        let kind: OverheadEventKind
+        guard let pr = prs.first(where: { $0.id == event.prID }),
+              let kind = event.overheadKind else { return }
         let body: String
         switch event {
         case .reviewRequested:
-            kind = .githubReviewRequested; body = "Your review was requested."
+            body = "Your review was requested."
             todayCounts.reviewsWaiting += 1
         case .changesRequested:
-            kind = .githubChangesRequested; body = "Changes were requested."
+            body = "Changes were requested."
         case .approved:
-            kind = .githubApproved; body = "The pull request was approved."
+            body = "The pull request was approved."
         case let .newComments(_, count):
-            kind = .githubNewComments; body = count == 1 ? "1 new comment." : "\(count) new comments."
+            body = count == 1 ? "1 new comment." : "\(count) new comments."
         case .ciFailed:
-            kind = .githubCIFailed; body = "CI failed."
+            body = "CI failed."
             todayCounts.ciFailures += 1
         case .ciPassed:
-            kind = .githubCIPassed; body = "CI passed."
+            body = "CI passed."
             todayCounts.ciSuccesses += 1
         case .merged:
-            kind = .githubMerged; body = "The pull request was merged."
+            body = "The pull request was merged."
             todayCounts.pullRequestsMerged += 1
         case .closed:
             return

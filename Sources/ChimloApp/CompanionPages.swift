@@ -45,7 +45,7 @@ private struct OverviewPage: View {
                 StatTile(label: "Completed today", value: "\(recap.sessionsCompleted)",
                          detail: recap.sessionsFailed > 0 ? "\(recap.sessionsFailed) failed" : "No failures")
                 StatTile(label: "Reported cost", value: CompanionFormat.cost(recap.costUSD),
-                         detail: "From Claude Code, today")
+                         detail: "Sessions active today, as Claude Code reports")
             }
 
             if !waiting.isEmpty {
@@ -607,7 +607,7 @@ private struct HistoryPage: View {
             statuses: status.map { [$0] } ?? [],
             from: range.start
         ))
-        PageScaffold(title: "History", subtitle: "\(history.records.count) sessions kept on this Mac.") {
+        PageScaffold(title: "History", subtitle: history.records.count == 1 ? "1 session kept on this Mac." : "\(history.records.count) sessions kept on this Mac.") {
             if let problem = history.problem {
                 Label(problem, systemImage: "exclamationmark.triangle")
                     .font(.system(size: 12)).foregroundStyle(palette.warning)
@@ -615,7 +615,7 @@ private struct HistoryPage: View {
             HStack(spacing: 10) {
                 TextField("Search prompts, responses, files, branches", text: $text)
                     .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 320)
+                    .frame(minWidth: 220, maxWidth: 320)
                 Picker("Status", selection: $status) {
                     Text("Any status").tag(HistoryStatus?.none)
                     ForEach([HistoryStatus.completed, .failed, .interrupted, .running, .waiting], id: \.self) {

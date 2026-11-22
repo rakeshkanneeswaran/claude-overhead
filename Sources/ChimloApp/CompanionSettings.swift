@@ -383,6 +383,11 @@ private struct SessionsPane: View {
                 }
                 Toggle("Group by project in the companion window", isOn: settings.binding(\.groupByProject))
             }
+            Section {
+                Toggle("Show today's recap on Overview", isOn: settings.binding(\.dailyRecapEnabled))
+            } footer: {
+                Text("Built on this Mac from your session history and, when GitHub is on, today's pull request and CI activity.")
+            }
             Section("Notch panel") {
                 Picker("Row density", selection: settings.binding(\.density)) {
                     Text("Comfortable (with branch, context and agents)").tag(RowDensity.comfortable)
@@ -458,9 +463,14 @@ private struct EventPreferenceRow: View {
     var body: some View {
         let preference = settings.settings.notifications.preference(for: kind)
         HStack {
-            Toggle(kind.displayName, isOn: binding(\.enabled, current: preference))
-                .disabled(kind.blocksClaude)
-            Spacer()
+            if kind.blocksClaude {
+                Text(kind.displayName)
+                Spacer()
+                Text("Always shown").font(.caption).foregroundStyle(.secondary)
+            } else {
+                Toggle(kind.displayName, isOn: binding(\.enabled, current: preference))
+                Spacer()
+            }
             if kind.priority != .ambient {
                 Toggle("Sound", isOn: binding(\.sound, current: preference)).toggleStyle(.checkbox)
                 Toggle("Banner", isOn: binding(\.systemBanner, current: preference)).toggleStyle(.checkbox)
@@ -471,7 +481,7 @@ private struct EventPreferenceRow: View {
 
     private func binding(_ keyPath: WritableKeyPath<EventPreference, Bool>, current: EventPreference) -> Binding<Bool> {
         Binding(
-            get: { kind.blocksClaude && keyPath == \EventPreference.enabled ? true : current[keyPath: keyPath] },
+            get: { current[keyPath: keyPath] },
             set: { value in
                 var updated = settings.settings.notifications.preference(for: kind)
                 updated[keyPath: keyPath] = value
