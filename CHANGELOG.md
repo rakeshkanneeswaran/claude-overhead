@@ -9,6 +9,41 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-11-23
+
+Fixes permission cards appearing for sessions you were not at. Someone
+running a batch of `claude -p` runs from a session in Auto saw a card for every
+run: the cards were real Claude Code requests, but from runs with nobody to
+answer them, each in its own permission mode.
+
+- **Runs started by a script are left alone.** A `claude -p` run (or an SDK
+  run with no application answering its prompts) has nobody at a Claude Code
+  prompt, so Claude Code decides a call that needs approval by itself and the
+  run carries on. Claude Code still runs the permission hook first, and
+  Claude Overhead used to answer it with a card: every such run stopped for up
+  to ten minutes behind a card nobody expected, and a batch of them filled the
+  notch even while your own session was in Auto. Those requests and questions
+  are now left to Claude Code, as they are without Claude Overhead.
+  **Settings → General → Ask me about unattended runs** brings them to the
+  notch if you want to approve them there. Sessions you are at (the terminal,
+  VS Code, the desktop app) are unchanged.
+- **A permission card names the session's mode** ("Manual", "Auto", "Plan",
+  "Accept edits"), so a card from a session you thought was in Auto explains
+  itself. Auto falls back to Manual when the model or provider does not
+  support it, and a new `claude -p` run does not take the mode of the session
+  that started it.
+
+Known limits:
+
+- Claude Overhead tells an unattended run by the flags Claude Code was started
+  with. A Claude Code installed through npm can hide those flags; a run
+  started from inside another session is then treated as attended and still
+  gets a card, as before.
+- Background sessions (`claude --bg`) and applications other than the
+  terminal, VS Code and the desktop app were not tried. Anything unclear is
+  treated as attended, and a wrong guess can only move a request between the
+  notch and Claude Code; it never approves anything.
+
 ## [1.0.7] - 2026-11-23
 
 A reliability release from a full audit of the app: every area was reviewed,
@@ -322,7 +357,8 @@ controls in the MacBook notch.
 - Accessibility permission is needed for Chimlo's volume and brightness
   controls. Agent activity remains available without it.
 
-[Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.0.7...HEAD
+[Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.0.8...HEAD
+[1.0.8]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.8
 [1.0.7]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.7
 [1.0.6]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.6
 [1.0.5]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.5
