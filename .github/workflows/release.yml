@@ -52,6 +52,28 @@ jobs:
             exit 1
           fi
 
+      - name: Which checks this tag has
+        # A tag is built with its own scripts. Only releases before 1.1.0
+        # predate the launch check and What's New, and can still be rebuilt
+        # without them; any later tag must have both.
+        id: tag
+        run: |
+          if [ -e Scripts/check-release-notes.sh ] && [ -e Scripts/smoke-launch.sh ]; then
+            echo "modern=true" >> "$GITHUB_OUTPUT"
+          else
+            case "$TAG" in
+              v0.*|v1.0.*) echo "modern=false" >> "$GITHUB_OUTPUT" ;;
+              *) echo "$TAG has no Scripts/check-release-notes.sh or Scripts/smoke-launch.sh." >&2; exit 1 ;;
+            esac
+          fi
+
+      - name: What's New is ready for this version
+        # Every release ships its own visual release notes. No notes for this
+        # version, or notes that disagree with CHANGELOG.md, and nothing is
+        # built or published (Docs/RELEASING.md).
+        if: steps.tag.outputs.modern == 'true'
+        run: ./Scripts/check-release-notes.sh --release "$TAG"
+
       - name: Checks
         run: make check
 
@@ -60,6 +82,27 @@ jobs:
 
       - name: Build and verify the DMG
         run: ./Scripts/build-public-dmg.sh "$TAG" "${{ github.run_number }}"
+
+      - name: Launch the packaged app
+        # Everything above reads the bundle or tests the code as SwiftPM
+        # builds it. This starts the app that is about to be published.
+        if: steps.tag.outputs.modern == 'true'
+        run: ./Scripts/smoke-launch.sh "dist/Claude Overhead.app"
+
+      - name: The packaged app draws its What's New
+        # The app about to be published must carry exactly this version's
+        # notes, and its own What's New window must draw every page of them.
+        if: steps.tag.outputs.modern == 'true'
+        run: ./Scripts/check-release-notes.sh --release "$TAG" --app "dist/Claude Overhead.app"
+
+      - name: Keep the What's New pages
+        # Every page as the app drew it, to look at after the run.
+        if: steps.tag.outputs.modern == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: whats-new-${{ env.TAG }}
+          path: dist/whats-new/
+          if-no-files-found: error
 
       - name: Sign the update feed
         # Installed copies update through Sparkle from this appcast.xml, and

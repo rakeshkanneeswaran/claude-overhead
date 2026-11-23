@@ -195,6 +195,8 @@ public struct ProviderPermissionRequest: Codable, Equatable, Sendable, Identifia
     public let permissionMode: String?
     /// The run has nobody at a Claude Code prompt (see `ClaudeLaunch`).
     public let isUnattended: Bool
+    /// What "Allow All" would allow, in the owner's words, shown on the card.
+    public let sessionApprovalScope: String?
 
     public init(
         id: UUID = UUID(),
@@ -208,7 +210,8 @@ public struct ProviderPermissionRequest: Codable, Equatable, Sendable, Identifia
         allowsSessionApproval: Bool = false,
         expiresAt: Date? = nil,
         permissionMode: String? = nil,
-        isUnattended: Bool = false
+        isUnattended: Bool = false,
+        sessionApprovalScope: String? = nil
     ) {
         self.id = id
         self.sessionID = sessionID
@@ -222,6 +225,7 @@ public struct ProviderPermissionRequest: Codable, Equatable, Sendable, Identifia
         self.expiresAt = expiresAt
         self.permissionMode = permissionMode
         self.isUnattended = isUnattended
+        self.sessionApprovalScope = sessionApprovalScope
     }
 
     /// `permissionMode` and `isUnattended` are absent from a helper older
@@ -241,6 +245,7 @@ public struct ProviderPermissionRequest: Codable, Equatable, Sendable, Identifia
         expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
         permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
         isUnattended = try container.decodeIfPresent(Bool.self, forKey: .isUnattended) ?? false
+        sessionApprovalScope = try container.decodeIfPresent(String.self, forKey: .sessionApprovalScope)
     }
 }
 

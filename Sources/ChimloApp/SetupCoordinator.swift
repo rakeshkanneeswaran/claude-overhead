@@ -23,16 +23,16 @@ final class SetupCoordinator: NSObject, ObservableObject, NSWindowDelegate {
     /// The exact settings file a connect would write, for "Show the exact changes".
     @Published private(set) var settingsPreview: String?
 
-    /// Runs when the window closes. `showPreview` is true when the owner chose
+    /// Runs when the window closes. `revealNotch` is true when the owner chose
     /// "See your notch" after a verified connection.
-    var onFinish: ((_ showPreview: Bool) -> Void)?
+    var onFinish: ((_ revealNotch: Bool) -> Void)?
 
     let model: ApplicationModel
     private let integration = AgentIntegrationManager.live()
     private var window: NSWindow?
     private var detectTask: Task<Void, Never>?
     private var connectTask: Task<Void, Never>?
-    private var closesIntoPreview = false
+    private var closesIntoNotch = false
 
     init(model: ApplicationModel) {
         self.model = model
@@ -126,7 +126,7 @@ final class SetupCoordinator: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     func seeYourNotch() {
-        closesIntoPreview = true
+        closesIntoNotch = true
         window?.close()
     }
 
@@ -176,8 +176,12 @@ final class SetupCoordinator: NSObject, ObservableObject, NSWindowDelegate {
         } catch {
             await Self.hold(since: started)
             let after = try? Data(contentsOf: settingsURL)
-            if after != before {
-                // Written but not confirmed: remove only Overhead's entries.
+            // Written but not confirmed: remove only Overhead's entries. Not
+            // when Overhead was connected before this attempt: the file can
+            // also differ because Claude Code saved it meanwhile, and undoing
+            // a failed repair would then remove hooks that were working.
+            let wasConnected = before.map { String(decoding: $0, as: UTF8.self).contains("# overhead-claude-") } ?? false
+            if after != before, !wasConnected {
                 try? await Task.detached { try integration.disconnect(.claude) }.value
             }
             model.refreshAgentConnections()
@@ -333,9 +337,9 @@ final class SetupCoordinator: NSObject, ObservableObject, NSWindowDelegate {
         detectTask?.cancel()
         // A running connect finishes on its own: every write it makes is
         // atomic, and it only marks setup complete after verification.
-        let showPreview = closesIntoPreview && flow.isComplete
-        closesIntoPreview = false
-        onFinish?(showPreview)
+        let revealNotch = closesIntoNotch && flow.isComplete
+        closesIntoNotch = false
+        onFinish?(revealNotch)
         // Let the closed window go. Kept, its SwiftUI content stays mounted
         // and keeps animating off screen: the storyboard's wave cost 6 to 20%
         // of a core for as long as the app ran after setup. The flow lives

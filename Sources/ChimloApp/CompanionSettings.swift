@@ -139,26 +139,16 @@ private struct GeneralPane: View {
                 ClaudeConnectionRow()
                 LabeledContent("Local listener", value: listenerText)
                 Button("Run setup again") { model.presentSetup?(true) }
-                Toggle("Keep the preview session after setup", isOn: $model.keepPreviewSession)
             } header: {
                 Text("Claude Code")
             } footer: {
                 Text("Overhead adds hooks to ~/.claude/settings.json only after you confirm, keeps a backup, and removes only its own entries when you disconnect.")
             }
             Section("Updates") {
-                LabeledContent("Status") {
-                    Text(model.updatePresentation?.statusText ?? "Not checked yet")
-                        .multilineTextAlignment(.trailing)
-                        .fixedSize(horizontal: false, vertical: true)
+                UpdateStatusRow(model: model)
+                if let installed = model.installedReleaseNotes {
+                    Button(installed.menuTitle) { model.showWhatsNewForInstalledVersion() }
                 }
-                Button(model.updatePresentation?.actionTitle ?? "Check for Updates") {
-                    if model.updatePresentation?.isAvailable == true || model.updatePresentation?.failure != nil {
-                        model.installUpdate()
-                    } else {
-                        model.checkForUpdates()
-                    }
-                }
-                .disabled(model.updatePresentation.map { !$0.isActionable } ?? false)
                 if model.updatePresentation?.failure?.suggestsInstallCommand == true {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Or update from Terminal; it keeps your settings:")
@@ -223,6 +213,7 @@ private struct AppearancePane: View {
             } footer: {
                 Text("Each layout changes what the closed notch shows and how the panel opens.")
             }
+            CharacterSettingsSection()
             Section("In the notch") {
                 Toggle("Show live activity in the closed notch", isOn: settings.binding(\.showClosedNotchActivity))
                     .disabled(!settings.settings.layout.spec.showsActivityLabel)
@@ -367,6 +358,63 @@ private struct LayoutCard: View {
 
 /// A drawing of the closed notch in a layout: the black camera housing in
 /// the middle and what each wing would show.
+/// Where updates stand, in one row: up to date, an update on offer (its
+/// button opens What's New, where the update is started), busy, or failed
+/// with a way to try again.
+struct UpdateStatusRow: View {
+    @ObservedObject var model: ApplicationModel
+
+    private var summary: UpdateStatusSummary {
+        UpdateStatusSummary(
+            phase: model.updatePresentation?.phase,
+            installedVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        )
+    }
+
+    var body: some View {
+        let summary = summary
+        HStack(alignment: .center, spacing: 12) {
+            icon(for: summary.tone)
+                .frame(width: 26, height: 26)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(summary.title)
+                    .font(.body.weight(.medium))
+                Text(summary.detail)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            Button(model.updatePresentation?.actionTitle ?? "Check for Updates") {
+                if model.updatePresentation?.isAvailable == true || model.updatePresentation?.failure != nil {
+                    model.installUpdate()
+                } else {
+                    model.checkForUpdates()
+                }
+            }
+            .disabled(model.updatePresentation.map { !$0.isActionable } ?? false)
+        }
+        .padding(.vertical, 3)
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private func icon(for tone: UpdateStatusSummary.Tone) -> some View {
+        switch tone {
+        case .busy:
+            ProgressView().controlSize(.small)
+        case .neutral:
+            Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 16)).foregroundStyle(.secondary)
+        case .good:
+            Image(systemName: "checkmark.circle.fill").font(.system(size: 20)).foregroundStyle(ChimloTheme.liveGreen)
+        case .offer:
+            Image(systemName: "sparkles").font(.system(size: 18)).foregroundStyle(ChimloTheme.providerOrange)
+        case .problem:
+            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 18)).foregroundStyle(ChimloTheme.clayText)
+        }
+    }
+}
+
 private struct NotchPreview: View {
     let spec: NotchLayoutSpec
 

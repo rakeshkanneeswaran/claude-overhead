@@ -194,27 +194,24 @@ struct AppUpdatePresentationTests {
         #expect(notice.expiresAt == nil)
     }
 
-    @Test("Up to date answers in Settings; Claude's requests and onboarding outrank update rows")
+    @Test("Up to date answers in Settings; Claude's requests outrank update rows")
     func priority() {
         var upToDate = AppUpdateNotice()
         upToDate.show(AppUpdatePresentation(phase: .upToDate), at: now)
         #expect(!AppUpdatePresentationPolicy.shouldTakeIdlePanel(
-            notice: upToDate, now: now, hasOwnerInteraction: false, isOnboarding: false
+            notice: upToDate, now: now, hasOwnerInteraction: false
         ))
 
         var failed = AppUpdateNotice()
         failed.show(AppUpdatePresentation(phase: .failed(.downloadFailed)), at: now)
         #expect(AppUpdatePresentationPolicy.shouldTakeIdlePanel(
-            notice: failed, now: now, hasOwnerInteraction: false, isOnboarding: false
+            notice: failed, now: now, hasOwnerInteraction: false
         ))
         #expect(!AppUpdatePresentationPolicy.shouldTakeIdlePanel(
-            notice: failed, now: now, hasOwnerInteraction: true, isOnboarding: false
+            notice: failed, now: now, hasOwnerInteraction: true
         ))
         #expect(!AppUpdatePresentationPolicy.shouldTakeIdlePanel(
-            notice: failed, now: now, hasOwnerInteraction: false, isOnboarding: true
-        ))
-        #expect(!AppUpdatePresentationPolicy.shouldTakeIdlePanel(
-            notice: failed, now: now.addingTimeInterval(61), hasOwnerInteraction: false, isOnboarding: false
+            notice: failed, now: now.addingTimeInterval(61), hasOwnerInteraction: false
         ))
     }
 

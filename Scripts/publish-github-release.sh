@@ -32,6 +32,19 @@ done
 [[ -f "$APPCAST" ]] || { print -u2 "Missing $APPCAST. Run Scripts/generate-appcast.sh first."; exit 1; }
 /usr/bin/grep -q "<sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>" "$APPCAST" \
   || { print -u2 "$APPCAST does not describe $VERSION."; exit 1; }
+# Every release ships its What's New inside that feed (Docs/RELEASING.md).
+WHATS_NEW_DIR="$OUTPUT_DIR/whats-new"
+[[ -s "$WHATS_NEW_DIR/notes.json" ]] \
+  || { print -u2 "Missing $WHATS_NEW_DIR/notes.json. Run Scripts/generate-appcast.sh first."; exit 1; }
+EMBEDDED_NOTES="$(/usr/bin/xmllint --xpath \
+  'string(//*[local-name()="item"]/*[local-name()="description"])' "$APPCAST")"
+[[ -n "$EMBEDDED_NOTES" && "$EMBEDDED_NOTES" == "$(<"$WHATS_NEW_DIR/notes.json")" ]] \
+  || { print -u2 "$APPCAST does not carry the What's New of $VERSION."; exit 1; }
+/usr/bin/grep -q "\"version\":\"$VERSION\"" "$WHATS_NEW_DIR/notes.json" \
+  || { print -u2 "$WHATS_NEW_DIR/notes.json is not for $VERSION."; exit 1; }
+# Pictures the notes show are published beside the download.
+typeset -a WHATS_NEW_IMAGES
+WHATS_NEW_IMAGES=("$WHATS_NEW_DIR"/*.png(N))
 (cd "$OUTPUT_DIR" && /usr/bin/shasum -a 256 -c SHA256SUMS.txt >/dev/null) \
   || { print -u2 "The DMGs no longer match SHA256SUMS.txt."; exit 1; }
 
@@ -71,9 +84,9 @@ if gh release view "$TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
     print -u2 "Release $TAG already exists. Set CHIMLO_REPLACE_ASSETS=1 to replace its files."
     exit 1
   fi
-  gh release upload "$TAG" "$STABLE_DMG" "$VERSIONED_DMG" "$SUMS" "$INSTALLER" "$APPCAST" --repo "$REPOSITORY" --clobber
+  gh release upload "$TAG" "$STABLE_DMG" "$VERSIONED_DMG" "$SUMS" "$INSTALLER" "$APPCAST" "${WHATS_NEW_IMAGES[@]}" --repo "$REPOSITORY" --clobber
 else
-  gh release create "$TAG" "$STABLE_DMG" "$VERSIONED_DMG" "$SUMS" "$INSTALLER" "$APPCAST" \
+  gh release create "$TAG" "$STABLE_DMG" "$VERSIONED_DMG" "$SUMS" "$INSTALLER" "$APPCAST" "${WHATS_NEW_IMAGES[@]}" \
     --repo "$REPOSITORY" \
     --verify-tag \
     --title "Claude Overhead $VERSION" \
@@ -116,6 +129,13 @@ for attempt in 1 2 3 4 5 6; do
   sleep 10
 done
 (( FEED_OK )) || { print -u2 "$FEED_URL does not serve this release's appcast.xml yet."; exit 1; }
+# And each picture must be served beside the download, byte for byte.
+for image in "${WHATS_NEW_IMAGES[@]}"; do
+  IMAGE_URL="https://github.com/$REPOSITORY/releases/download/$TAG/${image:t}"
+  env -u GH_TOKEN -u GITHUB_TOKEN /usr/bin/curl -fsSL --retry 3 -o "$CHECK" "$IMAGE_URL" \
+    && /usr/bin/cmp -s "$CHECK" "$image" \
+    || { print -u2 "$IMAGE_URL does not serve this release's picture."; exit 1; }
+done
 print "Published $TAG"
 print "Update feed:     $FEED_URL"
 print "Install:         curl -fsSL $INSTALL_URL | bash"

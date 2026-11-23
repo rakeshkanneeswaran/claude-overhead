@@ -37,7 +37,9 @@ public enum ModelDisplayName {
             return nil
         }
 
-        let beforeProviderVersion = modelPortion.split(separator: "@", maxSplits: 1)[0]
+        // `split` returns nothing for an empty string or a lone "@": a model
+        // called just "claude" (a gateway alias) has no name to show.
+        guard let beforeProviderVersion = modelPortion.split(separator: "@", maxSplits: 1).first else { return nil }
         var tokens = tokenize(beforeProviderVersion)
         tokens.removeAll(where: isReleaseSuffix)
         guard !tokens.isEmpty else { return nil }
@@ -82,7 +84,8 @@ public enum ModelDisplayName {
         if lowercased == "latest" { return true }
         if lowercased.count == 8, lowercased.allSatisfy(\.isNumber) { return true }
         if lowercased.first == "v" {
-            let version = lowercased.dropFirst().split(separator: ":", maxSplits: 1)[0]
+            // A bare "v" or "v:" has no version after it.
+            guard let version = lowercased.dropFirst().split(separator: ":", maxSplits: 1).first else { return false }
             return !version.isEmpty && version.allSatisfy(\.isNumber)
         }
         return false

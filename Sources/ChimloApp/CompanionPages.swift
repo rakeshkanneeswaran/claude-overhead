@@ -33,7 +33,7 @@ private struct OverviewPage: View {
 
     var body: some View {
         let recap = history.recap(for: .now, github: services.recapGitHubInput)
-        let live = model.sessions.filter { !$0.isDemo }
+        let live = model.sessions
         let waiting = live.filter(\.needsAttention)
         PageScaffold(title: "Overview", subtitle: Date.now.formatted(date: .complete, time: .omitted)) {
             HStack(spacing: 12) {
@@ -249,7 +249,7 @@ private struct SessionsPage: View {
     }
 
     private var filtered: [SessionDisplayModel] {
-        let all = model.sessions.filter { !$0.isDemo }
+        let all = model.sessions
         let sorted: [SessionDisplayModel] = switch settings.settings.sessionSort {
         case .recentActivity: all.sorted { $0.updatedAt > $1.updatedAt }
         case .attentionFirst: all.sorted { lhs, rhs in
@@ -277,11 +277,20 @@ private struct SessionLine: View {
     let selected: Bool
     let select: () -> Void
     @EnvironmentObject private var settings: SettingsModel
+    @EnvironmentObject private var model: ApplicationModel
     @Environment(\.overheadPalette) private var palette
 
     var body: some View {
         Button(action: select) {
             HStack(spacing: 10) {
+                // The same mark the notch shows for this session. With no
+                // character on any session the list stays text only.
+                if model.anySessionWearsCharacter {
+                    SessionMark(character: model.character(for: session), mood: .success, size: 22, reduceMotion: true)
+                        .padding(4)
+                        .background(Color(white: 0.07))
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
                 MoodBadge(mood: session.mood).frame(width: 120, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(session.displayTitle)
@@ -411,7 +420,7 @@ private struct ProjectsPage: View {
     @Environment(\.overheadPalette) private var palette
 
     var body: some View {
-        let live = Set(model.sessions.filter { !$0.isDemo && $0.mood != .idle }.map(\.id))
+        let live = Set(model.sessions.filter { $0.mood != .idle }.map(\.id))
         let attention = Set(model.sessions.filter(\.needsAttention).map(\.id))
         let pulses = history.pulses(liveSessionIDs: live, attentionSessionIDs: attention)
         PageScaffold(title: "Projects", subtitle: "Project Pulse: what Claude has been doing in each project.") {
@@ -429,6 +438,7 @@ private struct ProjectsPage: View {
                 }
                 if let key = navigation.selectedProjectKey,
                    let pulse = pulses.first(where: { $0.projectKey == key }) {
+                    ProjectCharactersCard(pulse: pulse)
                     Card("Timeline · \(pulse.name)") {
                         let entries = history.timeline(projectKey: key)
                         if entries.isEmpty {
@@ -867,7 +877,7 @@ private struct UsagePage: View {
     @Environment(\.overheadPalette) private var palette
 
     var body: some View {
-        let sessions = model.sessions.filter { !$0.isDemo && $0.insights != nil }
+        let sessions = model.sessions.filter { $0.insights != nil }
         PageScaffold(title: "Context & Usage", subtitle: "Context is per session; the 5-hour and weekly limits are per account.") {
             UsageGlance()
             Card("Context by session") {

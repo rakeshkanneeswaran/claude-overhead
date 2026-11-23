@@ -60,6 +60,15 @@ views. `ChimloCore` does no networking itself: inject a transport, as
 5. **Exercise every changed control** with keyboard and pointer input.
 6. **Check Reduce Motion, Increase Contrast,** and a display without a notch.
 
+## Releases and What's New
+
+Every release ships visual release notes that users see before they update.
+If your change is one users will notice, add it to **Unreleased** in
+`CHANGELOG.md`; whoever cuts the release turns that section into
+`ReleaseNotes/<version>.json`. A release cannot be built without that file:
+see [Docs/RELEASING.md](Docs/RELEASING.md#whats-new) and
+[ReleaseNotes/README.md](ReleaseNotes/README.md).
+
 ## What Not to Include
 
 Do not include API keys, prompts, transcripts, terminal history, signed license

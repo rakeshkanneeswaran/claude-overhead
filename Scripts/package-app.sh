@@ -64,6 +64,7 @@ fi
 cd "$PROJECT_DIR"
 ./Scripts/swift.sh build -c release --product ChimloApp
 ./Scripts/swift.sh build -c release --product overhead
+./Scripts/swift.sh build -c release --product overhead-release-notes
 
 if [[ -n "${CHIMLO_SDK_PATH:-}" ]]; then
   BIN_DIR="$(SDKROOT="$CHIMLO_SDK_PATH" CLANG_MODULE_CACHE_PATH="${TMPDIR:-/tmp}/overhead-clang-module-cache" SWIFTPM_MODULECACHE_OVERRIDE="${TMPDIR:-/tmp}/overhead-swiftpm-cache" swift build --disable-sandbox -c release --show-bin-path --sdk "$CHIMLO_SDK_PATH")"
@@ -140,6 +141,35 @@ fi
 
 cp "$BIN_DIR/ChimloApp" "$MACOS_DIR/Overhead"
 cp "$BIN_DIR/overhead" "$HELPERS_DIR/overhead"
+
+# What's New: every build carries its own release notes, in their published
+# form, for "What's New in <version>" in Settings. A release cannot be
+# packaged without them. A development build previews the newest notes; the
+# update test brings its own (CHIMLO_WHATS_NEW_ROOT).
+BUNDLE_VERSION="$(/usr/bin/plutil -extract CFBundleShortVersionString raw "$CONTENTS_DIR/Info.plist")"
+NOTES_ROOT="${CHIMLO_WHATS_NEW_ROOT:-$PROJECT_DIR}"
+NOTES_VERSION="$BUNDLE_VERSION"
+if [[ ! -f "$NOTES_ROOT/ReleaseNotes/$NOTES_VERSION.json" ]]; then
+  case "$PACKAGE_VARIANT" in
+    release)
+      print -u2 "There is no ReleaseNotes/$NOTES_VERSION.json. Every release ships its What's New;"
+      print -u2 "see Docs/RELEASING.md."
+      exit 1
+      ;;
+    development)
+      NOTES_VERSION="$( (cd "$NOTES_ROOT/ReleaseNotes" 2>/dev/null && print -l -- *.json(N:r) | /usr/bin/sort -t. -k1,1n -k2,2n -k3,3n | /usr/bin/tail -1) || true)"
+      ;;
+    *)
+      NOTES_VERSION=""
+      ;;
+  esac
+fi
+if [[ -n "$NOTES_VERSION" ]]; then
+  "$BIN_DIR/overhead-release-notes" emit "$NOTES_VERSION" \
+    --root "$NOTES_ROOT" \
+    --output "$RESOURCES_DIR/WhatsNew.json" \
+    --assets "$RESOURCES_DIR/WhatsNew" >/dev/null
+fi
 /usr/bin/ditto "$BIN_DIR/Sparkle.framework" "$FRAMEWORKS_DIR/Sparkle.framework"
 
 ICONSET_DIR="$STAGING_ROOT/Overhead.iconset"

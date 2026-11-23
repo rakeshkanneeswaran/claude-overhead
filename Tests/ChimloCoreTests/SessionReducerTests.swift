@@ -170,7 +170,7 @@ struct SessionReducerTests {
         #expect(SessionTitle.display(title: "Untitled session", kind: .workspace, projectPath: nil) == "Untitled session")
     }
 
-    @Test("The onboarding script is deterministic")
+    @Test("The demo command's script is deterministic")
     func demoScriptIsDeterministic() {
         let first = DemoScript.make()
         let second = DemoScript.make()

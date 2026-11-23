@@ -196,7 +196,7 @@ public enum ClaudeStatusLineConfiguration {
         }
         return try JSONSerialization.data(
             withJSONObject: root,
-            options: [.prettyPrinted, .sortedKeys]
+            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         ) + Data("\n".utf8)
     }
 }

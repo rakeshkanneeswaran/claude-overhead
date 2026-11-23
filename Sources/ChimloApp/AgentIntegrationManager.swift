@@ -69,6 +69,16 @@ struct AgentIntegrationManager {
         )
     }
 
+    /// An app opened from a downloaded disk image is quarantined, and a copy
+    /// of its helper keeps the flag. Claude Code runs that copy from a
+    /// shell, where macOS refuses a quarantined program that is not
+    /// notarised, and every hook would fail. The owner has already chosen to
+    /// run this app; its own helper is part of it. (The install script
+    /// removes the flag from the whole app in the same way.)
+    private static func removeQuarantine(from url: URL) {
+        _ = url.path.withCString { removexattr($0, "com.apple.quarantine", 0) }
+    }
+
     /// Copies the signed helper out of the movable app bundle. Hook files only
     /// reference this stable path, so renaming or relocating Claude Overhead.app does not
     /// silently break future events.
@@ -102,6 +112,7 @@ struct AgentIntegrationManager {
             }
             try fileManager.copyItem(at: bundledHelperURL, to: stagingURL)
             try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stagingURL.path)
+            Self.removeQuarantine(from: stagingURL)
 
             if fileManager.fileExists(atPath: stableHelperURL.path) {
                 _ = try fileManager.replaceItemAt(stableHelperURL, withItemAt: stagingURL)
@@ -111,6 +122,8 @@ struct AgentIntegrationManager {
         }
 
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stableHelperURL.path)
+        // Also a copy made by an earlier version, which kept the flag.
+        Self.removeQuarantine(from: stableHelperURL)
         guard fileManager.isExecutableFile(atPath: stableHelperURL.path) else {
             throw IntegrationError.helperUnavailable
         }

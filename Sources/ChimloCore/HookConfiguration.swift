@@ -247,7 +247,10 @@ public enum ClaudeHookConfiguration {
         hooks["PermissionRequest"] = permissionGroups
 
         root["hooks"] = hooks
-        let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+        let data = try JSONSerialization.data(
+            withJSONObject: root,
+            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        )
         return ClaudeHookConfigurationPlan(data: data + Data("\n".utf8), changed: changed)
     }
 
@@ -284,7 +287,10 @@ public enum ClaudeHookConfiguration {
         } else {
             root["hooks"] = hooks
         }
-        let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+        let data = try JSONSerialization.data(
+            withJSONObject: root,
+            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        )
         return ClaudeHookConfigurationPlan(data: data + Data("\n".utf8), changed: true)
     }
 

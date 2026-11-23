@@ -285,8 +285,10 @@ final class GitHubModel: ObservableObject {
         refreshNow()
     }
 
+    /// Asked by views on every redraw, so it only checks that a token is
+    /// stored and never reads it (see `KeychainTokenStore.exists`).
     var hasStoredToken: Bool {
-        ((try? tokenStore.read()) ?? nil) != nil
+        tokenStore.exists()
     }
 
     /// Forgets the sign-in Overhead holds: the Keychain token, if any, and the

@@ -219,8 +219,11 @@ struct CompactWingIndicators: View {
 
     var body: some View {
         let spec = model.layoutSpec
-        let session = model.sessions.first(where: { $0.isRunning && !$0.isDemo })
-            ?? model.sessions.first(where: { !$0.isDemo })
+        // The same session the closed notch's mark and activity line speak
+        // for, so the wing never describes a different one.
+        let session = model.notchFocusSession
+            ?? model.sessions.first(where: \.isRunning)
+            ?? model.sessions.first
         let insights = session?.insights
         let running = insights?.runningAgents.count ?? 0
         HStack(spacing: 3) {

@@ -68,6 +68,8 @@ struct CompactActivityStripView: View {
 /// Claude made, in order, with its status, as the transcript records it.
 struct SessionInspectorView: View {
     let session: SessionDisplayModel
+    /// The session's character; nil shows the Claude mark.
+    var character: SessionCharacter? = nil
     let reduceMotion: Bool
     let back: () -> Void
     let focusTerminal: (() -> Void)?
@@ -108,7 +110,7 @@ struct SessionInspectorView: View {
             .help("Back to all sessions")
             .accessibilityLabel("Back to all sessions")
 
-            ClaudeCodeMark(mood: session.mood, size: 24, reduceMotion: reduceMotion)
+            SessionMark(character: character, mood: session.mood, size: 24, reduceMotion: reduceMotion)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(session.displayTitle)

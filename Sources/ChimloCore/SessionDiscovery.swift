@@ -208,7 +208,11 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
 
         sessionID = Self.prefer(line.sessionID, over: sessionID, maximumUTF8Bytes: 512)
         workingDirectory = Self.prefer(line.cwd, over: workingDirectory, maximumUTF8Bytes: 4_096)
-        model = Self.prefer(line.message?.model, over: model, maximumUTF8Bytes: 128)
+        // The line Claude Code writes for an API error names a placeholder
+        // model, not the session's.
+        if line.isApiErrorMessage != true {
+            model = Self.prefer(line.message?.model, over: model, maximumUTF8Bytes: 128)
+        }
         let lineTimestamp = Self.parseDate(line.timestamp)
         updatedAt = Self.latest(updatedAt, lineTimestamp)
 
@@ -253,12 +257,20 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
                     lineTimestamp
                 )
             }
-            // `end_turn` closes the turn and Claude waits for the owner.
-            // `tool_use`, and streamed blocks with no reason yet, mean it is
-            // still working.
-            phase = Self.turnEndingStopReasons.contains(line.message?.stopReason ?? "")
-                ? .completed
-                : .working
+            // A turn that ended in an API error is written as an assistant
+            // line marked `isApiErrorMessage` (its stop reason reads like a
+            // normal end). That line is the record that the owner's turn
+            // failed: requests Claude Code makes by itself leave none.
+            // Otherwise `end_turn` closes the turn and Claude waits for the
+            // owner; `tool_use`, and streamed blocks with no reason yet, mean
+            // it is still working.
+            if line.isApiErrorMessage == true {
+                phase = .failed
+            } else {
+                phase = Self.turnEndingStopReasons.contains(line.message?.stopReason ?? "")
+                    ? .completed
+                    : .working
+            }
         case "progress":
             phase = .working
         case "result", "summary":
@@ -332,6 +344,7 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
         let customTitle: String?
         let lastPrompt: String?
         let isSidechain: Bool?
+        let isApiErrorMessage: Bool?
 
         struct Message: Decodable {
             let model: String?
@@ -386,6 +399,7 @@ public struct PrivacySafeSessionMetadataScanner: Sendable {
             case customTitle
             case lastPrompt
             case isSidechain
+            case isApiErrorMessage
         }
     }
 }

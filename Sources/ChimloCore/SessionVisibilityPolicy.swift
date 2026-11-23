@@ -13,7 +13,6 @@ public enum SessionVisibilityPolicy {
     public static func shouldDisplay(
         title: String,
         titleKind: SessionTitleKind,
-        isDemo: Bool,
         hasActionableRequest: Bool,
         hasConversationPreview: Bool = false
     ) -> Bool {
@@ -25,7 +24,6 @@ public enum SessionVisibilityPolicy {
         // titles. A transient conversation preview is stronger evidence of a
         // real session, while remaining excluded from Claude Overhead's saved registry.
         return titleKind == .task
-            || isDemo
             || hasActionableRequest
             || hasConversationPreview
     }

@@ -265,7 +265,9 @@ struct KeyValueRow: View {
 
 enum CompanionFormat {
     static func duration(_ seconds: TimeInterval?) -> String {
-        guard let seconds, seconds.isFinite, seconds >= 0 else { return "—" }
+        // A date from a damaged history record can be centuries away; a
+        // number that large cannot be made a whole number.
+        guard let seconds, seconds.isFinite, seconds >= 0, seconds < 1e12 else { return "—" }
         let total = Int(seconds)
         let hours = total / 3600
         let minutes = (total % 3600) / 60

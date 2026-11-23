@@ -1,4 +1,4 @@
-.PHONY: app build check clean dmg public-dmg public-release release release-app release-publish release-signing-freeze release-signing-identity release-signing-restore signing-check signing-identity test update-test update-test-auto
+.PHONY: app build check clean dmg public-dmg public-release release release-app release-notes release-publish release-signing-freeze release-signing-identity release-signing-restore signing-check signing-identity test update-test update-test-auto whats-new
 
 build:
 	./Scripts/swift.sh build
@@ -15,11 +15,25 @@ update-test:
 # half-replaced. Needs the EdDSA key (login Keychain or SPARKLE_ED_KEY_FILE).
 update-test-auto:
 	./Scripts/test-local-update.sh --auto
+	./Scripts/test-local-update.sh --auto-whats-new
 	./Scripts/test-local-update.sh --auto-tampered
 	./Scripts/test-local-update.sh --auto-offline
+	./Scripts/test-local-update.sh --auto-wrong-notes
 
 check:
 	./Scripts/swift.sh run overhead-check
+	./Scripts/swift.sh run overhead-release-notes check
+
+# What's New (see Docs/RELEASING.md). `make release-notes` checks every file
+# in ReleaseNotes/ against CHANGELOG.md; with VERSION=X.Y.Z it also checks
+# that X.Y.Z is ready to publish. `make whats-new VERSION=X.Y.Z` draws every
+# page of that release's walkthrough to dist/whats-new/X.Y.Z/ to look at.
+release-notes:
+	./Scripts/check-release-notes.sh $(if $(VERSION),--release "$(VERSION)")
+
+whats-new:
+	@test -n "$(VERSION)" || (echo "VERSION=X.Y.Z is required" >&2; exit 64)
+	./Scripts/check-release-notes.sh --render "$(VERSION)"
 
 app:
 	CHIMLO_PACKAGE_VARIANT=development ./Scripts/package-app.sh
@@ -53,7 +67,9 @@ public-dmg:
 public-release:
 	@test -n "$(TAG)" || (echo "TAG=vX.Y.Z is required" >&2; exit 64)
 	@test -n "$(BUILD_NUMBER)" || (echo "BUILD_NUMBER is required and must be higher than the last release's CFBundleVersion" >&2; exit 64)
+	./Scripts/check-release-notes.sh --release "$(TAG)"
 	./Scripts/build-public-dmg.sh "$(TAG)" "$(BUILD_NUMBER)"
+	./Scripts/check-release-notes.sh --release "$(TAG)" --app "dist/Claude Overhead.app"
 	CHIMLO_RELEASE_TAG="$(TAG)" ./Scripts/generate-appcast.sh "dist/public/Claude-Overhead-$(patsubst v%,%,$(TAG)).dmg" dist/public/appcast.xml
 	./Scripts/publish-github-release.sh "$(TAG)"
 

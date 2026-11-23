@@ -20,7 +20,8 @@ curl -fsSL https://github.com/rakeshkanneeswaran/claude-overhead/releases/latest
 against the release's SHA-256 checksums, copies Claude Overhead into
 Applications (or `~/Applications` if Applications is not writable), and opens
 it. From 1.0.4 on, Claude Overhead updates itself: it checks GitHub hourly
-(or when you click **Check for Updates**), verifies each download's
+(or when you click **Check for Updates**), shows you what is new in a
+walkthrough before anything is downloaded, verifies each download's
 signature before installing, and restarts into the new version; a failed
 update leaves your copy exactly as it was and says why. On 1.0.3 or earlier,
 run the same command once to update. Then Claude Overhead walks you
@@ -56,6 +57,12 @@ Overhead, and move it to the Trash.
   and assignment values redacted.
 - **Session rows** show the latest tool call, the project, running subagents
   and the linked pull request, wherever that data really exists.
+- **Characters, if you want them.** Every session shows the Claude logo by
+  default. Click the logo on a session in the notch to give that session one
+  of 46 original pixel characters, so sessions are easy to tell apart. Turn
+  on **Give each new session a character automatically** in **Settings →
+  Appearance** to have each new session draw a random one, and give a project
+  its own collection on the Projects page.
 - **Sound only where you want it.** Every session starts silent. Click a
   session's bell in the notch to hear it when it finishes, fails or needs
   you; other sessions stay quiet. Pick the sound, preview it and set its
@@ -128,7 +135,7 @@ shortcut (⌃⌥ and comma), or by opening the app again.
   Overhead depends on it.
 - **Settings:** seven tabs, one place for each choice. **General** (Claude
   Code, Lock Mode, unattended runs, login, display, updates), **Appearance** (notch layout,
-  themes, motion), **Notifications** (sound and volume, every event including
+  session characters, themes, motion), **Notifications** (sound and volume, every event including
   GitHub's, quiet hours, Focus), **Usage**, **Shortcuts**, **GitHub** (the
   integration: sign-in, repositories, what it watches) and **Privacy**.
 
@@ -153,7 +160,12 @@ permission.
 
 - No telemetry and no analytics. Nothing about your sessions leaves your Mac.
 - The only network calls are to **api.github.com**, and only while you have
-  GitHub turned on, plus Claude Code's own usage check.
+  GitHub turned on, plus Claude Code's own usage check and the app's update
+  check, which reads the signed update feed on **github.com** about once an
+  hour and downloads a release only when you choose to install it. The feed
+  carries each release's What's New; a picture in those notes, when a
+  release has one, is fetched from that same release when you open them, and
+  shown only if it matches the checksum in the signed feed.
 - GitHub sign-in reuses the GitHub CLI (`gh auth token`). If you would rather
   paste a personal access token, it is stored only in the macOS Keychain.
   Overhead reads only the repositories you select in **Settings → GitHub**

@@ -37,3 +37,11 @@ jobs:
 
       - name: Run tests
         run: make test
+
+      - name: Draw every What's New
+        # Each release's notes, drawn page by page by the app as built here,
+        # so notes the What's New window cannot show never reach a release.
+        run: |
+          for notes in ReleaseNotes/*.json; do
+            ./Scripts/check-release-notes.sh --render "$(basename "$notes" .json)"
+          done

@@ -13,6 +13,7 @@ let package = Package(
         .executable(name: "ChimloApp", targets: ["ChimloApp"]),
         .executable(name: "overhead", targets: ["ChimloCLI"]),
         .executable(name: "overhead-check", targets: ["ChimloChecks"]),
+        .executable(name: "overhead-release-notes", targets: ["ChimloReleaseNotes"]),
     ],
     dependencies: [
         .package(
@@ -47,6 +48,11 @@ let package = Package(
         .executableTarget(
             name: "ChimloChecks",
             dependencies: ["ChimloCore", "ChimloProtocol"]
+        ),
+        // Checks and publishes a release's What's New (see Docs/RELEASING.md).
+        .executableTarget(
+            name: "ChimloReleaseNotes",
+            dependencies: ["ChimloCore"]
         ),
         .testTarget(
             name: "ChimloCoreTests",

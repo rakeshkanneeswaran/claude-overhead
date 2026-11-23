@@ -91,7 +91,8 @@ public struct ClaudePermissionHook: Sendable {
             allowsSessionApproval: sessionPermissionUpdate != nil,
             expiresAt: expiresAt,
             permissionMode: permissionMode,
-            isUnattended: isUnattended
+            isUnattended: isUnattended,
+            sessionApprovalScope: sessionPermissionUpdate.map(Self.scopeSummary(of:))
         )
         sessionPermissionUpdateJSON = try sessionPermissionUpdate.map {
             try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys])
@@ -205,26 +206,32 @@ public struct ClaudePermissionHook: Sendable {
         }
     }
 
-    /// Claude-authored rules are preferred, but their destination is narrowed
-    /// to this session. File edits fall back to Claude's documented
-    /// `acceptEdits` session mode, which is the native "allow all edits"
-    /// behavior. Bypass mode is never forwarded by Claude Overhead.
+    /// What "Allow All" would write for this session, or nil when nothing can
+    /// be written that grants what the card shows and no more. The card then
+    /// has no "Allow All", and Allow Once still grants the one call.
     ///
-    /// Returns nil when no rule can be written that matches what the card
-    /// shows. A rule without its content covers the whole tool: for Bash that
-    /// is every command, so a command (or a suggested rule) too long to carry
-    /// must never be shortened to "allow Bash". The card then has no "Allow
-    /// All", and Allow Once still grants the one call.
+    /// Claude-authored rules are preferred, with their destination narrowed
+    /// to this session, but only rules for the tool on the card: a suggestion
+    /// that also covers another tool is not taken. A rule without content
+    /// covers every use of its tool, so it is taken only when the card names
+    /// no command, file or address of its own (a search, an MCP tool with no
+    /// such argument); with one on the card it would allow far more than is
+    /// shown. File edits use Claude's documented `acceptEdits` session mode,
+    /// the native "allow all edits", and only a file-edit card can ask for
+    /// it. Bypass mode is never forwarded.
     private static func sessionPermissionUpdate(
         from value: Any?,
         currentToolName: String,
         toolInput: [String: Any]
     ) -> [String: Any]? {
         let suggestions = value as? [[String: Any]] ?? []
+        let editsFiles = isFileMutationTool(currentToolName)
+        let cardNamesATarget = namesTarget(toolInput)
 
         for suggestion in suggestions {
             if suggestion["type"] as? String == "setMode",
                suggestion["mode"] as? String == "acceptEdits" {
+                guard editsFiles else { continue }
                 return [
                     "type": "setMode",
                     "mode": "acceptEdits",
@@ -238,9 +245,9 @@ public struct ClaudePermissionHook: Sendable {
                   (1...32).contains(rawRules.count) else { continue }
 
             var rules: [[String: Any]] = []
-            var includesCurrentTool = false
             for rawRule in rawRules {
-                guard let ruleToolName = boundedString(rawRule["toolName"], maximumBytes: 256)
+                guard let ruleToolName = boundedString(rawRule["toolName"], maximumBytes: 256),
+                      ruleToolName == currentToolName || (editsFiles && isFileMutationTool(ruleToolName))
                 else {
                     rules.removeAll()
                     break
@@ -255,13 +262,15 @@ public struct ClaudePermissionHook: Sendable {
                         break
                     }
                     rule["ruleContent"] = ruleContent
+                } else if cardNamesATarget, !editsFiles {
+                    // For a file edit, "every edit" is what Allow All means
+                    // anyway (see below), so Claude's own rule for it stands.
+                    rules.removeAll()
+                    break
                 }
-                includesCurrentTool = includesCurrentTool
-                    || ruleToolName == currentToolName
-                    || (isFileMutationTool(currentToolName) && ruleToolName == "Edit")
                 rules.append(rule)
             }
-            guard rules.count == rawRules.count, includesCurrentTool else { continue }
+            guard rules.count == rawRules.count else { continue }
             return [
                 "type": "addRules",
                 "rules": rules,
@@ -270,7 +279,7 @@ public struct ClaudePermissionHook: Sendable {
             ]
         }
 
-        if isFileMutationTool(currentToolName) {
+        if editsFiles {
             return [
                 "type": "setMode",
                 "mode": "acceptEdits",
@@ -289,6 +298,10 @@ public struct ClaudePermissionHook: Sendable {
                   let host = URL(string: rawURL)?.host,
                   !host.isEmpty else { return nil }
             rule["ruleContent"] = "domain:\(host)"
+        } else if cardNamesATarget {
+            // A file to read, a pattern to search, a command for some other
+            // tool: a rule for the whole tool would cover every other one.
+            return nil
         }
         return [
             "type": "addRules",
@@ -296,6 +309,30 @@ public struct ClaudePermissionHook: Sendable {
             "behavior": "allow",
             "destination": "session",
         ]
+    }
+
+    /// Whether the tool input points at one particular thing (a command, a
+    /// file, an address, a pattern), which a rule for the whole tool would
+    /// reach far beyond.
+    private static func namesTarget(_ toolInput: [String: Any]) -> Bool {
+        ["command", "file_path", "path", "notebook_path", "url", "pattern"].contains { key in
+            guard let value = toolInput[key] as? String else { return toolInput[key] != nil && !(toolInput[key] is NSNull) }
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    /// What the update allows, in the owner's words, for the card.
+    static func scopeSummary(of update: [String: Any]) -> String {
+        if update["type"] as? String == "setMode" { return "every file edit in this session" }
+        let rules = update["rules"] as? [[String: Any]] ?? []
+        let parts = rules.compactMap { rule -> String? in
+            guard let tool = rule["toolName"] as? String else { return nil }
+            if let content = rule["ruleContent"] as? String { return "\(tool)(\(content))" }
+            return "every use of \(tool)"
+        }
+        let summary = parts.joined(separator: ", ") + " in this session"
+        guard summary.count > 240 else { return summary }
+        return String(summary.prefix(239)) + "…"
     }
 
     private static func isFileMutationTool(_ toolName: String) -> Bool {

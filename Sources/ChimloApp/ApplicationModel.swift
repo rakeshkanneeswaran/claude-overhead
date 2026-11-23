@@ -13,7 +13,6 @@ struct SessionDisplayModel: Identifiable, Equatable, Sendable {
     var titleKind: SessionTitleKind = .workspace
     var detail: String
     var mood: AvatarMood
-    var isDemo: Bool
     var needsAttention: Bool
     var terminal: String?
     var projectPath: String?
@@ -100,10 +99,19 @@ struct SessionDisplayModel: Identifiable, Equatable, Sendable {
                     width: max(1, responseTextWidth - 18)
                 )
             }
+            let scopeLineCount = SessionPermissionPresentation.scopeLine(for: request).map {
+                measuredLineCount(
+                    $0,
+                    font: NSFont.systemFont(ofSize: 9.5, weight: .medium),
+                    width: responseTextWidth,
+                    maximum: 2
+                )
+            }
             return SessionInteractionLayout.permissionRowHeight(
                 promptLineCount: promptLineCount,
                 detailLineCount: detailLineCount,
-                previewLineCount: previewLineCount
+                previewLineCount: previewLineCount,
+                scopeLineCount: scopeLineCount
             )
         }
         if let question {
@@ -170,6 +178,14 @@ struct SessionPermissionPresentation: Identifiable, Equatable, Sendable {
     let request: ProviderPermissionRequest
 
     var id: UUID { request.id }
+
+    /// The line under the buttons that says what "Allow All" would allow.
+    /// Nil when the card has no "Allow All", or the helper is too old to say.
+    static func scopeLine(for request: ProviderPermissionRequest) -> String? {
+        guard request.allowsSessionApproval,
+              let scope = request.sessionApprovalScope, !scope.isEmpty else { return nil }
+        return "Allow All covers \(scope)"
+    }
 }
 
 struct SessionQuestionPresentation: Identifiable, Equatable, Sendable {
@@ -189,7 +205,6 @@ enum PanelMode: Equatable, Sendable {
     case compact
     case sessions
     case update
-    case onboarding
 }
 
 /// What GitHub Mode needs from the services, pushed whenever GitHub data or
@@ -209,13 +224,6 @@ struct GitHubNotchPresentation: Equatable {
     var allowsMerging = true
 }
 
-enum OnboardingStep: Equatable, Sendable {
-    case working
-    case permission
-    case resolving(allowed: Bool)
-    case complete(allowed: Bool)
-}
-
 @MainActor
 final class ApplicationModel: ObservableObject {
     @Published private(set) var sessions: [SessionDisplayModel] = []
@@ -223,10 +231,6 @@ final class ApplicationModel: ObservableObject {
         // A closed notch reopens on Claude. GitHub Mode keeps its tab and
         // detail for the next time the owner enters it.
         didSet {
-            // Leaving the tour by anything but its own buttons (a shortcut, a
-            // banner) ends it too, so its demo session never stays behind as
-            // a request nobody can answer.
-            if oldValue == .onboarding, panelMode != .onboarding, onboardingSessionID != nil { closeTour() }
             if panelMode == .sessions, oldValue != .sessions {
                 // The cards have only just come into view: a click already
                 // on its way must not land on one.
@@ -234,10 +238,15 @@ final class ApplicationModel: ObservableObject {
                 // The open notch shows usage top left: freshen it if it is old.
                 refreshClaudeCapacityFromCLIIfNeeded()
             }
+            if oldValue == .sessions, panelMode != .sessions {
+                // Whatever the panel shows next (closed, an update notice),
+                // it comes back to the session list, not to a feed or a
+                // picker left open behind it.
+                inspectedSessionID = nil
+                characterPickerSessionID = nil
+            }
             guard panelMode == .compact else { return }
             if githubNavigation.content == .github { githubNavigation.returnToClaude() }
-            // A closed notch reopens on the session list.
-            inspectedSessionID = nil
         }
     }
     /// GitHub Mode's place: tab, detail and filter. Separate from every
@@ -251,7 +260,6 @@ final class ApplicationModel: ObservableObject {
     var openGitHubIntegration: (() -> Void)?
     /// Opens the companion window's GitHub page, optionally on one detail.
     var openGitHubInCompanion: ((GitHubDetail?) -> Void)?
-    @Published private(set) var onboardingStep: OnboardingStep = .working
     @Published private(set) var accessibility = AccessibilityEnvironment.current
     @Published private(set) var serverState: LocalServerState = .stopped
     @Published private(set) var pendingDecision: ChimloDecisionRequest? {
@@ -265,13 +273,24 @@ final class ApplicationModel: ObservableObject {
     @Published private(set) var isScanningSessions = true
     @Published private(set) var capacitySnapshots: [CapacityProvider: ProviderCapacitySnapshot] = [:]
     @Published private(set) var capacityClock = Date.now
-    @Published private(set) var showsUsageDetails = false
+    @Published private(set) var showsUsageDetails = false {
+        // The usage panel pushes the whole session list down or lets it
+        // back up: a click already on its way must not land on a card.
+        didSet { if showsUsageDetails != oldValue { clickGuard.cardsMoved(at: Self.uptime) } }
+    }
     /// The latest update state, for Settings.
     @Published private(set) var updatePresentation: AppUpdatePresentation?
     /// The notch's update row: the same state, until it is closed or a
     /// finished state's lifetime runs out.
     @Published private(set) var updateNotice = AppUpdateNotice()
     private var updateNoticeExpiryTask: Task<Void, Never>?
+    /// The update on offer, with the What's New that came with it in the
+    /// same signed feed entry. Nil when nothing is on offer.
+    @Published private(set) var updateOffer: ReleaseOffer?
+    /// Opens the What's New window; set by the app delegate.
+    var presentWhatsNew: ((WhatsNewSubject) -> Void)?
+    /// The notes this copy was built with, for "What's new in this version".
+    let installedReleaseNotes = InstalledReleaseNotes.load()
     /// The spectrum glow that says "Claude replied" after a finished turn.
     /// `showsCompletionGlow` drives its opacity; `animatesCompletionGlow` stays
     /// on through the fade-out so the colours keep flowing until it is gone.
@@ -313,9 +332,6 @@ final class ApplicationModel: ObservableObject {
     @Published var soundsEnabled: Bool {
         didSet { defaults.set(soundsEnabled, forKey: Keys.soundsEnabled) }
     }
-    @Published var keepPreviewSession: Bool {
-        didSet { defaults.set(keepPreviewSession, forKey: Keys.keepPreviewSession) }
-    }
     /// The owner's setting: whether requests from runs nobody is watching
     /// (`claude -p`) wait in the notch. Off, they are left to Claude Code.
     private var asksAboutUnattendedRuns = false
@@ -337,6 +353,23 @@ final class ApplicationModel: ObservableObject {
     /// Which sessions may make sounds: none until the owner turns a
     /// session's bell on in the notch. Kept for the session's lifetime.
     @Published private(set) var soundPreferences = SessionSoundPreferences()
+    /// Which character each session wears. Kept across restarts, so a
+    /// session keeps its character and a resumed one gets its own back.
+    @Published private(set) var characterAssignments = CharacterAssignments()
+    /// The owner's setting, off by default: whether a new session is given
+    /// a random character. A character the owner picks shows either way.
+    @Published private(set) var assignsCharactersAutomatically = false
+    /// Each project's approved characters, by project key.
+    private var projectCharacterPools: [String: [String]] = [:]
+    private var characterGenerator = SystemRandomNumberGenerator()
+    /// The session whose character picker is open in the notch.
+    @Published private(set) var characterPickerSessionID: String?
+    /// When the picker may take its first click: it opens where the session
+    /// rows were, so the second half of a double-click on a mark would
+    /// otherwise land on a character.
+    private var characterPickerArmedAt: TimeInterval = 0
+    /// The session the closed notch speaks for (see `refreshNotchFocus`).
+    @Published private(set) var notchFocusSessionID: String?
     private var soundGate = SessionSoundGate()
     /// Which clicks on a permission, question or decision card may act.
     private var clickGuard = OwnerClickGuard()
@@ -357,14 +390,19 @@ final class ApplicationModel: ObservableObject {
     private let updater = ChimloUpdater()
     private let chiptunePlayer = ChiptunePlayer()
     private var reducer = SessionReducer()
-    private var demoSessionIDs: Set<String> = []
-    private var previewSessionIDs: Set<String> = []
-    private var deniedDemoSessionIDs: Set<String> = []
-    private var hiddenSessionIDs: Set<String> = []
+    /// Drops "turn failed" reports for sessions with no turn running.
+    private var turnFailureFilter = TurnFailureFilter()
+    /// Sessions whose Claude Code session file the app reads. For these the
+    /// file says whether a turn failed: Claude Code writes a failed turn into
+    /// it, and writes nothing for the requests it makes by itself.
+    private var sessionsWithTranscript: Set<String> = []
+    /// How recent a failure in a session file must be to be announced, so a
+    /// file read at launch does not ring for a turn that failed long ago.
+    private static let freshFailureSeconds: TimeInterval = 30
+    /// How long an archive marker is kept: well past the day a finished
+    /// session can still be listed.
+    private static let archiveMarkerLifetime: TimeInterval = 7 * 24 * 60 * 60
     private var archivedSessionMarkers: [String: SessionArchiveMarker]
-    private var onboardingSessionID: String?
-    private var onboardingEvents: [AgentEvent] = []
-    private var onboardingTask: Task<Void, Never>?
     private var collapseTask: Task<Void, Never>?
     private var completionGlowTask: Task<Void, Never>?
     private var liveSessionTask: Task<Void, Never>?
@@ -420,7 +458,7 @@ final class ApplicationModel: ObservableObject {
                 width: islandLayout.expandedWidth,
                 height: islandLayout.expandedContentTopInset + CGFloat(github.density.contentHeight)
             )
-        case .sessions where inspectedSession != nil:
+        case .sessions where characterPickerSession != nil || inspectedSession != nil:
             return CGSize(
                 width: islandLayout.expandedWidth,
                 height: islandLayout.expandedContentTopInset + SessionListLayout.inspectorContentHeight
@@ -454,26 +492,6 @@ final class ApplicationModel: ObservableObject {
                 ),
                 height: max(islandLayout.expandedContentTopInset, 4) + 52
             )
-        case .onboarding:
-            return CGSize(
-                width: islandLayout.expandedWidth,
-                height: max(islandLayout.expandedContentTopInset, 36)
-                    + onboardingBodyHeight
-            )
-        }
-    }
-
-    var onboardingSession: SessionDisplayModel? {
-        guard let onboardingSessionID else { return nil }
-        return sessions.first { $0.id == onboardingSessionID }
-    }
-
-    private var onboardingBodyHeight: CGFloat {
-        switch onboardingStep {
-        case .working: 172
-        case .permission: 208
-        case .resolving: 138
-        case .complete: 174
         }
     }
 
@@ -493,13 +511,33 @@ final class ApplicationModel: ObservableObject {
     func revealAllSessions() {
         guard canRevealAllSessions else { return }
         showsAllSessionsDuringOwnerInteraction = true
+        // More rows appear around the cards.
+        clickGuard.cardsMoved(at: Self.uptime)
     }
 
     var activeMood: AvatarMood {
         if pendingDecision != nil { return .waiting }
-        if let attention = sessions.first(where: \.needsAttention) { return attention.mood }
-        if let working = sessions.first(where: { $0.mood == .working }) { return working.mood }
-        return sessions.first?.mood ?? .idle
+        return closedNotchSession?.mood ?? .idle
+    }
+
+    /// The session the closed notch's activity line speaks for, if one needs
+    /// the owner or is running (see `NotchActivityFocus`).
+    var notchFocusSession: SessionDisplayModel? {
+        guard let notchFocusSessionID else { return nil }
+        return sessions.first { $0.id == notchFocusSessionID }
+    }
+
+    /// The one session the closed notch's mark stands for, so its mood and
+    /// its character always belong together, and belong to the session the
+    /// activity line names when there is a line. With several sessions
+    /// working at once it stays with one instead of following whichever
+    /// reported last.
+    var closedNotchSession: SessionDisplayModel? {
+        let focus = notchFocusSession
+        if compactActivity != nil, let focus { return focus }
+        if let attention = sessions.first(where: \.needsAttention) { return attention }
+        if let focus, focus.mood == .working { return focus }
+        return sessions.first(where: { $0.mood == .working }) ?? sessions.first
     }
 
     var compactLabel: String {
@@ -554,7 +592,7 @@ final class ApplicationModel: ObservableObject {
             )
         )
         soundsEnabled = defaults.object(forKey: Keys.soundsEnabled) as? Bool ?? true
-        keepPreviewSession = defaults.object(forKey: Keys.keepPreviewSession) as? Bool ?? true
+        characterAssignments = CharacterAssignmentStore(defaults: defaults).load()
         if let data = defaults.data(forKey: Keys.sessionSounds),
            var stored = try? JSONDecoder().decode(SessionSoundPreferences.self, from: data) {
             stored.prune(now: .now)
@@ -567,6 +605,19 @@ final class ApplicationModel: ObservableObject {
         }
         updater.presentationChanged = { [weak self] presentation in
             self?.updatePresentationChanged(presentation)
+        }
+        updater.offerChanged = { [weak self] offer in
+            guard let self else { return }
+            if isUpdateTestMode { UpdateTestLog.record(offer: offer, defaults: defaults) }
+            // An open What's New changes to the new offer's notes: a click
+            // already on its way to "Update Now" must not land on them.
+            if offer?.version != updateOffer?.version { armWhatsNew() }
+            updateOffer = offer
+        }
+        updater.ownerShouldSeeOffer = { [weak self] in
+            guard let self else { return }
+            showWhatsNewForUpdate()
+            if isUpdateTestMode, walksThroughWhatsNewForTest { pressUpdateNowForTest() }
         }
     }
 
@@ -582,7 +633,13 @@ final class ApplicationModel: ObservableObject {
             // Scripts/test-local-update.sh --auto runs a whole update without
             // clicks. Only update-test builds (ChimloUpdateTestMode) get here.
             if ProcessInfo.processInfo.arguments.contains("--update-test-auto-install") {
-                updater.installAvailableUpdate()
+                updater.installWhateverIsOfferedForTest()
+            }
+            // --auto-whats-new takes the owner's path instead: a check they
+            // asked for, the What's New window, then its Update Now.
+            if ProcessInfo.processInfo.arguments.contains("--update-test-auto-whats-new") {
+                walksThroughWhatsNewForTest = true
+                checkForUpdates()
             }
             return
         }
@@ -645,7 +702,6 @@ final class ApplicationModel: ObservableObject {
 
     func stop() {
         hasStarted = false
-        onboardingTask?.cancel()
         collapseTask?.cancel()
         decisionExpiryTask?.cancel()
         finishPendingDecision(outcome: .unavailable, note: "Claude Overhead closed before a decision was made")
@@ -788,7 +844,9 @@ final class ApplicationModel: ObservableObject {
         }
     }
 
-    /// The main update action: install an offer, retry a failure, or check.
+    /// The main update action in Settings: show an offer's What's New, retry
+    /// a failure, or check. It never starts a download by itself; an offer
+    /// is installed from its What's New window (`installOfferedUpdate`).
     func installUpdate() {
         guard let presentation = updatePresentation else {
             checkForUpdates()
@@ -797,15 +855,84 @@ final class ApplicationModel: ObservableObject {
         guard presentation.isActionable else { return }
         cancelCollapse()
         switch presentation.phase {
-        case .available: updater.installAvailableUpdate()
+        case .available: showWhatsNewForUpdate()
         case .failed: updater.retry()
         default: updater.checkForUpdates()
         }
     }
 
+    /// A check the owner asked for. When it finds an update, the What's New
+    /// window opens on that version; nothing is downloaded until the owner
+    /// chooses "Update Now" there.
     func checkForUpdates() {
         cancelCollapse()
         updater.checkForUpdates()
+    }
+
+    /// Opens What's New on the update on offer.
+    func showWhatsNewForUpdate() {
+        guard updateOffer != nil, updatePresentation?.phase != .upToDate else {
+            checkForUpdates()
+            return
+        }
+        cancelCollapse()
+        armWhatsNew()
+        presentWhatsNew?(.update)
+    }
+
+    /// "Update Now" counts only once the notes it stands under have been on
+    /// screen for a moment, as a card's buttons do.
+    private var whatsNewArmedAt: TimeInterval = 0
+
+    private func armWhatsNew() {
+        whatsNewArmedAt = Self.uptime + OwnerClickGuard.armingDelay
+    }
+
+    /// Opens What's New on the notes this copy was built with.
+    func showWhatsNewForInstalledVersion() {
+        guard installedReleaseNotes != nil else { return }
+        presentWhatsNew?(.installed)
+    }
+
+    /// The update test's stand-in for a person: once What's New is up it
+    /// records what the window shows, loads the notes' pictures the way the
+    /// window does, and then calls exactly what "Update Now" calls.
+    /// Update-test builds only.
+    private var walksThroughWhatsNewForTest = false
+
+    private func pressUpdateNowForTest() {
+        walksThroughWhatsNewForTest = false
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, let offer = updateOffer else { return }
+            let window = NSApp.windows.first { $0.title == WhatsNewCoordinator.windowTitle && $0.isVisible }
+            var pictures: [String] = []
+            for card in offer.content.notes?.cards ?? [] {
+                guard case let .image(image) = card.visual else { continue }
+                let assets = offer.assetBase.map(WhatsNewAssets.remote) ?? .none
+                let loaded = await WhatsNewImageStore.shared.load(image, from: assets) != nil
+                pictures.append("\(image.file): \(loaded)")
+            }
+            UpdateTestLog.record(
+                whatsNewWindow: offer,
+                onScreen: window != nil,
+                pictures: pictures,
+                snapshotOf: window,
+                defaults: defaults
+            )
+            installOfferedUpdate(showing: offer.version)
+        }
+    }
+
+    /// "Update Now" in the What's New window. `version` is the release whose
+    /// notes the window was showing when it was clicked: that one is
+    /// installed, and no other. A click that names another version than the
+    /// one on offer, or that arrives before the notes could be read, is
+    /// ignored.
+    func installOfferedUpdate(showing version: String) {
+        guard let offer = updateOffer, offer.version == version, Self.uptime >= whatsNewArmedAt else { return }
+        if let presentation = updatePresentation, !presentation.isActionable { return }
+        updater.installAvailableUpdate(choosing: version)
     }
 
     /// A fresh attempt after a failure.
@@ -834,8 +961,7 @@ final class ApplicationModel: ObservableObject {
         return AppUpdatePresentationPolicy.shouldTakeIdlePanel(
             notice: updateNotice,
             now: .now,
-            hasOwnerInteraction: hasActiveOwnerInteraction,
-            isOnboarding: panelMode == .onboarding
+            hasOwnerInteraction: hasActiveOwnerInteraction
         ) ? .update : .compact
     }
 
@@ -853,8 +979,7 @@ final class ApplicationModel: ObservableObject {
         let takesPanel = AppUpdatePresentationPolicy.shouldTakeIdlePanel(
             notice: updateNotice,
             now: .now,
-            hasOwnerInteraction: hasActiveOwnerInteraction,
-            isOnboarding: panelMode == .onboarding
+            hasOwnerInteraction: hasActiveOwnerInteraction
         )
         if takesPanel {
             guard panelMode == .compact,
@@ -989,6 +1114,19 @@ final class ApplicationModel: ObservableObject {
         }
         if isNotchLocked != settings.notchLocked { isNotchLocked = settings.notchLocked }
         asksAboutUnattendedRuns = settings.askAboutUnattendedRuns
+        let poolsChanged = projectCharacterPools != settings.projectCharacterPools
+        if poolsChanged { projectCharacterPools = settings.projectCharacterPools }
+        if assignsCharactersAutomatically != settings.assignCharactersAutomatically {
+            // Turned on: sessions without a character draw one now, and the
+            // ones handed out earlier show again. Turned off: those go back
+            // to the Claude logo and are kept; the owner's own picks stay.
+            assignsCharactersAutomatically = settings.assignCharactersAutomatically
+            assignCharacters()
+        } else if poolsChanged {
+            // A changed pool applies to sessions that start from now on; the
+            // characters already worn stay.
+            objectWillChange.send()
+        }
         if preferredDisplay != settings.preferredDisplay { preferredDisplay = settings.preferredDisplay }
         soundChoice = settings.notifications.soundChoice
         soundVolume = settings.notifications.soundVolume
@@ -1015,7 +1153,7 @@ final class ApplicationModel: ObservableObject {
 
     /// Whether a session row shows its branch, context and agents line.
     func showsMetaLine(for session: SessionDisplayModel) -> Bool {
-        layoutSpec.expandedRowDensity == .comfortable && !session.isDemo && SessionMetaLine.hasContent(session)
+        layoutSpec.expandedRowDensity == .comfortable && SessionMetaLine.hasContent(session)
     }
 
     /// Motion is calmer when the layout, Focus, or the system asks for it.
@@ -1028,7 +1166,7 @@ final class ApplicationModel: ObservableObject {
     /// Moves the highlight through the sessions in panel order and opens the
     /// panel so the owner sees where it landed.
     func selectSession(offset: Int) {
-        let ids = displayedSessions.filter { !$0.isDemo }.map(\.id)
+        let ids = displayedSessions.map(\.id)
         guard let next = SelectionCycle.next(in: ids, current: selectedSessionID, offset: offset) else { return }
         selectedSessionID = next
         openPanel()
@@ -1052,14 +1190,150 @@ final class ApplicationModel: ObservableObject {
     }
 
     func inspect(_ session: SessionDisplayModel) {
-        guard sessions.contains(where: { $0.id == session.id }) else { return }
+        // Not while Claude waits on the owner: the feed would take the
+        // panel by itself once the card is answered.
+        guard !hasActiveOwnerInteraction,
+              sessions.contains(where: { $0.id == session.id }) else { return }
         selectedSessionID = session.id
         inspectedSessionID = session.id
+        characterPickerSessionID = nil
         cancelCollapse()
     }
 
     func closeInspector() {
         inspectedSessionID = nil
+    }
+
+    // MARK: Session characters
+
+    /// The character a session wears, or nil for the Claude logo, which is
+    /// what every session shows until it has one: the owner's pick always,
+    /// an automatic one only while automatic assignment is on.
+    func character(for session: SessionDisplayModel) -> SessionCharacter? {
+        characterAssignments.shownCharacter(for: session.id, automatic: assignsCharactersAutomatically)
+    }
+
+    /// Whether any listed session wears a character, so a list can keep a
+    /// column for the mark only when there is something to tell apart.
+    var anySessionWearsCharacter: Bool {
+        sessions.contains { character(for: $0) != nil }
+    }
+
+    /// The character beside the closed notch: that of the session whose mood
+    /// it shows (see `closedNotchSession`).
+    var activeCharacter: SessionCharacter? {
+        guard pendingDecision == nil else { return nil }
+        return closedNotchSession.flatMap(character(for:))
+    }
+
+    /// The session whose character picker is open. Like the activity feed,
+    /// never while Claude waits on the owner: a card always takes the panel.
+    var characterPickerSession: SessionDisplayModel? {
+        guard panelMode == .sessions, notchContent == .claude, !hasActiveOwnerInteraction,
+              let characterPickerSessionID else { return nil }
+        return sessions.first { $0.id == characterPickerSessionID }
+    }
+
+    /// Whether clicking a session's mark, Claude logo or character, opens
+    /// the picker: for every session, whatever the automatic setting. Not
+    /// while Claude waits on the owner: a card has the panel then, and a
+    /// picker opened behind it would appear by itself once the card is
+    /// answered, where the card's buttons were.
+    func canPickCharacter(for session: SessionDisplayModel) -> Bool {
+        !hasActiveOwnerInteraction
+    }
+
+    func openCharacterPicker(for session: SessionDisplayModel) {
+        guard canPickCharacter(for: session), sessions.contains(where: { $0.id == session.id }) else { return }
+        inspectedSessionID = nil
+        selectedSessionID = session.id
+        characterPickerSessionID = session.id
+        characterPickerArmedAt = Self.uptime + OwnerClickGuard.armingDelay
+        cancelCollapse()
+    }
+
+    /// Whether a click in the picker counts: it names the session whose
+    /// picker is open, and the picker has been up long enough to be read.
+    private func acceptsPickerClick(for sessionID: String) -> Bool {
+        characterPickerSessionID == sessionID
+            && Self.uptime >= characterPickerArmedAt
+            && sessions.contains(where: { $0.id == sessionID })
+    }
+
+    func closeCharacterPicker() {
+        characterPickerSessionID = nil
+    }
+
+    /// How many characters the session's project draws from, when the
+    /// project has its own collection.
+    func projectCharacterPoolCount(for session: SessionDisplayModel) -> Int? {
+        guard let key = ProjectKey.make(session.projectPath), let configured = projectCharacterPools[key] else { return nil }
+        let known = CharacterCatalog.knownIDs(in: configured)
+        return known.isEmpty ? nil : known.count
+    }
+
+    /// The owner picked a character for one session in the notch. It shows
+    /// at once and overrides automatic assignment for that session.
+    func chooseCharacter(_ character: SessionCharacter, for sessionID: String) {
+        guard acceptsPickerClick(for: sessionID) else { return }
+        characterAssignments.choose(character.id, for: sessionID, now: .now)
+        saveCharacterAssignments()
+        closeCharacterPicker()
+    }
+
+    /// The owner switched one session back to the Claude logo. Where the
+    /// logo is already showing and nothing of the owner's is stored, this
+    /// only closes the picker.
+    func useClaudeLogo(for sessionID: String) {
+        guard acceptsPickerClick(for: sessionID) else { return }
+        let changed = characterAssignments.useClaudeLogo(
+            for: sessionID,
+            automatic: assignsCharactersAutomatically,
+            now: .now
+        )
+        if changed { saveCharacterAssignments() }
+        closeCharacterPicker()
+    }
+
+    /// The owner asked for a random character for one session; the picker
+    /// stays open so they see what it drew.
+    func shuffleCharacter(for sessionID: String) {
+        guard acceptsPickerClick(for: sessionID),
+              let session = sessions.first(where: { $0.id == sessionID }) else { return }
+        characterAssignments.reshuffle(
+            CharacterSession(id: session.id, projectPath: session.projectPath),
+            among: characterSessions,
+            pools: projectCharacterPools,
+            now: .now,
+            using: &characterGenerator
+        )
+        saveCharacterAssignments()
+    }
+
+    /// The sessions that count as wearing a character: the listed ones.
+    private var characterSessions: [CharacterSession] {
+        sessions.map { CharacterSession(id: $0.id, projectPath: $0.projectPath) }
+    }
+
+    /// With automatic assignment on, gives every listed session without a
+    /// character one. With it off, which is the default, nothing is handed
+    /// out and what was handed out before is kept but not shown.
+    private func assignCharacters() {
+        // The default state, automatic off and nothing ever picked, has
+        // nothing to hand out and nothing to note.
+        guard assignsCharactersAutomatically || !characterAssignments.bySession.isEmpty else { return }
+        let changed = characterAssignments.assign(
+            sessions: characterSessions,
+            pools: projectCharacterPools,
+            automatic: assignsCharactersAutomatically,
+            now: .now,
+            using: &characterGenerator
+        )
+        if changed { saveCharacterAssignments() }
+    }
+
+    private func saveCharacterAssignments() {
+        CharacterAssignmentStore(defaults: defaults).save(characterAssignments)
     }
 
     /// Brings the session's terminal forward, falling back to its link.
@@ -1073,7 +1347,7 @@ final class ApplicationModel: ObservableObject {
         if let selectedSessionID, let selected = sessions.first(where: { $0.id == selectedSessionID }) {
             return selected
         }
-        return sessions.first(where: \.needsAttention) ?? sessions.first(where: { !$0.isDemo })
+        return sessions.first(where: \.needsAttention) ?? sessions.first
     }
 
     // MARK: Attention
@@ -1114,94 +1388,12 @@ final class ApplicationModel: ObservableObject {
         return name.isEmpty ? "Claude Code" : name
     }
 
-    func beginOnboardingDemo() {
-        onboardingTask?.cancel()
-        hideExistingDemoSessions()
-
-        let sessionID = "overhead-onboarding-\(UUID().uuidString.lowercased())"
-        onboardingSessionID = sessionID
-        demoSessionIDs.insert(sessionID)
-        onboardingEvents = makeOnboardingEvents(sessionID: sessionID, start: .now)
-        panelMode = .onboarding
-        onboardingStep = .working
-
-        guard onboardingEvents.count >= 3 else { return }
-        consume(onboardingEvents[0], isDemo: true)
-
-        onboardingTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(900))
-            guard !Task.isCancelled, let self else { return }
-            consume(onboardingEvents[1], isDemo: true)
-
-            try? await Task.sleep(for: .milliseconds(900))
-            guard !Task.isCancelled else { return }
-            consume(onboardingEvents[2], isDemo: true)
-            onboardingStep = .permission
-        }
-    }
-
-    func resolveDemoPermission(allowed: Bool) {
-        guard onboardingStep == .permission,
-              let sessionID = onboardingSessionID,
-              let current = reducer.sessions[sessionID] else { return }
-
-        onboardingTask?.cancel()
-        onboardingStep = .resolving(allowed: allowed)
-        if allowed {
-            deniedDemoSessionIDs.remove(sessionID)
-        } else {
-            deniedDemoSessionIDs.insert(sessionID)
-        }
-
-        consume(
-            AgentEvent(
-                sessionID: sessionID,
-                sequence: RequestArithmetic.nextSequence(after: current.lastSequence),
-                kind: .permissionResolved,
-                agent: current.agent,
-                detail: allowed ? "Running three focused checks" : "Request denied safely",
-                decision: allowed ? .allow : .deny,
-                timestamp: .now
-            ),
-            isDemo: true
-        )
-
-        onboardingTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(900))
-            guard !Task.isCancelled, let self,
-                  let latest = reducer.sessions[sessionID] else { return }
-
-            consume(
-                AgentEvent(
-                    sessionID: sessionID,
-                    sequence: RequestArithmetic.nextSequence(after: latest.lastSequence),
-                    kind: .completed,
-                    agent: latest.agent,
-                    detail: allowed ? "Three focused checks passed" : "Nothing ran and nothing changed",
-                    timestamp: .now
-                ),
-                isDemo: true
-            )
-            onboardingStep = .complete(allowed: allowed)
-        }
-    }
-
-    /// Ends the tour and takes its demo session with it. The panel is left
-    /// to the caller.
-    private func closeTour() {
-        onboardingTask?.cancel()
-        hideExistingDemoSessions()
-        onboardingSessionID = nil
-        onboardingEvents = []
-        defaults.set(true, forKey: Keys.completedOnboarding)
-    }
-
-    func finishOnboarding() {
-        closeTour()
-        panelMode = preferredIdlePanelMode
-        if sessions.isEmpty, keepPreviewSession, case .failed = serverState {
-            installPreviewSession()
-        }
+    /// "See your notch" at the end of setup: the notch opens once on the
+    /// owner's real sessions (or its empty state), so they see where the app
+    /// lives, then settles by itself. Nothing made up is shown.
+    func revealNotchAfterSetup() {
+        openPanel()
+        scheduleCollapseAfterHover(delayMilliseconds: Self.glanceMilliseconds)
     }
 
     /// Opens the setup window. `fromWelcome` replays the whole journey; otherwise
@@ -1468,8 +1660,7 @@ final class ApplicationModel: ObservableObject {
     func archiveSession(_ session: SessionDisplayModel) {
         // A session with a card open is never archived out of sight, even
         // when a later event cleared the reducer's own pending request.
-        guard !session.isDemo,
-              let source = reducer.sessions[session.id],
+        guard let source = reducer.sessions[session.id],
               source.pendingRequest == nil,
               sessionPermissions[session.id] == nil,
               sessionQuestions[session.id] == nil else { return }
@@ -1479,9 +1670,26 @@ final class ApplicationModel: ObservableObject {
         syncSessionProjections()
     }
 
-    private func receiveLiveEvent(_ event: AgentEvent) {
-        hiddenSessionIDs.formUnion(previewSessionIDs)
-        recordReceipt(for: event.agent)
+    private func receiveLiveEvent(_ reported: AgentEvent) {
+        recordReceipt(for: reported.agent)
+        // Only a running turn can fail. Claude Code also reports the failed
+        // requests it makes by itself for an idle session, and those must not
+        // turn a finished session red. Hook events carry no sequence; an
+        // adapter that numbers its own events is taken at its word.
+        var event = reported
+        if reported.sequence == 0 {
+            // Where the app reads the session's file, the file decides: a
+            // real failed turn is written there within a moment, and a
+            // request Claude Code made by itself is not. The hook cannot
+            // tell the two apart.
+            if reported.kind == .failed, sessionsWithTranscript.contains(reported.sessionID) { return }
+            guard let kept = turnFailureFilter.filter(
+                reported,
+                phase: reducer.sessions[reported.sessionID]?.phase,
+                receivedAt: .now
+            ) else { return }
+            event = kept
+        }
         if OwnerInteractionLifetime.endsPendingRequests(event.kind) {
             cancelOwnerInteractions(forEndedSession: event.sessionID)
         }
@@ -1499,7 +1707,7 @@ final class ApplicationModel: ObservableObject {
             }
         }
         guard event.sequence == 0 else {
-            consume(event, isDemo: false)
+            consume(event)
             if event.kind == .sessionEnded { scheduleSessionRemoval(event.sessionID) }
             return
         }
@@ -1520,24 +1728,22 @@ final class ApplicationModel: ObservableObject {
                     projectPath: event.projectPath,
                     jumpURL: event.jumpURL,
                     timestamp: event.timestamp
-                ),
-                isDemo: false
+                )
             )
         }
 
         let nextSequence = RequestArithmetic.nextSequence(after: reducer.sessions[event.sessionID]?.lastSequence ?? 0)
-        consume(event.replacingSequence(with: nextSequence), isDemo: false)
+        consume(event.replacingSequence(with: nextSequence))
         if event.kind == .sessionEnded {
             scheduleSessionRemoval(event.sessionID)
         }
     }
 
-    private func consume(_ event: AgentEvent, isDemo: Bool) {
-        if isDemo { demoSessionIDs.insert(event.sessionID) }
+    private func consume(_ event: AgentEvent) {
         let wasArmedForCompletion = sessionsArmedForCompletion.contains(event.sessionID)
         let result = reducer.apply(event)
         guard case .applied = result else { return }
-        if !isDemo { restoreArchivedSessionIfNeeded(for: event) }
+        restoreArchivedSessionIfNeeded(for: event)
         let isNewCompletion = IslandCollapsePolicy.isNewCompletion(
             wasArmedForCompletion: wasArmedForCompletion,
             eventKind: event.kind
@@ -1552,26 +1758,19 @@ final class ApplicationModel: ObservableObject {
         }
         updateCompletionArm(for: event)
         syncSessionProjections()
-        if !isDemo { localSessionRuntime.persist(reducer.orderedSessions) }
+        localSessionRuntime.persist(reducer.orderedSessions)
 
         if let completionReceivedAt {
             announceCompletionIfNeeded(sessionID: event.sessionID, receivedAt: completionReceivedAt)
         }
 
-        if !isDemo {
-            announceLiveEvent(event)
-        } else if soundsEnabled {
-            switch event.kind {
-            case .sessionStarted: playSound(.arrival)
-            case .permissionRequested, .questionRequested, .failed: playSound(.attention)
-            case .activity, .permissionResolved, .questionResolved, .completed, .sessionEnded: break
-            }
-        }
+        var failureMayOpenNotch = true
+        let decision = announceLiveEvent(event)
+        if event.kind == .failed, let decision { failureMayOpenNotch = decision.showInNotch }
 
         if let session = reducer.sessions[event.sessionID],
            sessions.contains(where: { $0.id == event.sessionID }),
-           (session.pendingRequest != nil || session.phase == .failed),
-           panelMode != .onboarding,
+           (session.pendingRequest != nil || (session.phase == .failed && failureMayOpenNotch)),
            NotchLockPolicy.opens(session.phase == .failed ? .sessionFailure : .ownerRequest, isLocked: isNotchLocked) {
             cancelCollapse()
             showsUsageDetails = false
@@ -1659,7 +1858,6 @@ final class ApplicationModel: ObservableObject {
     /// orange notch glow says "Claude replied", and the owner opens it on hover.
     private func announceCompletionIfNeeded(sessionID: String, receivedAt: Date) {
         guard sessions.contains(where: { $0.id == sessionID }),
-              panelMode != .onboarding,
               receivedAt >= Date.now.addingTimeInterval(
                 -IslandCollapsePolicy.completionDetailLifetimeSeconds
               ),
@@ -1667,10 +1865,6 @@ final class ApplicationModel: ObservableObject {
               lastPresentedResponse[sessionID] != response else { return }
 
         lastPresentedResponse[sessionID] = response
-        if demoSessionIDs.contains(sessionID) {
-            if soundsEnabled { playSound(.success) }
-            return
-        }
         let decision = announce(
             .sessionCompleted,
             key: "\(sessionID)|\(response.hashValue)",
@@ -1682,7 +1876,10 @@ final class ApplicationModel: ObservableObject {
     }
 
     /// Sounds and banners for a hook event, as the notification settings say.
-    private func announceLiveEvent(_ event: AgentEvent) {
+    /// Announces the event as the owner's notification settings say, and
+    /// returns what they decided; nil for events that are never announced.
+    @discardableResult
+    private func announceLiveEvent(_ event: AgentEvent) -> NotificationDecision? {
         let sessionID = event.sessionID
         let title = bannerTitle(for: sessionID)
         let decision: NotificationDecision
@@ -1705,9 +1902,10 @@ final class ApplicationModel: ObservableObject {
                                 title: title, body: "The Claude Code session stopped with an error.")
             cue = .attention
         case .activity, .permissionResolved, .questionResolved, .completed, .sessionEnded:
-            return
+            return nil
         }
         if decision.playSound { playSound(cue) }
+        return decision
     }
 
     /// A context window crossing the attention threshold is worth one
@@ -1716,7 +1914,7 @@ final class ApplicationModel: ObservableObject {
         for (sessionID, insight) in sessionInsights {
             guard let fraction = insight.contextFraction,
                   contextWarnings.crossed(sessionID, value: fraction, threshold: contextAttentionThreshold),
-                  sessions.contains(where: { $0.id == sessionID && !$0.isDemo }) else { continue }
+                  sessions.contains(where: { $0.id == sessionID }) else { continue }
             let percent = Int((fraction * 100).rounded())
             let decision = announce(
                 .contextWarning,
@@ -1753,12 +1951,10 @@ final class ApplicationModel: ObservableObject {
     private func syncSessionProjections() {
         let now = Date.now
         let projectedSessions: [SessionDisplayModel] = reducer.orderedSessions.compactMap { session in
-            let isDemo = demoSessionIDs.contains(session.id)
             let hasActionableRequest = session.pendingRequest != nil
                 || sessionPermissions[session.id] != nil
                 || sessionQuestions[session.id] != nil
-            guard !hiddenSessionIDs.contains(session.id),
-                  archivedSessionMarkers[session.id] == nil,
+            guard archivedSessionMarkers[session.id] == nil,
                   SessionVisibilityPolicy.wasActiveRecently(
                     updatedAt: session.updatedAt,
                     now: now
@@ -1766,7 +1962,6 @@ final class ApplicationModel: ObservableObject {
                   SessionVisibilityPolicy.shouldDisplay(
                     title: session.title,
                     titleKind: session.titleKind,
-                    isDemo: isDemo,
                     hasActionableRequest: hasActionableRequest,
                     hasConversationPreview: session.latestUserPrompt != nil
                         || session.latestAgentResponse != nil
@@ -1792,7 +1987,6 @@ final class ApplicationModel: ObservableObject {
                 titleKind: session.titleKind,
                 detail: session.detail,
                 mood: mood,
-                isDemo: isDemo,
                 needsAttention: session.pendingRequest != nil
                     || sessionPermissions[session.id] != nil
                     || sessionQuestions[session.id] != nil
@@ -1825,6 +2019,10 @@ final class ApplicationModel: ObservableObject {
         if let inspectedSessionID, byID[inspectedSessionID] == nil {
             self.inspectedSessionID = nil
         }
+        if let characterPickerSessionID, byID[characterPickerSessionID] == nil {
+            self.characterPickerSessionID = nil
+        }
+        assignCharacters()
         noteCardLayout()
         resetSessionRevealIfNoOwnerInteraction()
         updateCompactActivity()
@@ -1853,6 +2051,9 @@ final class ApplicationModel: ObservableObject {
     /// selected or newest running one. Appears at once; disappears only after
     /// a short hold, so two back-to-back turns do not resize the notch.
     private func updateCompactActivity() {
+        // Settled here, whether or not this layout shows the line: the mark
+        // beside the closed notch follows the same session.
+        refreshNotchFocus()
         let line = currentCompactActivityLine()
         if let line {
             compactActivityHideTask?.cancel()
@@ -1874,11 +2075,7 @@ final class ApplicationModel: ObservableObject {
         if pendingDecision != nil {
             return CompactActivityLine(tool: nil, text: "Needs your decision", tone: .attention, kind: nil)
         }
-        let candidates = sessions.filter { !$0.isDemo }.map {
-            NotchActivityFocus.Candidate(id: $0.id, state: $0.runState, updatedAt: $0.updatedAt)
-        }
-        guard let id = NotchActivityFocus.sessionID(among: candidates, selected: selectedSessionID),
-              let session = sessions.first(where: { $0.id == id }) else { return nil }
+        guard let session = notchFocusSession else { return nil }
         return CompactActivityLine.make(
             permissionTool: session.permission?.request.toolName,
             hasQuestion: session.question != nil,
@@ -1886,6 +2083,21 @@ final class ApplicationModel: ObservableObject {
             isWorking: session.isRunning,
             fallback: session.detail
         )
+    }
+
+    /// Settles which session the closed notch speaks for. It keeps the one
+    /// it has while that still runs, so the mark does not swap between two
+    /// working sessions on every event.
+    private func refreshNotchFocus() {
+        let candidates = sessions.map {
+            NotchActivityFocus.Candidate(id: $0.id, state: $0.runState, updatedAt: $0.updatedAt)
+        }
+        let focus = NotchActivityFocus.sessionID(
+            among: candidates,
+            selected: selectedSessionID,
+            current: notchFocusSessionID
+        )
+        if focus != notchFocusSessionID { notchFocusSessionID = focus }
     }
 
     private func scheduleSessionActivityExpiry(now: Date) {
@@ -2106,13 +2318,18 @@ final class ApplicationModel: ObservableObject {
     }
 
     private func receive(_ candidate: SessionCandidate) {
-        hiddenSessionIDs.formUnion(previewSessionIDs)
         sessionRemovalTasks.removeValue(forKey: candidate.id)?.cancel()
         restoreArchivedSessionIfNeeded(for: candidate)
+        if candidate.evidence == .claudeTranscript { sessionsWithTranscript.insert(candidate.id) }
         let previous = reducer.sessions[candidate.id]
         let merged = reducer.merge(candidate)
         let hasNewResponse = candidate.latestAgentResponse != nil
             && candidate.latestAgentResponse != previous?.latestAgentResponse
+        // The session file now ends in a failed turn, and it did not before.
+        let turnFailed = candidate.evidence == .claudeTranscript
+            && merged.phase == .failed
+            && previous?.phase != .failed
+            && candidate.updatedAt >= Date.now.addingTimeInterval(-Self.freshFailureSeconds)
 
         if merged.phase == .working, previous?.phase != .working {
             lastPresentedResponse.removeValue(forKey: candidate.id)
@@ -2136,6 +2353,20 @@ final class ApplicationModel: ObservableObject {
                 receivedAt: latestResponseReceivedAt[candidate.id] ?? candidate.updatedAt
             )
         }
+        if turnFailed {
+            // The same path a failure reported by a hook takes: the sound
+            // and banner the owner asked for, and the notch if it may open.
+            consume(
+                AgentEvent(
+                    sessionID: candidate.id,
+                    sequence: RequestArithmetic.nextSequence(after: merged.lastSequence),
+                    kind: .failed,
+                    agent: merged.agent,
+                    detail: merged.detail,
+                    timestamp: candidate.updatedAt
+                )
+            )
+        }
     }
 
     private func removeSession(_ sessionID: String) {
@@ -2148,11 +2379,16 @@ final class ApplicationModel: ObservableObject {
         sessionRemovalTasks.removeValue(forKey: sessionID)?.cancel()
         completionDetailExpiryTasks.removeValue(forKey: sessionID)?.cancel()
         sessionsArmedForCompletion.remove(sessionID)
+        turnFailureFilter.forget(sessionID: sessionID)
+        sessionsWithTranscript.remove(sessionID)
         latestResponseReceivedAt.removeValue(forKey: sessionID)
         lastPresentedResponse.removeValue(forKey: sessionID)
-        if archivedSessionMarkers.removeValue(forKey: sessionID) != nil {
-            persistArchivedSessionMarkers()
-        }
+        previewDismissals.forget(sessionID)
+        soundGate.forget(sessionID)
+        contextWarnings.forget(sessionID)
+        // The archive marker is kept: a session's file outlives its end, and
+        // if the session is listed again it is still one the owner archived.
+        // Markers age out when they are loaded.
         guard reducer.remove(sessionID: sessionID) != nil else { return }
         syncSessionProjections()
         localSessionRuntime.persist(reducer.orderedSessions)
@@ -2210,11 +2446,15 @@ final class ApplicationModel: ObservableObject {
         from defaults: UserDefaults
     ) -> [String: SessionArchiveMarker] {
         guard let stored = defaults.dictionary(forKey: Keys.archivedSessions) else { return [:] }
+        // A marker matters only while its session can still be listed, which
+        // is hours. Older ones are dropped here, so the list cannot grow for
+        // as long as the app is used.
+        let oldest = Date.now.addingTimeInterval(-Self.archiveMarkerLifetime)
         return stored.reduce(into: [:]) { result, entry in
-            guard let timestamp = entry.value as? NSNumber else { return }
-            result[entry.key] = SessionArchiveMarker(
-                archivedAt: Date(timeIntervalSince1970: timestamp.doubleValue)
-            )
+            guard let timestamp = entry.value as? NSNumber, timestamp.doubleValue.isFinite else { return }
+            let archivedAt = Date(timeIntervalSince1970: timestamp.doubleValue)
+            guard archivedAt >= oldest else { return }
+            result[entry.key] = SessionArchiveMarker(archivedAt: archivedAt)
         }
     }
 
@@ -2252,9 +2492,6 @@ final class ApplicationModel: ObservableObject {
     }
 
     private func mood(for session: AgentSession) -> AvatarMood {
-        if previewSessionIDs.contains(session.id) || deniedDemoSessionIDs.contains(session.id) {
-            return .idle
-        }
         switch session.phase {
         case .working:
             return .working
@@ -2271,10 +2508,6 @@ final class ApplicationModel: ObservableObject {
 
     private func serverStateChanged(_ state: LocalServerState) {
         serverState = state
-        if case .failed = state, keepPreviewSession, sessions.isEmpty,
-           defaults.bool(forKey: Keys.completedOnboarding) {
-            installPreviewSession()
-        }
     }
 
     private func requestDecision(_ request: ChimloDecisionRequest) async -> ChimloDecisionResponse {
@@ -2287,7 +2520,6 @@ final class ApplicationModel: ObservableObject {
         guard !Task.isCancelled else {
             return ChimloDecisionResponse(requestID: request.id, outcome: .cancelled, note: Self.stoppedWaitingNote)
         }
-        endTourForRealRequest()
 
         // The transport cancels this task when the helper's connection
         // closes; the request then leaves the notch without an answer.
@@ -2310,14 +2542,6 @@ final class ApplicationModel: ObservableObject {
                 finishPendingDecision(outcome: .cancelled, note: Self.stoppedWaitingNote)
             }
         }
-    }
-
-    /// A real request outranks the setup tour: the tour ends (its demo
-    /// session goes with it) so the notch never shows a fake "WAIT" beside
-    /// the real one.
-    private func endTourForRealRequest() {
-        guard onboardingSessionID != nil || panelMode == .onboarding else { return }
-        finishOnboarding()
     }
 
     /// Why a request left the notch when Claude Code ended its hook.
@@ -2354,6 +2578,7 @@ final class ApplicationModel: ObservableObject {
               !request.sessionID.isEmpty,
               !request.toolName.isEmpty,
               !request.prompt.isEmpty,
+              permissionRequests[request.id] == nil,
               sessionPermissions[request.sessionID] == nil,
               sessionQuestions[request.sessionID] == nil else {
             return .unavailable(
@@ -2364,7 +2589,6 @@ final class ApplicationModel: ObservableObject {
         guard !Task.isCancelled else {
             return ProviderPermissionResponse(requestID: request.id, outcome: .cancelled, note: Self.stoppedWaitingNote)
         }
-        endTourForRealRequest()
 
         // Claude Code stopped waiting (answered in the terminal, interrupted
         // the turn, ended the session): the transport cancels this task and
@@ -2458,12 +2682,12 @@ final class ApplicationModel: ObservableObject {
                     detail: detail,
                     decision: decision,
                     timestamp: .now
-                ),
-                isDemo: false
+                )
             )
-        } else {
-            syncSessionProjections()
         }
+        // Rebuilt whether or not the event above was applied, so an answered
+        // card can never stay drawn.
+        syncSessionProjections()
 
         let continuation = permissionContinuations.removeValue(forKey: requestID)
         continuation?.resume(returning: ProviderPermissionResponse(
@@ -2499,6 +2723,7 @@ final class ApplicationModel: ObservableObject {
         }
         guard !request.questions.isEmpty,
               request.questions.allSatisfy({ !$0.prompt.isEmpty && !$0.options.isEmpty }),
+              questionFlows[request.id] == nil,
               sessionQuestions[request.sessionID] == nil,
               sessionPermissions[request.sessionID] == nil else {
             return .unavailable(for: request.id, reason: "This session already has a pending question")
@@ -2506,7 +2731,6 @@ final class ApplicationModel: ObservableObject {
         guard !Task.isCancelled else {
             return ProviderQuestionResponse(requestID: request.id, outcome: .cancelled, answers: [:], note: Self.stoppedWaitingNote)
         }
-        endTourForRealRequest()
 
         // As for permissions: when Claude Code ends the hook, the question
         // leaves the notch unanswered.
@@ -2630,12 +2854,12 @@ final class ApplicationModel: ObservableObject {
                         ? .answer(answers.values.joined(separator: ", "))
                         : nil,
                     timestamp: .now
-                ),
-                isDemo: false
+                )
             )
-        } else {
-            syncSessionProjections()
         }
+        // Rebuilt whether or not the event above was applied, so an answered
+        // card can never stay drawn.
+        syncSessionProjections()
 
         let continuation = questionContinuations.removeValue(forKey: requestID)
         continuation?.resume(returning: ProviderQuestionResponse(
@@ -2689,52 +2913,6 @@ final class ApplicationModel: ObservableObject {
         scheduleCollapseAfterHover()
     }
 
-    private func installPreviewSession() {
-        guard !sessions.contains(where: \.isDemo) else { return }
-        let sessionID = "overhead-listener-preview-\(UUID().uuidString.lowercased())"
-        previewSessionIDs.insert(sessionID)
-        demoSessionIDs.insert(sessionID)
-        consume(
-            AgentEvent(
-                sessionID: sessionID,
-                sequence: 1,
-                kind: .sessionStarted,
-                agent: .other,
-                title: "Local listener preview",
-                detail: "Waiting for the local server to become available",
-                timestamp: .now
-            ),
-            isDemo: true
-        )
-    }
-
-    private func hideExistingDemoSessions() {
-        hiddenSessionIDs.formUnion(demoSessionIDs)
-        syncSessionProjections()
-    }
-
-    private func makeOnboardingEvents(sessionID: String, start: Date) -> [AgentEvent] {
-        DemoScript.make(start: start).map { beat in
-            let event = beat.event
-            return AgentEvent(
-                id: UUID(),
-                sessionID: sessionID,
-                sequence: event.sequence,
-                kind: event.kind,
-                agent: event.agent,
-                title: event.title,
-                detail: event.detail,
-                model: event.model,
-                terminal: event.terminal,
-                projectPath: event.projectPath,
-                jumpURL: event.jumpURL,
-                request: event.request,
-                decision: event.decision,
-                timestamp: start.addingTimeInterval(Double(beat.offsetMilliseconds) / 1_000)
-            )
-        }
-    }
-
     private static func agentName(_ agent: AgentKind) -> String {
         switch agent {
         case .claude: "Claude"
@@ -2755,7 +2933,6 @@ final class ApplicationModel: ObservableObject {
         static let sessionSounds = "overhead.sound.sessions"
         static let lastLaunchedVersion = "overhead.update.lastLaunchedVersion"
         static let soundsEnabled = "overhead.sound.enabled"
-        static let keepPreviewSession = "overhead.preview.keepSession"
         static let archivedSessions = "overhead.sessions.archived"
     }
 
@@ -2800,6 +2977,43 @@ private enum UpdateTestLog {
     private static let pathKey = "overhead.updateTest.logPath"
 
     static func record(_ presentation: AppUpdatePresentation?, defaults: UserDefaults) {
+        let phase = presentation.map { "\($0.phase)" } ?? "none"
+        write("\(phase)\t\(presentation?.statusText ?? "")", defaults: defaults)
+    }
+
+    /// The notes that came with an offer, so the test can check that the
+    /// version described is the version installed.
+    static func record(offer: ReleaseOffer?, defaults: UserDefaults) {
+        guard let offer else { return }
+        let notes = switch offer.content {
+        case let .notes(notes): "notes(version: \"\(notes.version)\", cards: \(notes.cards.count))"
+        case let .unavailable(problem): "notes(unavailable: \(problem))"
+        }
+        write("offer(version: \"\(offer.version)\")\t\(notes)", defaults: defaults)
+    }
+
+    /// That the What's New window was up before the update began, with its
+    /// pictures, and a picture of the window itself beside the log.
+    @MainActor
+    static func record(
+        whatsNewWindow offer: ReleaseOffer,
+        onScreen: Bool,
+        pictures: [String],
+        snapshotOf window: NSWindow?,
+        defaults: UserDefaults
+    ) {
+        write(
+            "whats-new(version: \"\(offer.version)\", window: \(onScreen))\tpictures(\(pictures.joined(separator: ", ")))",
+            defaults: defaults
+        )
+        guard let path = defaults.string(forKey: pathKey), path.hasSuffix("/update-test/states.log"),
+              let view = window?.contentView, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let snapshot = URL(fileURLWithPath: path).deletingLastPathComponent().appendingPathComponent("whats-new-window.png")
+        try? bitmap.representation(using: .png, properties: [:])?.write(to: snapshot)
+    }
+
+    private static func write(_ entry: String, defaults: UserDefaults) {
         let arguments = ProcessInfo.processInfo.arguments
         if let index = arguments.firstIndex(of: "--update-test-log"), index + 1 < arguments.count {
             defaults.set(arguments[index + 1], forKey: pathKey)
@@ -2807,8 +3021,7 @@ private enum UpdateTestLog {
         guard let path = defaults.string(forKey: pathKey),
               path.hasSuffix("/update-test/states.log") else { return }
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
-        let phase = presentation.map { "\($0.phase)" } ?? "none"
-        let line = "\(version)\t\(phase)\t\(presentation?.statusText ?? "")\n"
+        let line = "\(version)\t\(entry)\n"
         guard let data = line.data(using: .utf8) else { return }
         if let handle = FileHandle(forWritingAtPath: path) {
             handle.seekToEndOfFile()

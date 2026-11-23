@@ -38,6 +38,7 @@ struct IslandRootView: View {
                             ExpandedStatusBand(model: model, openSettings: openSettings)
                         }
                         let showsUsage = model.showsUsageDetails && model.inspectedSession == nil
+                            && model.characterPickerSession == nil
                         if showsUsage {
                             UsageDashboardView(model: model)
                                 .padding(.horizontal, expandedHorizontalGutter)
@@ -63,8 +64,6 @@ struct IslandRootView: View {
                                 .padding(.top, max(model.islandLayout.expandedContentTopInset, 4))
                                 .frame(width: islandGeometry.size.width, alignment: .center)
                         }
-                    case .onboarding:
-                        OnboardingView(model: model)
                     }
                 }
                 // Follow the live SwiftUI bounds while the visible island grows
@@ -267,7 +266,8 @@ private struct UpdateReminderView: View {
         if presentation.failure != nil {
             model.retryUpdate()
         } else {
-            model.installUpdate()
+            // An offer opens its What's New; "Update Now" is in that window.
+            model.showWhatsNewForUpdate()
         }
     }
 
@@ -288,7 +288,7 @@ private struct UpdateReminderView: View {
     private var accessibilityHint: String {
         switch presentation.phase {
         case .available:
-            "Downloads, verifies, installs, and relaunches Claude Overhead. Your settings stay unchanged."
+            "Opens What's New for this version. Nothing is downloaded until you choose Update Now there."
         case let .failed(failure):
             failure.recovery
         case .upToDate, .updated:
@@ -532,7 +532,8 @@ private struct CompactIslandView: View {
 
     private var standardContent: some View {
         HStack(spacing: 9) {
-            ClaudeCodeMark(
+            SessionMark(
+                character: model.activeCharacter,
                 mood: model.activeMood,
                 size: 31,
                 reduceMotion: model.accessibility.reduceMotion
@@ -595,7 +596,8 @@ private struct CompactIslandView: View {
     @ViewBuilder
     private var leadingWing: some View {
         if model.layoutSpec.showsAvatar {
-            ClaudeCodeMark(
+            SessionMark(
+                character: model.activeCharacter,
                 mood: model.activeMood,
                 size: 17,
                 reduceMotion: model.reducesMotion
@@ -1028,12 +1030,27 @@ private struct SessionListView: View {
     @ObservedObject var model: ApplicationModel
 
     var body: some View {
-        if let inspected = model.inspectedSession {
+        if let picking = model.characterPickerSession {
+            CharacterPickerView(
+                session: picking,
+                current: model.character(for: picking),
+                projectPoolCount: model.projectCharacterPoolCount(for: picking),
+                reduceMotion: model.reducesMotion,
+                back: model.closeCharacterPicker,
+                choose: { model.chooseCharacter($0, for: picking.id) },
+                useClaudeLogo: { model.useClaudeLogo(for: picking.id) },
+                shuffle: { model.shuffleCharacter(for: picking.id) },
+                columnCount: CharacterPickerView.columnCount(forWidth: model.islandLayout.expandedWidth - 40)
+            )
+            .frame(height: SessionListLayout.inspectorContentHeight - 12, alignment: .top)
+            .transition(.opacity)
+        } else if let inspected = model.inspectedSession {
             SessionInspectorView(
                 session: inspected,
+                character: model.character(for: inspected),
                 reduceMotion: model.reducesMotion,
                 back: model.closeInspector,
-                focusTerminal: inspected.isDemo ? nil : { model.focusHost(of: inspected) }
+                focusTerminal: { model.focusHost(of: inspected) }
             )
             .frame(height: SessionListLayout.inspectorContentHeight - 12, alignment: .top)
             .transition(.opacity)
@@ -1065,6 +1082,10 @@ private struct SessionListView: View {
                         ForEach(Array(model.displayedSessions.enumerated()), id: \.element.id) { index, session in
                             SessionRow(
                                 session: session,
+                                character: model.character(for: session),
+                                onPickCharacter: model.canPickCharacter(for: session)
+                                    ? { model.openCharacterPicker(for: session) }
+                                    : nil,
                                 seed: index,
                                 reduceMotion: model.reducesMotion,
                                 increasedContrast: model.accessibility.increaseContrast,
@@ -1074,12 +1095,12 @@ private struct SessionListView: View {
                                 contextCriticalAt: model.contextCriticalThreshold,
                                 showsAgents: model.layoutSpec.expandedShowsAgents || model.layoutSpec.showsAgentIndicator,
                                 onOpen: session.jumpURL == nil ? nil : { model.open(session) },
-                                onInspect: session.isDemo ? nil : { model.inspect(session) },
-                                onArchive: session.needsAttention || session.isDemo
+                                onInspect: { model.inspect(session) },
+                                onArchive: session.hasActiveOwnerInteraction
                                     ? nil
                                     : { model.archiveSession(session) },
                                 soundEnabled: model.isSoundEnabled(for: session.id),
-                                onToggleSound: session.isDemo ? nil : { model.toggleSound(for: session.id) },
+                                onToggleSound: { model.toggleSound(for: session.id) },
                                 onDismissPreview: { model.dismissConversationPreview(sessionID: session.id) },
                                 // Each click names the request, and the
                                 // question step, this row was showing, so
@@ -1222,6 +1243,11 @@ private struct LiveDecisionView: View {
 
 struct SessionRow: View {
     let session: SessionDisplayModel
+    /// The session's character; nil shows the Claude mark.
+    var character: SessionCharacter? = nil
+    /// Opens the character picker for this session. When set, the mark is
+    /// its own click target, separate from the row.
+    var onPickCharacter: (() -> Void)? = nil
     let seed: Int
     let reduceMotion: Bool
     let increasedContrast: Bool
@@ -1235,7 +1261,7 @@ struct SessionRow: View {
     /// the feed and the jump mark beside the title goes to the terminal.
     var onInspect: (() -> Void)? = nil
     var onArchive: (() -> Void)? = nil
-    /// This session's own sound toggle (nil hides the bell, as for demos).
+    /// This session's own sound toggle (nil hides the bell).
     var soundEnabled = false
     var onToggleSound: (() -> Void)? = nil
     /// Closes the prompt-and-reply preview only (nil hides the ×).
@@ -1314,6 +1340,9 @@ struct SessionRow: View {
         .overlayPreferenceValue(JumpMarkAnchorKey.self) { anchor in
             jumpOverlay(anchor)
         }
+        .overlayPreferenceValue(CharacterMarkAnchorKey.self) { anchor in
+            characterOverlay(anchor)
+        }
         .background(cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         .overlay {
@@ -1339,11 +1368,13 @@ struct SessionRow: View {
 
     private var rowContent: some View {
         HStack(spacing: 8) {
-            ClaudeCodeMark(
+            SessionMark(
+                character: character,
                 mood: session.mood,
                 size: 34,
                 reduceMotion: reduceMotion
             )
+            .anchorPreference(key: CharacterMarkAnchorKey.self, value: .bounds) { $0 }
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 5) {
@@ -1398,11 +1429,6 @@ struct SessionRow: View {
                             .foregroundStyle(ChimloTheme.quietPaper)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        if session.isDemo {
-                            Text("Preview")
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(ChimloTheme.mutedPaper)
-                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
@@ -1449,6 +1475,28 @@ struct SessionRow: View {
 
     /// A real button at the jump mark's place, above the row's own button,
     /// so one click jumps to the terminal and any other click opens the feed.
+    /// A clear button laid exactly over the mark, so clicking the character
+    /// opens its picker while the rest of the row keeps its own action.
+    @ViewBuilder
+    private func characterOverlay(_ anchor: Anchor<CGRect>?) -> some View {
+        if let onPickCharacter, let anchor {
+            GeometryReader { geometry in
+                let frame = geometry[anchor]
+                Button(action: onPickCharacter) {
+                    Color.clear
+                        .frame(width: frame.width + 4, height: frame.height + 4)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(character.map { "\($0.name) · click to change this session's character" }
+                    ?? "Claude logo · click to give this session a character")
+                .accessibilityLabel("Change character for \(session.displayTitle)")
+                .accessibilityValue(character?.name ?? "Claude logo")
+                .position(x: frame.midX, y: frame.midY)
+            }
+        }
+    }
+
     @ViewBuilder
     private func jumpOverlay(_ anchor: Anchor<CGRect>?) -> some View {
         if let onOpen, onInspect != nil, let anchor {
@@ -1739,8 +1787,10 @@ private struct SessionPermissionView: View {
                 Button("Deny") {
                     decide(.denied)
                 }
+                // No keyboard shortcut here either: with several cards open,
+                // Escape would deny whichever one SwiftUI picked, and Escape
+                // also closes the answer field of another session.
                 .buttonStyle(PermissionActionButtonStyle(kind: .deny))
-                .keyboardShortcut(.cancelAction)
                 .accessibilityHint("Deny this Claude Code tool request")
 
                 // No keyboard shortcut: allowing is always a click, so a
@@ -1759,8 +1809,20 @@ private struct SessionPermissionView: View {
                         decide(.allowedForSession)
                     }
                     .buttonStyle(PermissionActionButtonStyle(kind: .session))
-                    .accessibilityHint("Allow Claude's matching requests for this session only")
+                    .accessibilityHint(SessionPermissionPresentation.scopeLine(for: request)
+                        ?? "Allow Claude's matching requests for this session only")
                 }
+            }
+
+            // "Allow All" is wider than the one call above it: say exactly
+            // how wide, where the owner is about to click.
+            if let scope = SessionPermissionPresentation.scopeLine(for: request) {
+                Text(scope)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(ChimloTheme.mutedPaper)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         // The stepped cut removes six points at the top-left. Twelve points of
@@ -2137,7 +2199,16 @@ private struct EmptySessionView: View {
         .clipShape(SteppedPanelShape())
     }
 
+    /// The app's local connection could not start, so no event or request
+    /// can reach the notch. Said plainly here: an empty list would otherwise
+    /// read as "nothing is happening".
+    private var listenerFailed: Bool {
+        if case .failed = model.serverState { return true }
+        return false
+    }
+
     private var title: String {
+        if listenerFailed, model.hasInstalledAgent { return "Claude Overhead can't listen right now" }
         if model.isScanningSessions { return "Finding local sessions" }
         if model.isReceivingAgentEvents { return "No active sessions" }
         if model.hasInstalledAgent { return "Waiting for the first event" }
@@ -2145,6 +2216,9 @@ private struct EmptySessionView: View {
     }
 
     private var detail: String {
+        if listenerFailed, model.hasInstalledAgent {
+            return "It keeps retrying. Until then Claude Code asks in its own window."
+        }
         if model.isScanningSessions { return "Checking Claude sessions and live processes." }
         if model.isReceivingAgentEvents { return "Claude Overhead is live. Start or resume a turn." }
         if model.hasInstalledAgent { return "Send a new prompt in Claude Code." }

@@ -489,6 +489,13 @@ struct SessionLifecycleTests {
             .init(id: "c", state: .recentlyCompleted, updatedAt: t),
         ]
         #expect(NotchActivityFocus.sessionID(among: running, selected: nil) == "b")
+        // It stays with the session it already speaks for while that runs,
+        // instead of following whichever reported last.
+        #expect(NotchActivityFocus.sessionID(among: running, selected: nil, current: "a") == "a")
+        // The owner's selection still comes first, and a session that is not
+        // running is not kept.
+        #expect(NotchActivityFocus.sessionID(among: running, selected: "b", current: "a") == "b")
+        #expect(NotchActivityFocus.sessionID(among: running, selected: nil, current: "gone") == "b")
         #expect(NotchActivityFocus.sessionID(among: running, selected: "a") == "a")
         // A selected session that is not running does not hold the notch.
         #expect(NotchActivityFocus.sessionID(among: running, selected: "c") == "b")

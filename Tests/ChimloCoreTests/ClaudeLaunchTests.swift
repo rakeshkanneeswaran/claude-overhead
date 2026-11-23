@@ -46,6 +46,7 @@ struct ClaudeLaunchTests {
         #expect(!Self.unattended(["-p", "--permission-prompt-tool", "stdio", "--input-format", "stream-json"]))
         // The entry point is inherited and says nothing against a host.
         #expect(!Self.unattended(Self.vsCodeArguments, entrypoint: "sdk-cli"))
+        #expect(!Self.unattended(["", "", ""], entrypoint: "claude-vscode"))
     }
 
     @Test("An SDK run with no host, or with a tool that answers, is unattended")
@@ -66,11 +67,33 @@ struct ClaudeLaunchTests {
         #expect(Self.unattended(["-p", "run 02"], entrypoint: "cli"))
     }
 
+    @Test("Arguments that were read decide, whatever variable the session inherited")
+    func readableArgumentsDecide() {
+        // An interactive session opened from inside a `claude -p` run (a
+        // tmux pane, say) inherits sdk-cli. It has a person at it.
+        #expect(!Self.unattended([], entrypoint: "sdk-cli"))
+        #expect(!Self.unattended(["--resume", "abc"], entrypoint: "sdk-cli"))
+        #expect(!Self.unattended(["fix the tests"], entrypoint: "sdk-cli"))
+        // And a print run is unattended whatever it inherited.
+        #expect(Self.unattended(["-p", "go"], entrypoint: "cli"))
+    }
+
+    @Test("Hidden arguments tell nothing, so the entry point decides")
+    func hiddenArguments() {
+        // An npm install renames its process, which blanks its arguments:
+        // they are still counted, but each reads as empty.
+        #expect(ClaudeLaunch.areHidden(["", ""]))
+        #expect(ClaudeLaunch.areHidden([""]))
+        #expect(!ClaudeLaunch.areHidden([]))
+        #expect(!ClaudeLaunch.areHidden(["", "-p"]))
+        #expect(Self.unattended(["", "", ""], entrypoint: "sdk-cli"))
+        #expect(!Self.unattended(["", "", ""], entrypoint: "cli"))
+        #expect(!Self.unattended(["", ""], entrypoint: nil))
+    }
+
     @Test("Without readable arguments the entry point decides, and only sdk-cli is unattended")
     func entrypointFallback() {
         #expect(Self.unattended(nil, entrypoint: "sdk-cli"))
-        // An npm install can hide its arguments behind the process title.
-        #expect(Self.unattended([], entrypoint: "sdk-cli"))
         for entrypoint in ["cli", "claude-vscode", "claude-desktop", "sdk-ts", "sdk-py", "something-new", ""] {
             #expect(!Self.unattended(nil, entrypoint: entrypoint), "\(entrypoint)")
         }

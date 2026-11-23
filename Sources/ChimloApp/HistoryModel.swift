@@ -60,7 +60,7 @@ final class HistoryModel: ObservableObject {
     /// Records what the notch knows about each live or recent session.
     func observe(_ sessions: [SessionDisplayModel], now: Date = .now) {
         var changed = false
-        for session in sessions where !session.isDemo {
+        for session in sessions {
             let record = Self.record(from: session, firstSeen: firstSeenDate(for: session, now: now))
             if let previous = lastUpserted[session.id] {
                 guard previous != record else { continue }
@@ -281,6 +281,8 @@ final class HistoryModel: ObservableObject {
         switch error as? SessionHistoryStoreError {
         case let .cannotPreserveCorruptFile(path):
             "History at \(path) is damaged and could not be set aside, so Overhead will not write to it."
+        case let .cannotReadFile(path, reason):
+            "History at \(path) could not be read (\(reason)). It is left as it is, and Overhead will not write to it."
         case let .writeFailed(_, reason):
             "History could not be saved: \(reason)"
         case let .readOnlyUnsupportedSchema(version):

@@ -106,10 +106,18 @@ is offered only when a rule can be written that grants what the card shows and
 no more: a Bash command too long to name in a rule gets **Allow Once** and
 **Deny** only, because a rule without the command would allow every command.
 
-Approving is always a click. No key approves anything, and a click counts only
-if it names the request that is showing and the cards have been still for 0.4
-seconds, so a double-click can never answer the next question or approve the
-next card unread.
+**Allow All** is no wider than the card. A rule suggested by Claude Code is
+used only if every rule in it is for the tool on the card, and a rule with no
+content (every use of a tool) is used only when the card names no command,
+file, address or pattern of its own. A card for one file or pattern therefore
+has **Allow All** only when Claude Code suggests a rule that names it. Only a
+file-edit card can switch the session to accept edits. The card states what
+**Allow All** would allow in a line under the buttons.
+
+Approving and denying are always a click. No key answers a card, and a click
+counts only if it names the request that is showing and the cards have been
+still for 0.4 seconds, so a double-click can never answer the next question or
+approve the next card unread.
 
 A request leaves the notch as soon as Claude Code stops waiting for it: when
 you answer in the terminal, interrupt the turn, or the session ends, Claude
@@ -118,6 +126,29 @@ request without answering it. In `dontAsk` and `bypassPermissions` modes, where
 you chose never to be asked, permission requests are left to Claude Code and
 never reach the notch. Claude Code's idle notices ("Claude is waiting for your
 input") are not questions and never become one.
+
+### Failed turns
+
+Claude Code runs the `StopFailure` hook whenever a request ends in an API
+error. That includes requests it makes by itself for a session that is idle (a
+recap for when you come back, a prompt suggestion), and the hook input does not
+say which kind of request failed. Taken at face value, one bad connection
+turned a session that had finished an hour earlier red.
+
+So for a session whose file Claude Overhead reads, the file decides. Claude
+Code writes a turn that ended in an API error into the session file as an
+assistant line marked `isApiErrorMessage`, and writes nothing there for its
+own background requests. That line marks the session failed (not finished,
+although its stop reason reads like a normal end), and the failure is
+announced once, when it is fresh. The hook's report is not applied for these
+sessions.
+
+Only where the app has no session file to read is the hook used, and then only
+while a turn appears to be running; a failure reported for a session that is
+finished, waiting on a card or unknown is dropped. Hook helpers can arrive out
+of order, so a dropped failure is remembered for three seconds in case the
+prompt that started the turn arrives right behind it. Events an adapter
+numbers itself (`overhead emit --sequence`) are taken as sent.
 
 ### Runs nobody is watching
 

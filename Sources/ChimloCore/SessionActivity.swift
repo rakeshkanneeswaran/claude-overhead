@@ -378,8 +378,13 @@ public enum SessionOrdering {
 }
 
 /// Which session the closed notch speaks for: the one that needs the owner,
-/// else the selected one while it runs, else the most recent running one.
-/// `nil` when nothing runs, and the notch falls back to its plain status.
+/// else the selected one while it runs, else the one it already speaks for
+/// while that still runs, else the most recent running one. `nil` when
+/// nothing runs, and the notch falls back to its plain status.
+///
+/// Staying with `current` matters once sessions look different: with two
+/// sessions working at once, "the most recent" changes on every event, and
+/// the notch would swap marks back and forth.
 public enum NotchActivityFocus {
     public struct Candidate: Equatable, Sendable {
         public let id: String
@@ -393,10 +398,15 @@ public enum NotchActivityFocus {
         }
     }
 
-    public static func sessionID(among candidates: [Candidate], selected: String?) -> String? {
+    public static func sessionID(
+        among candidates: [Candidate],
+        selected: String?,
+        current: String? = nil
+    ) -> String? {
         if let needsYou = newest(candidates.filter { $0.state == .needsYou }) { return needsYou.id }
         let running = candidates.filter { $0.state == .running }
         if let selected, running.contains(where: { $0.id == selected }) { return selected }
+        if let current, running.contains(where: { $0.id == current }) { return current }
         return newest(running)?.id
     }
 

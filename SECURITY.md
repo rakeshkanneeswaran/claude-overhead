@@ -63,8 +63,11 @@ principles:
 - Runtime descriptors are private to the local user and short-lived
 - The app being offline returns control to the native terminal interaction
 - A transport error never becomes an approval
-- No telemetry; the only network destination is api.github.com, and only while
-  GitHub is turned on
+- No telemetry; the only network destinations are api.github.com, and only
+  while GitHub is turned on, and the signed update feed with its release
+  files on github.com
+- A release's What's New travels inside the signed update feed; a picture in
+  it is shown only when its SHA-256 matches the one the feed pins
 - A pasted GitHub token lives only in the Keychain and is never logged
 - The only write to GitHub is a pull request merge the owner confirms, pinned
   to the head commit they were shown

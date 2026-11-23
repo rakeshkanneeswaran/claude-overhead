@@ -121,7 +121,7 @@ public struct ClaudeLaunch: Equatable, Sendable {
     /// Set by Claude Code for itself and inherited by everything it starts.
     /// `sdk-cli` is a `claude -p` run. A run started from inside another
     /// session inherits that session's value (`claude-vscode`, say), so this
-    /// is only the fallback for when the arguments cannot be read.
+    /// is used only when the arguments cannot be read or are hidden.
     public static let entrypointVariable = "CLAUDE_CODE_ENTRYPOINT"
 
     /// Claude Code's arguments without the program name; nil when no Claude
@@ -149,14 +149,25 @@ public struct ClaudeLaunch: Equatable, Sendable {
     /// prompts. Anything unclear is treated as attended, which is what the
     /// notch did before it could tell.
     public var isUnattended: Bool {
-        if let arguments {
+        if let arguments, !Self.areHidden(arguments) {
             let flags = Self.flags(in: arguments)
             // A host answers prompts itself: the VS Code extension, the
             // desktop app, an SDK application with its own approval screen.
             if Self.value(of: "--permission-prompt-tool", in: flags) == "stdio" { return false }
-            if Self.runsWithoutAPrompt(flags) { return true }
+            // Arguments that were read settle it either way. The variable is
+            // inherited, so an interactive session started from inside a
+            // `claude -p` run would otherwise be taken for one.
+            return Self.runsWithoutAPrompt(flags)
         }
         return entrypoint == "sdk-cli"
+    }
+
+    /// A Claude Code installed through npm renames its process, which blanks
+    /// the arguments the system keeps: they are still counted, but every one
+    /// reads as empty. That tells nothing, unlike a session started with no
+    /// arguments at all.
+    static func areHidden(_ arguments: [String]) -> Bool {
+        !arguments.isEmpty && arguments.allSatisfy(\.isEmpty)
     }
 
     /// Claude Code's arguments from the processes above a hook, nearest

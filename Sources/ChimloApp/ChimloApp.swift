@@ -6,6 +6,12 @@ import SwiftUI
 struct ChimloApplication: App {
     @NSApplicationDelegateAdaptor(ChimloAppDelegate.self) private var appDelegate
 
+    init() {
+        // The release check: draw a release's What's New and exit, without
+        // starting the app (see WhatsNewRenderCheck).
+        WhatsNewRenderCheck.runIfRequested()
+    }
+
     var body: some Scene {
         Settings {
             ChimloSettingsView(model: appDelegate.model)
@@ -22,6 +28,7 @@ final class ChimloAppDelegate: NSObject, NSApplicationDelegate {
     private var settingsCoordinator: SettingsWindowCoordinator?
     private var companionCoordinator: CompanionWindowCoordinator?
     private var setupCoordinator: SetupCoordinator?
+    private var whatsNewCoordinator: WhatsNewCoordinator?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -30,6 +37,12 @@ final class ChimloAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let settingsCoordinator = SettingsWindowCoordinator(model: model)
         self.settingsCoordinator = settingsCoordinator
+
+        let whatsNewCoordinator = WhatsNewCoordinator(model: model)
+        self.whatsNewCoordinator = whatsNewCoordinator
+        model.presentWhatsNew = { [weak whatsNewCoordinator] subject in
+            whatsNewCoordinator?.show(subject)
+        }
 
         if model.isUpdateTestMode {
             model.start()
@@ -51,8 +64,8 @@ final class ChimloAppDelegate: NSObject, NSApplicationDelegate {
 
         let setupCoordinator = SetupCoordinator(model: model)
         self.setupCoordinator = setupCoordinator
-        setupCoordinator.onFinish = { [weak self] showPreview in
-            self?.setupFinished(showPreview: showPreview)
+        setupCoordinator.onFinish = { [weak self] revealNotch in
+            self?.setupFinished(revealNotch: revealNotch)
         }
         model.presentSetup = { [weak self, weak setupCoordinator] fromWelcome in
             guard let self, let setupCoordinator else { return }
@@ -84,12 +97,12 @@ final class ChimloAppDelegate: NSObject, NSApplicationDelegate {
         ) ?? .reconnecting(integrationNeedsRepair: false)
     }
 
-    /// The setup window closed, finished or not. The notch takes over: with
-    /// its preview after a verified connection, otherwise idle, where its own
-    /// Connect button resumes setup.
-    private func setupFinished(showPreview: Bool) {
+    /// The setup window closed, finished or not. The notch takes over: open
+    /// once on the owner's real sessions after "See your notch", otherwise
+    /// closed, where its own Connect button resumes setup.
+    private func setupFinished(revealNotch: Bool) {
         islandCoordinator?.show()
-        if showPreview { model.beginOnboardingDemo() }
+        if revealNotch { model.revealNotchAfterSetup() }
     }
 
     /// Opening the app again while it runs (Finder, Spotlight, `open`) shows

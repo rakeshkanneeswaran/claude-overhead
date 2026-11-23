@@ -18,6 +18,9 @@ public enum SessionHistoryStoreError: Error, Equatable, Sendable {
     case readOnlyUnsupportedSchema(version: Int)
     /// A corrupt file could not be moved aside; overwriting it would lose it.
     case cannotPreserveCorruptFile(path: String)
+    /// The file is there but could not be read (permissions, a disk error).
+    /// It is left exactly where it is and nothing is written over it.
+    case cannotReadFile(path: String, reason: String)
     case writeFailed(path: String, reason: String)
 }
 
@@ -109,9 +112,19 @@ public actor SessionHistoryStore {
             return
         }
 
+        // A file that cannot be read is not a corrupt file: it may be fine
+        // and only out of reach for now. It stays where it is, and writes
+        // are refused so nothing replaces it.
+        let data: Data
+        do {
+            data = try Data(contentsOf: fileURL)
+        } catch {
+            writeBlock = .unpreservedCorruptFile
+            throw SessionHistoryStoreError.cannotReadFile(path: fileURL.path, reason: error.localizedDescription)
+        }
+
         let envelope: StoredEnvelope
         do {
-            let data = try Data(contentsOf: fileURL)
             let header = try JSONDecoder().decode(SchemaHeader.self, from: data)
             let version = header.schemaVersion ?? 0
             if version > Self.schemaVersion {
@@ -133,8 +146,20 @@ public actor SessionHistoryStore {
             return
         }
 
+        // Records that could not be read were left out above. Before the
+        // file is ever rewritten without them, the whole original is kept
+        // beside it; if that copy cannot be made, nothing is written.
+        if envelope.unreadableRecordCount > 0 {
+            do {
+                _ = try copyAsideCorruptFile()
+            } catch {
+                writeBlock = .unpreservedCorruptFile
+                throw SessionHistoryStoreError.cannotPreserveCorruptFile(path: fileURL.path)
+            }
+        }
+
         writeBlock = nil
-        var changed = (envelope.schemaVersion ?? 0) < Self.schemaVersion
+        var changed = (envelope.schemaVersion ?? 0) < Self.schemaVersion || envelope.unreadableRecordCount > 0
         for stored in envelope.records {
             let disk = applyPreviewPolicy(stored)
             if disk != stored { changed = true }
@@ -367,6 +392,21 @@ public actor SessionHistoryStore {
     }
 
     private func moveAsideCorruptFile() throws -> URL {
+        let candidate = corruptBackupURL()
+        try FileManager.default.moveItem(at: fileURL, to: candidate)
+        return candidate
+    }
+
+    /// Keeps the whole original beside the file, for when only some of its
+    /// records could be read and the rest are about to be saved without them.
+    private func copyAsideCorruptFile() throws -> URL {
+        let candidate = corruptBackupURL()
+        try FileManager.default.copyItem(at: fileURL, to: candidate)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: candidate.path)
+        return candidate
+    }
+
+    private func corruptBackupURL() -> URL {
         let fileManager = FileManager.default
         let base = "\(fileURL.lastPathComponent).corrupt-\(Int(Date.now.timeIntervalSince1970))"
         let directory = fileURL.deletingLastPathComponent()
@@ -376,7 +416,6 @@ public actor SessionHistoryStore {
             candidate = directory.appendingPathComponent("\(base)-\(suffix)")
             suffix += 1
         }
-        try fileManager.moveItem(at: fileURL, to: candidate)
         return candidate
     }
 }
@@ -397,6 +436,31 @@ private struct StoredEnvelope: Codable {
     let schemaVersion: Int?
     var savedAt: Date?
     let records: [SessionHistoryRecord]
+    /// Records in the file that could not be read. One of them no longer
+    /// takes every other session's history with it.
+    var unreadableRecordCount = 0
+
+    init(schemaVersion: Int?, savedAt: Date?, records: [SessionHistoryRecord]) {
+        self.schemaVersion = schemaVersion
+        self.savedAt = savedAt
+        self.records = records
+    }
+
+    private enum CodingKeys: String, CodingKey { case schemaVersion, savedAt, records }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
+        savedAt = try? container.decodeIfPresent(Date.self, forKey: .savedAt)
+        let stored = try container.decode([ReadableRecord].self, forKey: .records)
+        records = stored.compactMap(\.record)
+        unreadableRecordCount = stored.count - records.count
+    }
+
+    private struct ReadableRecord: Decodable {
+        let record: SessionHistoryRecord?
+        init(from decoder: any Decoder) throws { record = try? SessionHistoryRecord(from: decoder) }
+    }
 }
 
 private struct ExportEnvelope: Encodable {

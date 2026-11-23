@@ -44,12 +44,14 @@ else
 fi
 
 case "$MODE" in
-  ""|--prepare-only|--auto|--auto-tampered|--auto-offline) ;;
+  ""|--prepare-only|--auto|--auto-whats-new|--auto-tampered|--auto-offline|--auto-wrong-notes) ;;
   *)
-    print -u2 "Usage: $0 [--prepare-only | --auto | --auto-tampered | --auto-offline]"
-    print -u2 "  --auto            update unattended; pass when 98 becomes 99 and relaunches"
-    print -u2 "  --auto-tampered   the download is altered after signing; pass when it is refused"
-    print -u2 "  --auto-offline    nothing serves the feed; pass when the failure is explained"
+    print -u2 "Usage: $0 [--prepare-only | --auto | --auto-whats-new | --auto-tampered | --auto-offline | --auto-wrong-notes]"
+    print -u2 "  --auto              update unattended; pass when 98 becomes 99 with 99's What's New, and relaunches"
+    print -u2 "  --auto-whats-new    as a person would: check, the What's New window opens, then its Update Now"
+    print -u2 "  --auto-tampered     the download is altered after signing; pass when it is refused"
+    print -u2 "  --auto-offline      nothing serves the feed; pass when the failure is explained"
+    print -u2 "  --auto-wrong-notes  the feed carries another version's notes; pass when they are not shown"
     exit 64
     ;;
 esac
@@ -100,9 +102,54 @@ fi
 rm -rf "$TEST_ROOT"
 mkdir -p "${HOST_APP_PATH:h}" "${UPDATE_APP_PATH:h}" "$FEED_DIR"
 
+# What's New for the test release: a card with a picture, one with a
+# character and one with words only, plus notes for another version to
+# prove that the wrong notes are never shown.
+NOTES_ROOT="$TEST_ROOT/notes"
+WRONG_NOTES_VERSION="97.0.0"
+mkdir -p "$NOTES_ROOT/ReleaseNotes/$UPDATE_VERSION"
+"${CHIMLO_PYTHON_BIN:-python3}" - "$NOTES_ROOT/ReleaseNotes/$UPDATE_VERSION/whats-new-test.png" <<'PNG_END'
+import struct, sys, zlib
+width, height = 320, 160
+rows = b"".join(
+    b"\x00" + b"".join(bytes((40 + 200 * x // width, 70 + 120 * y // height, 96)) for x in range(width))
+    for y in range(height)
+)
+def chunk(kind, body):
+    return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) \
+    + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+open(sys.argv[1], "wb").write(png)
+PNG_END
+for notes_version in "$UPDATE_VERSION" "$WRONG_NOTES_VERSION"; do
+  cat > "$NOTES_ROOT/ReleaseNotes/$notes_version.json" <<NOTES_END
+{
+  "schema": 1,
+  "version": "$notes_version",
+  "date": "2026-01-01",
+  "introduction": "Test release $notes_version for the local update test. Nothing here is a real change.",
+  "cards": [
+    { "id": "test-feature", "category": "feature", "title": "A test feature with a character",
+      "summary": "This card proves that a release can carry a character's pixels.",
+      "visual": { "kind": "sprites", "sprites": [ { "character": "animals.cat" } ] } },
+    { "id": "test-improvement", "category": "improvement", "title": "A test improvement with a picture",
+      "summary": "This card proves that a picture is shown only when its SHA-256 matches.",
+      "visual": { "kind": "image", "image": { "file": "whats-new-test.png", "alt": "A test gradient." } } },
+    { "id": "test-fix", "category": "fix", "title": "A test fix with words only",
+      "summary": "This card proves that a card needs no picture." }
+  ]
+}
+NOTES_END
+done
+mkdir -p "$NOTES_ROOT/ReleaseNotes/$WRONG_NOTES_VERSION"
+cp "$NOTES_ROOT/ReleaseNotes/$UPDATE_VERSION/whats-new-test.png" "$NOTES_ROOT/ReleaseNotes/$WRONG_NOTES_VERSION/"
+EMBEDDED_NOTES_VERSION="$UPDATE_VERSION"
+[[ "$MODE" == "--auto-wrong-notes" ]] && EMBEDDED_NOTES_VERSION="$WRONG_NOTES_VERSION"
+
 print "Building the signed update candidate ($UPDATE_VERSION)..."
 CHIMLO_VERSION="$UPDATE_VERSION" \
 CHIMLO_BUILD_NUMBER="$UPDATE_BUILD" \
+CHIMLO_WHATS_NEW_ROOT="$NOTES_ROOT" \
 CHIMLO_PACKAGE_VARIANT=update-test \
 CHIMLO_PACKAGE_OUTPUT_PATH="$UPDATE_APP_PATH" \
 CHIMLO_UPDATE_FEED_URL="$FEED_URL" \
@@ -112,13 +159,20 @@ print "Packaging the local update disk image..."
 CHIMLO_PACKAGE_APP_PATH="$UPDATE_APP_PATH" \
   "$PACKAGE_DMG" "$DMG_PATH"
 
-print "Generating the signed local appcast..."
+print "Generating the signed local appcast, with What's New for $EMBEDDED_NOTES_VERSION..."
+# As Scripts/generate-appcast.sh does for a release: the published notes go
+# into the feed entry, and their pictures sit beside the download.
+PUBLISHED_NOTES="$TEST_ROOT/published-notes.json"
+"$SCRIPT_DIR/swift.sh" run overhead-release-notes emit "$EMBEDDED_NOTES_VERSION" \
+  --root "$NOTES_ROOT" --output "$PUBLISHED_NOTES" --assets "$FEED_DIR" >/dev/null
+cp "$PUBLISHED_NOTES" "${DMG_PATH:r}.txt"
 "$GENERATE_APPCAST" \
   "${SPARKLE_KEY_ARGS[@]}" \
   --download-url-prefix "$FEED_BASE_URL/" \
   --link "https://github.com/rakeshkanneeswaran/claude-overhead" \
   --maximum-versions 1 \
   --maximum-deltas 0 \
+  --embed-release-notes \
   -o "$APPCAST_PATH" \
   "$FEED_DIR"
 
@@ -141,6 +195,13 @@ ACTUAL_LENGTH="$(/usr/bin/stat -f '%z' "$DMG_PATH")"
 APPCAST_BUILD="$(/usr/bin/xmllint --xpath \
   'string(//*[local-name()="item"]/*[local-name()="version"])' \
   "$APPCAST_PATH")"
+
+EMBEDDED_NOTES="$(/usr/bin/xmllint --xpath \
+  'string(//*[local-name()="item"]/*[local-name()="description"])' "$APPCAST_PATH")"
+if [[ -z "$EMBEDDED_NOTES" || "$EMBEDDED_NOTES" != "$(<"$PUBLISHED_NOTES")" ]]; then
+  print -u2 "The local appcast does not carry the published What's New."
+  exit 1
+fi
 
 if [[ "$ACTUAL_URL" != "$FEED_BASE_URL/${DMG_PATH:t}" ]]; then
   print -u2 "The local appcast points at an unexpected download URL: $ACTUAL_URL"
@@ -268,7 +329,9 @@ if [[ "$MODE" == --auto* ]]; then
   # on its own, logging every state. Pass when the bundle on disk is the
   # update and the relaunched app reports "Updated to".
   : > "$STATES_LOG"
-  /usr/bin/open -n "$HOST_APP_PATH" --args --update-test-auto-install --update-test-log "$STATES_LOG"
+  AUTO_ARGUMENT="--update-test-auto-install"
+  [[ "$MODE" == "--auto-whats-new" ]] && AUTO_ARGUMENT="--update-test-auto-whats-new"
+  /usr/bin/open -n "$HOST_APP_PATH" --args "$AUTO_ARGUMENT" --update-test-log "$STATES_LOG"
   HOST_PLIST="$HOST_APP_PATH/Contents/Info.plist"
   RESULT="timeout"
   for _ in $(seq 1 "$AUTO_TIMEOUT_SECONDS"); do
@@ -280,11 +343,36 @@ if [[ "$MODE" == --auto* ]]; then
       RESULT="passed"; break
     fi
   done
+  # What the host read from the feed before installing: the notes must be
+  # those of the version it installed, or be refused when they are not.
+  if [[ "$MODE" == "--auto" || "$MODE" == "--auto-whats-new" || "$MODE" == "--auto-wrong-notes" ]]; then
+    if [[ "$MODE" != "--auto-wrong-notes" ]]; then
+      EXPECTED_OFFER="^$HOST_VERSION	offer(version: \"$UPDATE_VERSION\")	notes(version: \"$UPDATE_VERSION\", cards: 3)"
+    else
+      EXPECTED_OFFER="^$HOST_VERSION	offer(version: \"$UPDATE_VERSION\")	notes(unavailable: wrongVersion(found: \"$WRONG_NOTES_VERSION\"))"
+    fi
+    if [[ "$RESULT" == "passed" ]] && ! /usr/bin/grep -q "$EXPECTED_OFFER" "$STATES_LOG"; then
+      RESULT="wrong What's New"
+    fi
+  fi
+  # The owner's path: the window was on screen, with its picture checked and
+  # loaded, before anything was downloaded; and the check alone downloaded
+  # nothing.
+  if [[ "$MODE" == "--auto-whats-new" && "$RESULT" == "passed" ]]; then
+    WINDOW_LINE="$(/usr/bin/grep -n "whats-new(version: \"$UPDATE_VERSION\", window: true)	pictures(whats-new-test.png: true)" "$STATES_LOG" | /usr/bin/head -1 | /usr/bin/cut -d: -f1)"
+    AVAILABLE_LINE="$(/usr/bin/grep -n "	available(version: Optional(\"$UPDATE_VERSION\"))" "$STATES_LOG" | /usr/bin/head -1 | /usr/bin/cut -d: -f1)"
+    DOWNLOAD_LINE="$(/usr/bin/grep -n "	downloading(" "$STATES_LOG" | /usr/bin/head -1 | /usr/bin/cut -d: -f1)"
+    if [[ -z "$WINDOW_LINE" || -z "$AVAILABLE_LINE" || -z "$DOWNLOAD_LINE" ]] \
+       || (( AVAILABLE_LINE > WINDOW_LINE || WINDOW_LINE > DOWNLOAD_LINE )) \
+       || [[ ! -s "$TEST_ROOT/whats-new-window.png" ]]; then
+      RESULT="What's New was not shown before the download"
+    fi
+  fi
   /usr/bin/pkill -f "$TEST_PROCESS_PATTERN" >/dev/null 2>&1 || true
   print
   print "States the app went through:"
   /usr/bin/cut -f1,2 "$STATES_LOG" | /usr/bin/sed 's/^/  /'
-  if [[ "$MODE" != "--auto" ]]; then
+  if [[ "$MODE" == "--auto-tampered" || "$MODE" == "--auto-offline" ]]; then
     # A failure must explain itself and leave the installed app as it was.
     still="$(/usr/bin/plutil -extract CFBundleShortVersionString raw "$HOST_PLIST" 2>/dev/null || print unreadable)"
     reason="$(/usr/bin/grep -o 'failed([^)]*)' "$STATES_LOG" | /usr/bin/head -1)"
@@ -300,7 +388,14 @@ if [[ "$MODE" == --auto* ]]; then
   fi
   if [[ "$RESULT" == "passed" ]]; then
     /usr/bin/codesign --verify --deep --strict "$HOST_APP_PATH"
-    print "PASS: $HOST_VERSION updated itself to $UPDATE_VERSION, relaunched, and the result verifies."
+    if [[ "$MODE" == "--auto-wrong-notes" ]]; then
+      print "PASS: the feed carried the notes of $WRONG_NOTES_VERSION; they were not shown, and $UPDATE_VERSION still installed."
+    elif [[ "$MODE" == "--auto-whats-new" ]]; then
+      print "PASS: the check offered $UPDATE_VERSION and downloaded nothing; What's New opened with its picture;"
+      print "      Update Now then installed $UPDATE_VERSION, and it relaunched. The window: $TEST_ROOT/whats-new-window.png"
+    else
+      print "PASS: $HOST_VERSION read the What's New of $UPDATE_VERSION, updated itself to it, relaunched, and the result verifies."
+    fi
     exit 0
   fi
   print -u2 "FAIL ($RESULT). The bundle on disk reports: $(/usr/bin/plutil -extract CFBundleShortVersionString raw "$HOST_PLIST" 2>/dev/null || print unreadable)"
@@ -312,8 +407,10 @@ fi
 print
 print "Local update test is running. Nothing has been uploaded."
 print "1. In About > Updates, click 'Check for Updates'."
-print "2. Click 'Update to latest version'."
-print "3. After Claude Overhead relaunches, confirm it shows Version $UPDATE_VERSION."
+print "2. What's New opens on $UPDATE_VERSION: three test cards, one with a picture. Nothing downloads yet."
+print "3. Click 'Update Now' and watch the progress at the bottom of the window."
+print "4. After Claude Overhead relaunches, confirm it shows Version $UPDATE_VERSION,"
+print "   and that 'What's New in $UPDATE_VERSION' in About reopens the same notes."
 print
 print "Keep this command running while the update downloads."
 print "Press Control-C after the test to stop the local server."

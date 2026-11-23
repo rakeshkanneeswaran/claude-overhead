@@ -44,6 +44,28 @@ public struct CapacityWindowSnapshot: Codable, Equatable, Identifiable, Sendable
         self.scope = scope
     }
 
+    /// Read through the same clamp as a value made in code. A file can hold
+    /// any number, and a percentage far outside 0...100 would trap where it
+    /// is turned into a whole number for the usage row.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let used = try container.decode(Double.self, forKey: .usedPercentage)
+        guard used.isFinite else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .usedPercentage, in: container, debugDescription: "Not a finite number"
+            )
+        }
+        self.init(
+            provider: try container.decode(CapacityProvider.self, forKey: .provider),
+            kind: try container.decode(CapacityWindowKind.self, forKey: .kind),
+            usedPercentage: used,
+            resetsAt: try container.decodeIfPresent(Date.self, forKey: .resetsAt),
+            observedAt: try container.decode(Date.self, forKey: .observedAt),
+            source: try container.decode(CapacitySource.self, forKey: .source),
+            scope: try container.decodeIfPresent(String.self, forKey: .scope)
+        )
+    }
+
     public var id: String {
         let base = "\(provider.rawValue)-\(kind.rawValue)"
         return scope.map { "\(base)-\(CapacityWindowSnapshot.scopeKey($0))" } ?? base

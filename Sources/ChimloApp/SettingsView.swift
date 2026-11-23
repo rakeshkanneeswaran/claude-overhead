@@ -136,7 +136,7 @@ private struct GeneralSettingsPane: View {
             } header: {
                 Text("Setup")
             } footer: {
-                Text("Walks through connecting Claude Code again and replays the notch preview.")
+                Text("Walks through connecting Claude Code again.")
             }
 
             Section {
@@ -272,19 +272,6 @@ private struct AboutSettingsPane: View {
         return "Version \(version)"
     }
 
-    private var updateButtonTitle: String {
-        model.updatePresentation?.actionTitle ?? "Check for Updates"
-    }
-
-    private var updateStatusText: String {
-        model.updatePresentation?.statusText ?? "Not checked yet"
-    }
-
-    private var updateButtonIsDisabled: Bool {
-        guard let presentation = model.updatePresentation else { return false }
-        return !presentation.isActionable
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 8) {
@@ -321,26 +308,10 @@ private struct AboutSettingsPane: View {
                 }
 
                 Section {
-                    LabeledContent("Status") {
-                        HStack(spacing: 7) {
-                            if model.updatePresentation?.isBusy == true {
-                                ProgressView()
-                                    .controlSize(.small)
-                            }
-
-                            Text(updateStatusText)
-                                .foregroundStyle(.secondary)
-                        }
+                    UpdateStatusRow(model: model)
+                    if let installed = model.installedReleaseNotes {
+                        Button(installed.menuTitle) { model.showWhatsNewForInstalledVersion() }
                     }
-
-                    Button(updateButtonTitle) {
-                        if model.updatePresentation?.isAvailable == true || model.updatePresentation?.failure != nil {
-                            model.installUpdate()
-                        } else {
-                            model.checkForUpdates()
-                        }
-                    }
-                    .disabled(updateButtonIsDisabled)
                 } header: {
                     Text("Updates")
                 }

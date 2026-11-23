@@ -36,12 +36,30 @@ trap cleanup_staging EXIT
 
 /usr/bin/ditto "$ARCHIVE_PATH" "$STAGING_ROOT/${ARCHIVE_PATH:t}"
 
+# What's New travels inside the signed feed, in the same entry as the
+# download it describes, so an installed copy shows the notes of exactly the
+# version it is offered. Sparkle embeds a text file named like the archive.
+# The published notes and any pictures land in <output folder>/whats-new/.
+VERSION="${RELEASE_TAG#v}"
+WHATS_NEW_DIR="${OUTPUT_PATH:h}/whats-new"
+rm -rf "$WHATS_NEW_DIR"
+"$SCRIPT_DIR/swift.sh" run overhead-release-notes emit "$VERSION" \
+  --root "${CHIMLO_WHATS_NEW_ROOT:-$PROJECT_DIR}" \
+  --output "$WHATS_NEW_DIR/notes.json" \
+  --assets "$WHATS_NEW_DIR" >/dev/null
+if [[ ! -s "$WHATS_NEW_DIR/notes.json" ]]; then
+  print -u2 "There are no publishable release notes for $VERSION (ReleaseNotes/$VERSION.json)."
+  exit 1
+fi
+cp "$WHATS_NEW_DIR/notes.json" "$STAGING_ROOT/${ARCHIVE_PATH:t:r}.txt"
+
 typeset -a appcast_args
 appcast_args=(
   --download-url-prefix "https://github.com/rakeshkanneeswaran/claude-overhead/releases/download/$RELEASE_TAG/"
   --link "https://github.com/rakeshkanneeswaran/claude-overhead"
   --maximum-versions 1
   --maximum-deltas 0
+  --embed-release-notes
   -o "$STAGING_ROOT/appcast.xml"
   "$STAGING_ROOT"
 )
@@ -82,6 +100,15 @@ if [[ -z "$ARCHIVE_SIGNATURE" || "$ENCLOSURE_URL" != "$EXPECTED_URL" ]]; then
   exit 1
 fi
 with_key "$SIGN_UPDATE" --verify "$ARCHIVE_PATH" "$ARCHIVE_SIGNATURE"
+# The feed must describe this version and carry exactly its notes.
+FEED_VERSION="$(/usr/bin/xmllint --xpath \
+  'string(//*[local-name()="item"]/*[local-name()="shortVersionString"])' "$STAGING_ROOT/appcast.xml")"
+EMBEDDED_NOTES="$(/usr/bin/xmllint --xpath \
+  'string(//*[local-name()="item"]/*[local-name()="description"])' "$STAGING_ROOT/appcast.xml")"
+if [[ "$FEED_VERSION" != "$VERSION" || "$EMBEDDED_NOTES" != "$(<"$WHATS_NEW_DIR/notes.json")" ]]; then
+  print -u2 "The appcast does not carry the What's New of $VERSION (it describes ${FEED_VERSION:-nothing})."
+  exit 1
+fi
 # The decisive check: the key installed apps carry accepts this download.
 PUBLIC_KEY="$(/usr/bin/plutil -extract SUPublicEDKey raw "$PROJECT_DIR/Packaging/Info.plist")"
 swift "$SCRIPT_DIR/verify-update-signature.swift" "$PUBLIC_KEY" "$ARCHIVE_PATH" "$ARCHIVE_SIGNATURE"

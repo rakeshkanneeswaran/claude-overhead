@@ -1,0 +1,146 @@
+{
+  "schema": 1,
+  "version": "1.1.0",
+  "date": "2026-11-24",
+  "introduction": "Sessions can wear their own pixel characters, updates now show you what is new before you install them, and a full audit fixed a list of rare failures.",
+  "cards": [
+    {
+      "id": "characters",
+      "category": "feature",
+      "title": "Characters for your sessions",
+      "summary": "A session can wear its own pixel character in place of the Claude logo, so several sessions are easy to tell apart at a glance.",
+      "details": [
+        "46 original characters in four worlds: Animals, Elementals, Fantasy World and Cyber World.",
+        "The Claude logo stays the default. Nothing changes until you choose a character."
+      ],
+      "visual": {
+        "kind": "sprites",
+        "caption": "Eight of the 46, two from each world",
+        "sprites": [
+          { "character": "animals.cat" },
+          { "character": "animals.octopus" },
+          { "character": "elementals.ember" },
+          { "character": "elementals.sprout" },
+          { "character": "fantasy.baby-dragon" },
+          { "character": "fantasy.unicorn" },
+          { "character": "cyber.mini-robot" },
+          { "character": "cyber.mecha-fox" }
+        ]
+      }
+    },
+    {
+      "id": "picker",
+      "category": "feature",
+      "title": "Pick one right in the notch",
+      "summary": "Click a session's Claude logo, or its character, to open a picker inside the notch. Your pick replaces the logo for that one session and survives restarts.",
+      "details": [
+        "\"Claude logo\" switches a session back, and \"Surprise me\" draws a random character."
+      ],
+      "visual": {
+        "kind": "notch",
+        "caption": "Each session keeps its own mark",
+        "rows": [
+          { "title": "api-server", "status": "working", "detail": "Bash · npm test", "sprite": { "character": "cyber.mecha-fox" } },
+          { "title": "website", "status": "done", "detail": "Claude finished", "sprite": { "character": "fantasy.baby-dragon" } },
+          { "title": "docs", "status": "idle", "detail": "Waiting for a prompt" }
+        ]
+      }
+    },
+    {
+      "id": "automatic-characters",
+      "category": "feature",
+      "title": "Automatic characters, per project",
+      "summary": "Turn on \"Give sessions a character automatically\" in Settings → Appearance and each new session gets its own. A project can have its own collection to draw from.",
+      "details": [
+        "Off by default.",
+        "A character you picked by hand always stays, and changing a collection never changes a running session."
+      ],
+      "visual": {
+        "kind": "sprites",
+        "caption": "A project's collection: only these are handed out there",
+        "sprites": [
+          { "character": "elementals.ember" },
+          { "character": "elementals.drip" },
+          { "character": "elementals.nimbus" },
+          { "character": "elementals.pebble" }
+        ]
+      }
+    },
+    {
+      "id": "whats-new",
+      "category": "feature",
+      "title": "See what's new before you update",
+      "summary": "Checking for updates now opens a walkthrough like this one for the new version. Nothing is downloaded until you click Update Now.",
+      "details": [
+        "The notes travel with the update itself, so what you read is what gets installed.",
+        "You can reopen the notes for your installed version from Settings → General."
+      ]
+    },
+    {
+      "id": "allow-all-scope",
+      "category": "improvement",
+      "title": "\"Allow All\" says exactly what it covers",
+      "summary": "A line under the buttons names the rule you are granting, and Allow All is offered only when it covers no more than the card shows.",
+      "visual": {
+        "kind": "notch",
+        "rows": [
+          {
+            "title": "api-server",
+            "status": "needsYou",
+            "permission": {
+              "tool": "Bash",
+              "request": "npm test",
+              "buttons": ["Deny", "Allow Once", "Allow All"],
+              "caption": "Allow All covers Bash(npm test) in this session"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "setup-without-demo",
+      "category": "improvement",
+      "title": "Setup ends in your real notch",
+      "summary": "The demo tour that followed setup is gone. \"See your notch\" now opens the real notch on your own sessions, and the notch only ever lists real sessions."
+    },
+    {
+      "id": "failed-turns",
+      "category": "fix",
+      "title": "Failed turns are reported correctly",
+      "summary": "A finished session no longer turns \"Failed\" by itself, and a turn that really failed is no longer shown as done.",
+      "visual": {
+        "kind": "comparison",
+        "before": {
+          "label": "Before",
+          "rows": [
+            { "title": "api-server", "status": "done", "detail": "Shown as done after an API error" }
+          ]
+        },
+        "after": {
+          "label": "Now",
+          "rows": [
+            { "title": "api-server", "status": "failed", "detail": "The turn ended in an API error" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "deny-needs-a-click",
+      "category": "fix",
+      "title": "Deny answers to a click only",
+      "summary": "With several permission cards open, pressing Escape could deny a card you were not looking at. Deny now always takes a click."
+    },
+    {
+      "id": "audit-fixes",
+      "category": "fix",
+      "title": "Rare crashes and lost data",
+      "summary": "A second full audit of the app found and fixed several failures that were rare but real.",
+      "details": [
+        "A model named just \"claude\" could crash the session list.",
+        "One unreadable history record no longer hides all of your history.",
+        "Prompts and tool results over 64 KB are no longer dropped.",
+        "The closed notch now follows one session instead of swapping between two."
+      ]
+    }
+  ]
+}

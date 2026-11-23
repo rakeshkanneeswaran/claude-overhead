@@ -4,7 +4,8 @@ public enum SessionInteractionLayout {
     public static func permissionRowHeight(
         promptLineCount: Int,
         detailLineCount: Int?,
-        previewLineCount: Int?
+        previewLineCount: Int?,
+        scopeLineCount: Int? = nil
     ) -> CGFloat {
         let summaryHeight: CGFloat = 70
         let summaryToPermissionSpacing: CGFloat = 8
@@ -27,6 +28,11 @@ public enum SessionInteractionLayout {
                 + CGFloat(max(0, lines - 1)) * 2
                 + 16
             contentHeights.insert(previewHeight, at: contentHeights.count - 1)
+        }
+
+        // What "Allow All" would allow, under the buttons.
+        if let scopeLineCount {
+            contentHeights.append(CGFloat(max(1, scopeLineCount)) * 12)
         }
 
         let sectionSpacing = CGFloat(max(0, contentHeights.count - 1)) * cardContentSpacing

@@ -228,7 +228,7 @@ public struct AppUpdatePresentation: Equatable, Sendable {
     public var detail: String? {
         switch phase {
         case let .failed(failure): failure.summary
-        case .available: "Downloads, verifies and restarts. Settings stay."
+        case .available: "See what's new, then update. Settings stay."
         default: nil
         }
     }
@@ -253,9 +253,11 @@ public struct AppUpdatePresentation: Equatable, Sendable {
         }
     }
 
+    /// The button in Settings. An offer opens its What's New, where the
+    /// update itself is started.
     public var actionTitle: String {
         switch phase {
-        case .available: title
+        case .available: "See What's New"
         case .checking: "Checking…"
         case .upToDate, .updated: "Check Again"
         case .downloading: "Downloading…"
@@ -368,14 +370,13 @@ public struct AppUpdateNotice: Equatable, Sendable {
 
 public enum AppUpdatePresentationPolicy {
     /// Whether the update row takes the notch's idle panel. Claude's own
-    /// requests and onboarding always come first.
+    /// requests always come first.
     public static func shouldTakeIdlePanel(
         notice: AppUpdateNotice,
         now: Date,
-        hasOwnerInteraction: Bool,
-        isOnboarding: Bool
+        hasOwnerInteraction: Bool
     ) -> Bool {
-        guard !hasOwnerInteraction, !isOnboarding else { return false }
+        guard !hasOwnerInteraction else { return false }
         return notice.isVisible(at: now)
     }
 }

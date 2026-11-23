@@ -416,6 +416,17 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
 
     public var dailyRecapEnabled: Bool
 
+    /// Whether a new session is given a random character. Off by default:
+    /// a session shows the Claude logo until the owner picks a character for
+    /// it in the notch, which works whether this is on or off.
+    public var assignCharactersAutomatically: Bool
+    /// Each project's approved characters, by project key (`ProjectKey`):
+    /// what automatic assignment may hand a new session there. A project
+    /// without an entry draws from the whole catalogue.
+    public var projectCharacterPools: [String: [String]]
+    /// Most projects that may hold a pool; the rest are dropped on save.
+    public static let maximumProjectCharacterPools = 512
+
     public static let thresholdRange: ClosedRange<Double> = 0.3...0.99
     /// Smallest gap kept between the attention and critical thresholds, so the
     /// two stages never collapse into one.
@@ -451,6 +462,8 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         shortcuts = ShortcutDefaults.bindings
         shortcutsEnabled = true
         dailyRecapEnabled = false
+        assignCharactersAutomatically = false
+        projectCharacterPools = [:]
     }
 
     /// The same settings with every value forced into its valid range. When
@@ -481,6 +494,7 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         copy.historyRetentionDays = historyRetentionDays.map { max($0, 1) }
         copy.notifications.quietHours = notifications.quietHours?.normalized()
         copy.focus.schedule = focus.schedule?.normalized()
+        copy.projectCharacterPools = Self.normalizedPools(projectCharacterPools)
         return copy
     }
 
@@ -512,6 +526,21 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         showClosedNotchActivity && resolvedLayoutSpec(at: date, calendar: calendar).showsActivityLabel
     }
 
+    /// Pools keyed by a clean project key, without repeats, and without the
+    /// empty ones: an empty pool means "no pool", which is the same as none.
+    /// Ids this version does not know are kept, since another version may.
+    static func normalizedPools(_ pools: [String: [String]]) -> [String: [String]] {
+        var result: [String: [String]] = [:]
+        for key in pools.keys.sorted() {
+            guard result.count < maximumProjectCharacterPools,
+                  let projectKey = ProjectKey.make(key), let ids = pools[key] else { continue }
+            var seen = Set<String>()
+            let unique = ids.filter { !$0.isEmpty && $0.utf8.count <= 128 && seen.insert($0).inserted }
+            if !unique.isEmpty { result[projectKey] = Array(unique.prefix(256)) }
+        }
+        return result
+    }
+
     private static func clamp(_ value: Double, to range: ClosedRange<Double>, fallback: Double) -> Double {
         let finite = value.isFinite ? value : fallback
         return min(max(finite, range.lowerBound), range.upperBound)
@@ -531,6 +560,7 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         case github, focus
         case shortcuts, shortcutsEnabled
         case dailyRecapEnabled
+        case assignCharactersAutomatically, projectCharacterPools
     }
 
     public init(from decoder: any Decoder) throws {
@@ -572,6 +602,9 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         shortcuts = Self.decodeShortcuts(from: c) ?? d.shortcuts
         shortcutsEnabled = c.lenient(Bool.self, .shortcutsEnabled) ?? d.shortcutsEnabled
         dailyRecapEnabled = c.lenient(Bool.self, .dailyRecapEnabled) ?? d.dailyRecapEnabled
+        assignCharactersAutomatically = c.lenient(Bool.self, .assignCharactersAutomatically)
+            ?? d.assignCharactersAutomatically
+        projectCharacterPools = c.lenient([String: [String]].self, .projectCharacterPools) ?? d.projectCharacterPools
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -619,6 +652,8 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         }
         try c.encode(shortcutsEnabled, forKey: .shortcutsEnabled)
         try c.encode(dailyRecapEnabled, forKey: .dailyRecapEnabled)
+        try c.encode(assignCharactersAutomatically, forKey: .assignCharactersAutomatically)
+        try c.encode(projectCharacterPools, forKey: .projectCharacterPools)
     }
 
     /// Null unbinds an action; an action absent from the file (added after it

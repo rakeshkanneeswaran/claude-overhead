@@ -34,7 +34,11 @@ public enum ProviderHookMappingError: Error, LocalizedError, Sendable {
 /// Claude Overhead needs. Unknown JSON fields are never decoded, which prevents prompts,
 /// transcripts, tool inputs, outputs, and file contents from entering app state.
 public enum PrivacySafeHookMapper {
-    public static let maximumPayloadBytes = 64 * 1024
+    /// As much as the blocking hooks read. Only six small fields are decoded,
+    /// but Claude Code sends the whole prompt or tool result with them, and
+    /// an event dropped for its size is a session that never shows it
+    /// started working.
+    public static let maximumPayloadBytes = 8 * 1_024 * 1_024
 
     public static func event(
         from data: Data,

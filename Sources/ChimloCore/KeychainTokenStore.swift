@@ -29,6 +29,18 @@ public struct KeychainTokenStore: GitHubTokenStoring {
         self.account = account
     }
 
+    /// Whether a token is stored, without reading it. Asking only for the
+    /// item's attributes never needs the Keychain's permission, so this never
+    /// shows a dialog and never waits for one. Reading the token itself can:
+    /// after an update the Keychain may ask the owner again, and a view that
+    /// read it would stop the whole app until they answered.
+    public func exists() -> Bool {
+        var query = baseQuery
+        query[kSecReturnAttributes as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+    }
+
     public func read() throws -> String? {
         var query = baseQuery
         query[kSecReturnData as String] = true

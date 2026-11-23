@@ -84,13 +84,13 @@ private struct CheckSuite {
         offer.show(presentation, at: now)
         expect(
             AppUpdatePresentationPolicy.shouldTakeIdlePanel(
-                notice: offer, now: now, hasOwnerInteraction: false, isOnboarding: false
+                notice: offer, now: now, hasOwnerInteraction: false
             ),
             "available update takes the idle panel"
         )
         expect(
             !AppUpdatePresentationPolicy.shouldTakeIdlePanel(
-                notice: offer, now: now, hasOwnerInteraction: true, isOnboarding: false
+                notice: offer, now: now, hasOwnerInteraction: true
             ),
             "owner interactions outrank update reminders"
         )
@@ -98,7 +98,7 @@ private struct CheckSuite {
         upToDate.show(completedCheck, at: now)
         expect(
             !AppUpdatePresentationPolicy.shouldTakeIdlePanel(
-                notice: upToDate, now: now, hasOwnerInteraction: false, isOnboarding: false
+                notice: upToDate, now: now, hasOwnerInteraction: false
             ),
             "an up-to-date result stays in Settings instead of taking the island"
         )
@@ -283,7 +283,7 @@ private struct CheckSuite {
                 isSessionPanel: false,
                 hasBlockingDecision: false
             ),
-            "onboarding and compact modes never auto-collapse"
+            "compact and update modes never auto-collapse"
         )
         expect(
             IslandCollapsePolicy.isNewCompletion(
@@ -420,7 +420,6 @@ private struct CheckSuite {
             !SessionVisibilityPolicy.shouldDisplay(
                 title: "overhead",
                 titleKind: .workspace,
-                isDemo: false,
                 hasActionableRequest: false
             ),
             "workspace fallback is not shown as a session title"
@@ -429,7 +428,6 @@ private struct CheckSuite {
             SessionVisibilityPolicy.shouldDisplay(
                 title: "overhead",
                 titleKind: .workspace,
-                isDemo: false,
                 hasActionableRequest: false,
                 hasConversationPreview: true
             ),
@@ -439,25 +437,14 @@ private struct CheckSuite {
             SessionVisibilityPolicy.shouldDisplay(
                 title: "Fix model display names",
                 titleKind: .task,
-                isDemo: false,
                 hasActionableRequest: false
             ),
             "provider task titles remain visible"
         )
         expect(
             SessionVisibilityPolicy.shouldDisplay(
-                title: "Fix the tiny lighthouse",
-                titleKind: .workspace,
-                isDemo: true,
-                hasActionableRequest: false
-            ),
-            "the titled onboarding demo remains visible"
-        )
-        expect(
-            SessionVisibilityPolicy.shouldDisplay(
                 title: "overhead",
                 titleKind: .workspace,
-                isDemo: false,
                 hasActionableRequest: true
             ),
             "an untitled session stays visible while owner action is required"

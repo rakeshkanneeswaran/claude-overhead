@@ -74,11 +74,16 @@ if gh release view "$TAG" >/dev/null 2>&1; then
   exit 1
 fi
 
+# Pictures the release's What's New shows are served beside the download.
+typeset -a WHATS_NEW_IMAGES
+WHATS_NEW_IMAGES=("$ARTIFACT_DIR"/whats-new/*.png(N))
+
 gh release create "$TAG" \
   "$DMG_PATH" \
   "$APPCAST_PATH" \
   "$MANIFEST_PATH" \
   "$CHECKSUM_PATH" \
+  "${WHATS_NEW_IMAGES[@]}" \
   --draft \
   --verify-tag \
   --notes-file "$RELEASE_NOTES_PATH" \

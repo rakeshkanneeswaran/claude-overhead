@@ -9,11 +9,22 @@ math, and the privacy-safe projection from hooks and local JSONL metadata into
 one `SessionCandidate` vocabulary. It knows nothing about AppKit, sockets, hook
 file locations, or vendor configuration files. Hook events, process evidence,
 cache restores, and JSONL metadata all merge through the same reducer. A live actionable request cannot be overwritten by weaker
-metadata. Onboarding demo events pass through this exact reducer too.
+metadata.
 
 Core also holds every rule the app's features depend on, so each is testable
 without AppKit:
 
+- **What's New** (`ReleaseNotes.swift`, `ReleaseNotesValidation.swift`,
+  `WhatsNewWalkthrough.swift`): the format of a release's visual notes, the
+  rules they must pass to be published (`ReleaseNotesValidator`,
+  `ReleaseReadiness`), how an installed copy reads them (`ReleaseNotesReader`:
+  only for exactly the version on offer, leaving out what it cannot draw), and
+  the rule that only the version whose notes were shown is installed
+  (`UpdateInstallGuard`). The notes travel in the signed update feed, in the
+  same entry as the download. `Sources/ChimloReleaseNotes` is the small tool
+  that checks and publishes them; `WhatsNewWindow.swift` and
+  `WhatsNewVisuals.swift` in the app only draw what the notes say. See
+  [RELEASING.md](RELEASING.md#whats-new).
 - **Transcript insights** (`TranscriptInsightsScanner`): context tokens and
   window, compactions, prompt-cache counters, the current tool activity,
   subagents, git branch, linked PRs, reported cost, touched files and test
@@ -34,6 +45,25 @@ without AppKit:
   never stay (`AppUpdateNotice`), and version comparison. `ChimloUpdater`
   drives Sparkle against the signed appcast of the latest GitHub release;
   see Docs/RELEASING.md.
+- **Session characters** (`SessionCharacter.swift`, `CharacterArtwork.swift`,
+  `CharacterAssignments.swift`): `CharacterCatalog` holds the 46 characters,
+  each an original 16 × 16 drawing with one letter per colour, grouped into
+  `CharacterWorld`s. The Claude logo is the default and the fallback whenever
+  a session has no character to show. `CharacterAssignments` records what
+  each session wears and who chose it. The owner's pick in the notch (a
+  character, a random one they asked for, or the Claude logo) always applies.
+  Automatic assignment is a setting, off by default: while it is on, a listed
+  session with nothing stored draws at random from its project's pool (or
+  the whole catalogue), preferring a character no listed session wears, then
+  one no session of the same project wears, then the least worn. A character
+  handed out that way shows only while the setting is on, and is kept rather
+  than erased while it is off (`shownCharacter(for:automatic:)`). A session
+  keeps its record for as long as it is remembered (the 512 most recently
+  seen), across restarts and a resume; only listed sessions count as "in
+  use", so a character is free once its session leaves the list. In the app,
+  `SessionMark` is the one view that draws a session's mark, so the closed
+  notch, the rows, the activity feed and the companion's session list always
+  agree.
 - **Sound and Lock Mode** (`SessionSound.swift`): `SessionSoundPreferences`
   (which sessions may sound, off for all by default, kept for the session's
   lifetime), `SessionSoundGate` (a session's events need its toggle, one sound
