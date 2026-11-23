@@ -9,6 +9,140 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-24
+
+Sessions can wear their own pixel characters, an update now shows you what is
+new before anything is downloaded, and a second full audit fixed a list of
+rare failures.
+
+- **Characters for your sessions.** A session can now wear its own pixel
+  character in place of the Claude logo, so sessions are easy to tell apart.
+  There are 46, all drawn for Claude Overhead, in four worlds: Animals,
+  Elementals, Fantasy World and Cyber World. The Claude logo stays the
+  default: nothing changes until you choose a character.
+- **Pick one in the notch.** Click a session's Claude logo (or its character)
+  to open a picker inside the notch, grouped by world. Choosing a character
+  replaces the logo for that one session at once; "Claude logo" switches it
+  back, and "Surprise me" draws a random one. Your pick is kept through
+  refreshes, restarts and a resume.
+- **Automatic characters, if you want them.** **Settings → Appearance → Give
+  sessions a character automatically** is off by default. Turned on,
+  each new session gets a random character, different from the other open
+  sessions where it can; when the session ends the character is free again.
+  Turned off again, those sessions go back to the Claude logo and the
+  characters you picked yourself stay.
+- **Project collections.** On the Projects page, or in **Settings →
+  Appearance**, choose which characters automatic assignment may give a
+  project's sessions. A project without a collection draws from all 46.
+  Changing a collection never changes a character a running session already
+  wears, and you can still pick any character by hand.
+- Characters bob while Claude works, and take a raised pose (or hop) when it
+  is your turn, as the Claude logo does.
+- **See what's new before you update.** When **Check for Updates** finds a
+  newer version, a What's New window opens on it: a card for each change,
+  sorted into new features, improvements and bug fixes, with the notch, the
+  characters or a before-and-after drawn where that shows the change. Nothing
+  is downloaded until you click **Update Now** there, and it installs exactly
+  the version you were reading about: the notes travel inside the signed
+  update feed, in the same entry as the download. A background check still
+  shows its row in the notch; the row now opens What's New.
+- **Settings says where updates stand** in one row: up to date, an update on
+  offer, the progress of one being installed, or what went wrong and a way to
+  try again. A **What's New** button there reopens the notes of the
+  version you have.
+- **Trying again after a failed update check no longer installs by itself.**
+  When the update feed failed to load, **Retry** downloaded and installed
+  whatever the next check found. It now offers the update with its What's
+  New like any other check; only an update you had already started is retried
+  straight through, and only that same version.
+- **Every release now ships its What's New.** The release process refuses a
+  version without its notes, checks that the feed carries exactly them, and
+  has the packaged app draw every page before anything is published.
+- **No more demo after setup.** The notch used to follow setup with a
+  two-step tour: a made-up session and a made-up permission request marked
+  "Demo only". That is gone. "See your notch" now opens the real notch once,
+  on your own sessions, and it closes by itself. The notch only ever shows
+  real sessions.
+- **The placeholder session is gone too**, along with its setting, "Keep the
+  preview session after setup". It appeared when the app could not start
+  listening for Claude Code. The empty notch now says so in words: "Claude
+  Overhead can't listen right now. It keeps retrying."
+
+A second full audit of the app, after the character feature, found and fixed
+the following. Each has a regression test where the rule can be tested.
+
+- **A finished session no longer turns "Failed" by itself, and a turn that
+  really failed is no longer shown as finished.** Claude Code reports a failed
+  request even when the request was one it made on its own while the session
+  sat idle, so one bad connection painted a session that had finished an hour
+  earlier red, played the attention sound and opened the notch. And a turn
+  that did fail was soon overwritten as "Done", announced as finished, with
+  the model shown as `<synthetic>`. Claude Overhead now takes a failed turn
+  from the session's own file, where Claude Code records a failed turn and
+  nothing for its own background requests.
+- **"Allow All" never covers more than the card shows, and the card says what
+  it covers.** A line under the buttons now reads, for example, "Allow All
+  covers Bash(npm test) in this session". A card for one file, pattern or
+  address (Read, Glob, Grep, an MCP tool with a path or command) has "Allow
+  All" only when Claude Code suggests a rule that names it; before, it could
+  allow every use of that tool. A suggestion that also covers a tool the card
+  does not show is not taken, and only a file-edit card can switch the session
+  to accept edits.
+- **Deny answers to a click only.** With several cards open, Escape denied
+  whichever one SwiftUI picked, and Escape also closes another session's
+  answer field.
+- **A model name could crash the app.** A model called just `claude` (a
+  gateway alias) or `claude-v-2` made the session list fail every time it was
+  rebuilt, and again at each launch for a day.
+- **One unreadable history record no longer hides all history.** The readable
+  records load, and the original file is kept beside it first. A history file
+  that merely cannot be read (permissions, a disk error) is left exactly where
+  it is; before, it was moved aside as if damaged.
+- **A usage number far out of range in the capacity file no longer crashes
+  the usage row.**
+- **Large prompts and tool results are no longer dropped.** Events over 64 KB
+  were ignored, so a session with a long paste never showed it had started
+  working.
+- **An interactive session started from inside a `claude -p` run is no longer
+  taken for an unattended one.** The launch flags that were read decide; the
+  inherited variable is used only when the flags cannot be read.
+- **The closed notch speaks for one session.** Its mark, mood, activity line
+  and wing indicators now all follow the same session, and stay with it while
+  it runs instead of swapping between two sessions on every event.
+- **A failed session can be archived**, the activity feed and the character
+  picker never open behind a card, a notch opened on a failure respects
+  "Session failures" being turned off, and anything that moves the cards
+  (the usage panel, "Show all sessions") re-arms the click guard.
+- **A request with an id that is already waiting is refused**, and an answered
+  card is always redrawn.
+- **Setup and install.** The helper copy no longer keeps a download's
+  quarantine flag, a repair that fails no longer removes hooks that were
+  working, and Claude Code's settings file is written with plain slashes
+  (`/Users/…`, not `\/Users\/…`).
+- **GitHub settings no longer read the token to check that one is stored**, so
+  a Keychain prompt after an update cannot freeze the window.
+- **Releases are launched once before they are published.** The release
+  workflow now starts the packaged app and waits for its helper to reach it.
+
+Known limits:
+
+- What's New appears before an update from the update after this one. A copy
+  on 1.0.8 or earlier does not have the window, so it updates to this version
+  the way it always has; the notes are then behind the **What's New** button
+  in **Settings → General**.
+- Releases are ad-hoc signed, so macOS treats each update as a new app: the
+  Keychain may ask again for a pasted GitHub token, and macOS may ask again
+  for Documents or Desktop access. A Developer ID signature is the fix.
+- Where the app cannot read a session's file, a failed turn is still taken
+  from the hook, and only while a turn appears to be running.
+- Hook changes other than the command itself (a matcher, a timeout) do not
+  reach an install made by an older version until it is repaired by hand.
+- A connection file left by a crash is still trusted if its process id was
+  reused by another program after a restart.
+- History grows with use when it is kept for ever, and is rewritten whole on
+  each change.
+- The 33 newest characters have no "your turn" pose of their own; they hop.
+
 ## [1.0.8] - 2026-11-23
 
 Fixes permission cards appearing for sessions you were not at. Someone
@@ -357,7 +491,8 @@ controls in the MacBook notch.
 - Accessibility permission is needed for Chimlo's volume and brightness
   controls. Agent activity remains available without it.
 
-[Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.0.8...HEAD
+[Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.1.0
 [1.0.8]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.8
 [1.0.7]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.7
 [1.0.6]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.6
