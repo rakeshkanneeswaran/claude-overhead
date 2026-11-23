@@ -316,6 +316,9 @@ final class ApplicationModel: ObservableObject {
     @Published var keepPreviewSession: Bool {
         didSet { defaults.set(keepPreviewSession, forKey: Keys.keepPreviewSession) }
     }
+    /// The owner's setting: whether requests from runs nobody is watching
+    /// (`claude -p`) wait in the notch. Off, they are left to Claude Code.
+    private var asksAboutUnattendedRuns = false
     /// Lock Mode: the notch opens only when the owner opens it. Requests
     /// still wait in it; nothing is approved or dropped.
     @Published var isNotchLocked = false {
@@ -985,6 +988,7 @@ final class ApplicationModel: ObservableObject {
             soundsEnabled = settings.notifications.soundsEnabled
         }
         if isNotchLocked != settings.notchLocked { isNotchLocked = settings.notchLocked }
+        asksAboutUnattendedRuns = settings.askAboutUnattendedRuns
         if preferredDisplay != settings.preferredDisplay { preferredDisplay = settings.preferredDisplay }
         soundChoice = settings.notifications.soundChoice
         soundVolume = settings.notifications.soundVolume
@@ -2318,6 +2322,7 @@ final class ApplicationModel: ObservableObject {
 
     /// Why a request left the notch when Claude Code ended its hook.
     private static let stoppedWaitingNote = "Claude Code stopped waiting for an answer"
+    private static let unattendedRunNote = "Unattended run: left to Claude Code"
 
     /// A session that ended takes its open requests with it. Its hooks are
     /// gone, so nothing is waiting for an answer any more.
@@ -2335,6 +2340,15 @@ final class ApplicationModel: ObservableObject {
     ) async -> ProviderPermissionResponse {
         if let expiresAt = request.expiresAt, expiresAt <= Date() {
             return .unavailable(for: request.id, reason: "Permission request expired")
+        }
+        // A run nobody is watching: Claude Code decides, as it does without
+        // the notch, unless the owner asked to hear about these. Answered
+        // before anything is stored, so no card, sound or session change.
+        guard UnattendedRunPolicy.reachesNotch(
+            isUnattended: request.isUnattended,
+            ownerAsksAboutUnattendedRuns: asksAboutUnattendedRuns
+        ) else {
+            return .unavailable(for: request.id, reason: Self.unattendedRunNote)
         }
         guard request.agent == .claude,
               !request.sessionID.isEmpty,
@@ -2474,6 +2488,14 @@ final class ApplicationModel: ObservableObject {
     private func requestQuestion(_ request: ProviderQuestionRequest) async -> ProviderQuestionResponse {
         if let expiresAt = request.expiresAt, expiresAt <= Date() {
             return .unavailable(for: request.id, reason: "Question request expired")
+        }
+        // As for permissions: an unattended run's question stays with
+        // Claude Code unless the owner asked to hear about these.
+        guard UnattendedRunPolicy.reachesNotch(
+            isUnattended: request.isUnattended,
+            ownerAsksAboutUnattendedRuns: asksAboutUnattendedRuns
+        ) else {
+            return .unavailable(for: request.id, reason: Self.unattendedRunNote)
         }
         guard !request.questions.isEmpty,
               request.questions.allSatisfy({ !$0.prompt.isEmpty && !$0.options.isEmpty }),

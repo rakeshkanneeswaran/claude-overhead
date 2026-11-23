@@ -114,13 +114,16 @@ enum ChimloCommand {
     /// AskUserQuestion is the one provider hook Claude Overhead intentionally keeps
     /// blocking. An explicit answer becomes Claude's updated tool input. Every
     /// failure prints `{}`, which hands the question back to Claude's native UI.
+    /// The app is told when the run has nobody watching it, and answers
+    /// "unavailable" at once unless the owner asked to hear about those.
     private static func answerClaudeQuestionHook() async {
         guard let data = try? FileHandle.standardInput.read(
             upToCount: ClaudeQuestionHook.maximumPayloadBytes + 1
         ), data.count <= ClaudeQuestionHook.maximumPayloadBytes,
               let hook = try? ClaudeQuestionHook(
                 data: data,
-                expiresAt: Date().addingTimeInterval(590)
+                expiresAt: Date().addingTimeInterval(590),
+                isUnattended: ClaudeLaunch.current().isUnattended
               ),
               let client = try? ChimloClient(timeout: .seconds(595)) else {
             FileHandle.standardOutput.write(ClaudeQuestionHook.fallbackOutput)
@@ -134,13 +137,17 @@ enum ChimloCommand {
     /// PermissionRequest is blocked only long enough for an explicit choice.
     /// Every unavailable or cancelled response prints `{}`, returning control
     /// to Claude Code's native permission prompt without granting anything.
+    /// A run nobody is watching (`claude -p`) is reported as such: the app
+    /// answers "unavailable" at once unless the owner asked to hear about
+    /// those, so the run is not held where Claude Code would have decided.
     private static func answerClaudePermissionHook() async {
         guard let data = try? FileHandle.standardInput.read(
             upToCount: ClaudePermissionHook.maximumPayloadBytes + 1
         ), data.count <= ClaudePermissionHook.maximumPayloadBytes,
               let hook = try? ClaudePermissionHook(
                   data: data,
-                  expiresAt: Date().addingTimeInterval(590)
+                  expiresAt: Date().addingTimeInterval(590),
+                  isUnattended: ClaudeLaunch.current().isUnattended
               ),
               let client = try? ChimloClient(timeout: .seconds(595)) else {
             FileHandle.standardOutput.write(ClaudePermissionHook.fallbackOutput)

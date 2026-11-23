@@ -131,6 +131,11 @@ private struct GeneralPane: View {
                 Text("While locked, the notch never opens by itself. Every session is still watched, the sounds you turned on still play, and a permission request or question waits in the notch, never approved or dropped, until you click the notch to answer it.")
             }
             Section {
+                Toggle("Ask me about unattended runs", isOn: settings.binding(\.askAboutUnattendedRuns))
+            } footer: {
+                Text("A run started by a script (claude -p) has nobody at a Claude Code prompt, so Claude Code decides by itself and the run carries on. Off, Claude Overhead stays out of those runs. On, their permission requests and questions wait in the notch, and the run stops until you answer or the request expires.")
+            }
+            Section {
                 ClaudeConnectionRow()
                 LabeledContent("Local listener", value: listenerText)
                 Button("Run setup again") { model.presentSetup?(true) }

@@ -110,6 +110,8 @@ public struct ProviderQuestionRequest: Codable, Equatable, Sendable, Identifiabl
     public let title: String
     public let questions: [ProviderQuestion]
     public let expiresAt: Date?
+    /// The run has nobody at a Claude Code prompt (see `ClaudeLaunch`).
+    public let isUnattended: Bool
 
     public init(
         id: UUID = UUID(),
@@ -117,7 +119,8 @@ public struct ProviderQuestionRequest: Codable, Equatable, Sendable, Identifiabl
         agent: AgentKind,
         title: String,
         questions: [ProviderQuestion],
-        expiresAt: Date? = nil
+        expiresAt: Date? = nil,
+        isUnattended: Bool = false
     ) {
         self.id = id
         self.sessionID = sessionID
@@ -125,6 +128,20 @@ public struct ProviderQuestionRequest: Codable, Equatable, Sendable, Identifiabl
         self.title = title
         self.questions = questions
         self.expiresAt = expiresAt
+        self.isUnattended = isUnattended
+    }
+
+    /// `isUnattended` is absent from a helper older than the app, which
+    /// reads as attended: what every request was before the field existed.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        sessionID = try container.decode(String.self, forKey: .sessionID)
+        agent = try container.decode(AgentKind.self, forKey: .agent)
+        title = try container.decode(String.self, forKey: .title)
+        questions = try container.decode([ProviderQuestion].self, forKey: .questions)
+        expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
+        isUnattended = try container.decodeIfPresent(Bool.self, forKey: .isUnattended) ?? false
     }
 }
 
@@ -174,6 +191,10 @@ public struct ProviderPermissionRequest: Codable, Equatable, Sendable, Identifia
     public let preview: String?
     public let allowsSessionApproval: Bool
     public let expiresAt: Date?
+    /// Claude Code's `permission_mode` for the session, when it sent one.
+    public let permissionMode: String?
+    /// The run has nobody at a Claude Code prompt (see `ClaudeLaunch`).
+    public let isUnattended: Bool
 
     public init(
         id: UUID = UUID(),
@@ -185,7 +206,9 @@ public struct ProviderPermissionRequest: Codable, Equatable, Sendable, Identifia
         detail: String? = nil,
         preview: String? = nil,
         allowsSessionApproval: Bool = false,
-        expiresAt: Date? = nil
+        expiresAt: Date? = nil,
+        permissionMode: String? = nil,
+        isUnattended: Bool = false
     ) {
         self.id = id
         self.sessionID = sessionID
@@ -197,6 +220,27 @@ public struct ProviderPermissionRequest: Codable, Equatable, Sendable, Identifia
         self.preview = preview
         self.allowsSessionApproval = allowsSessionApproval
         self.expiresAt = expiresAt
+        self.permissionMode = permissionMode
+        self.isUnattended = isUnattended
+    }
+
+    /// `permissionMode` and `isUnattended` are absent from a helper older
+    /// than the app. That reads as an attended run in an unnamed mode: what
+    /// every request was before the fields existed.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        sessionID = try container.decode(String.self, forKey: .sessionID)
+        agent = try container.decode(AgentKind.self, forKey: .agent)
+        title = try container.decode(String.self, forKey: .title)
+        toolName = try container.decode(String.self, forKey: .toolName)
+        prompt = try container.decode(String.self, forKey: .prompt)
+        detail = try container.decodeIfPresent(String.self, forKey: .detail)
+        preview = try container.decodeIfPresent(String.self, forKey: .preview)
+        allowsSessionApproval = try container.decode(Bool.self, forKey: .allowsSessionApproval)
+        expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
+        permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
+        isUnattended = try container.decodeIfPresent(Bool.self, forKey: .isUnattended) ?? false
     }
 }
 

@@ -119,6 +119,40 @@ you chose never to be asked, permission requests are left to Claude Code and
 never reach the notch. Claude Code's idle notices ("Claude is waiting for your
 input") are not questions and never become one.
 
+### Runs nobody is watching
+
+Claude Code runs the `PermissionRequest` hook in two situations: when it is
+about to show its own prompt, and when nobody can be prompted and it would
+otherwise deny the call at once. The second is a `claude -p` run, or an SDK run
+with no application answering its prompts. A hook that waits for a click turns
+that into a run that stops for up to ten minutes, so by default Claude Overhead
+leaves these runs to Claude Code: the helper answers `{}` and the run behaves
+as it does without Claude Overhead. **Settings → General → Ask me about
+unattended runs** sends their permission requests and questions to the notch
+instead; the card is then labelled "Unattended run".
+
+The hook input does not say which situation it is, so the helper looks at how
+the Claude Code process above it was started:
+
+- `-p`, `--print`, `--output-format`, `--input-format` or `--sdk-url` means
+  Claude Code is running without its own interface.
+- `--permission-prompt-tool stdio` means an application answers its prompts
+  (the VS Code extension, the desktop app, an SDK application with its own
+  approval screen), so the session is attended whatever else is set.
+- If the arguments cannot be read, `CLAUDE_CODE_ENTRYPOINT=sdk-cli` means a
+  `claude -p` run. The variable alone is not enough: a run started from inside
+  another session inherits that session's value.
+
+Anything unclear counts as attended, which is how every session was treated
+before. A wrong guess can only move a request between the notch and Claude
+Code; it never approves anything. Only the launch flags are read. Arguments
+are not stored, logged or sent, and the request carries one yes-or-no value.
+
+A permission card also names the session's permission mode ("Manual", "Auto",
+"Plan", "Accept edits"). Permission mode belongs to each Claude Code process: a
+`claude -p` run does not take the mode of the session that started it, and
+Auto falls back to Manual when the model or provider does not support it.
+
 A missing app, timeout, malformed payload, or transport error can never imply
 approval or fabricate an answer.
 

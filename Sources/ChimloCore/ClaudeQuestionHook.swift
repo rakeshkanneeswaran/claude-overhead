@@ -28,7 +28,9 @@ public struct ClaudeQuestionHook: Sendable {
     public let request: ProviderQuestionRequest
     private let originalQuestionsJSON: Data
 
-    public init(data: Data, expiresAt: Date? = nil) throws {
+    /// `isUnattended` is what `ClaudeLaunch` found about the Claude Code
+    /// process that ran this hook; the app decides what to do with it.
+    public init(data: Data, expiresAt: Date? = nil, isUnattended: Bool = false) throws {
         guard data.count <= Self.maximumPayloadBytes else {
             throw ClaudeQuestionHookError.payloadTooLarge
         }
@@ -83,7 +85,8 @@ public struct ClaudeQuestionHook: Sendable {
             agent: .claude,
             title: projectName ?? "Claude Code session",
             questions: questions,
-            expiresAt: expiresAt
+            expiresAt: expiresAt,
+            isUnattended: isUnattended
         )
         originalQuestionsJSON = try JSONSerialization.data(withJSONObject: rawQuestions)
     }

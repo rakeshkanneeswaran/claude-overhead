@@ -64,6 +64,10 @@ Overhead, and move it to the Trash.
   click it. Sessions are still watched and the sounds you turned on still
   play; a permission request or question waits in the notch, never approved
   or dropped, until you open it.
+- **Scripts are left alone.** A `claude -p` run has nobody to answer a prompt,
+  so its permission requests stay with Claude Code and the run carries on.
+  Turn on **Ask me about unattended runs** in **Settings → General** to
+  approve them from the notch instead.
 - **Works without a notch.** On external displays it shows as a small pill
   below the menu bar.
 
@@ -123,7 +127,7 @@ shortcut (⌃⌥ and comma), or by opening the app again.
   what it offers and has a **Connect GitHub** button; nothing else in Claude
   Overhead depends on it.
 - **Settings:** seven tabs, one place for each choice. **General** (Claude
-  Code, Lock Mode, login, display, updates), **Appearance** (notch layout,
+  Code, Lock Mode, unattended runs, login, display, updates), **Appearance** (notch layout,
   themes, motion), **Notifications** (sound and volume, every event including
   GitHub's, quiet hours, Focus), **Usage**, **Shortcuts**, **GitHub** (the
   integration: sign-in, repositories, what it watches) and **Privacy**.

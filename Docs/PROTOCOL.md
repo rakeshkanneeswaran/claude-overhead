@@ -119,6 +119,15 @@ can receive a session-scoped allow update. A correlated
 `permission_response` is one of allow once, allow for session, deny, cancel, or
 unavailable.
 
+Two optional fields say where the request comes from: `permissionMode` is
+Claude Code's `permission_mode` for the session, shown on the card, and
+`isUnattended` is true when nobody is at a Claude Code prompt for the run (see
+[AGENT_HOOKS.md](AGENT_HOOKS.md)). `question_request` carries `isUnattended`
+too. Both are absent from an older helper, which reads as an attended run in an
+unnamed mode. The app answers an unattended request `unavailable` at once,
+before storing or showing anything, unless the owner turned on **Ask me about
+unattended runs**.
+
 The blocking helper returns Claude's documented `PermissionRequest` decision
 object only after an explicit choice. Allow once returns `behavior: allow` with
 no permission update. Allow All prefers a validated Claude-authored rule,

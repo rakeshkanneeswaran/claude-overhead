@@ -46,7 +46,9 @@ public struct ClaudePermissionHook: Sendable {
         return !Self.modesThatNeverAsk.contains(permissionMode)
     }
 
-    public init(data: Data, expiresAt: Date? = nil) throws {
+    /// `isUnattended` is what `ClaudeLaunch` found about the Claude Code
+    /// process that ran this hook; the app decides what to do with it.
+    public init(data: Data, expiresAt: Date? = nil, isUnattended: Bool = false) throws {
         guard data.count <= Self.maximumPayloadBytes else {
             throw ClaudePermissionHookError.payloadTooLarge
         }
@@ -87,7 +89,9 @@ public struct ClaudePermissionHook: Sendable {
             // "Allow All" is offered only when a rule exists that grants
             // what the card shows and no more.
             allowsSessionApproval: sessionPermissionUpdate != nil,
-            expiresAt: expiresAt
+            expiresAt: expiresAt,
+            permissionMode: permissionMode,
+            isUnattended: isUnattended
         )
         sessionPermissionUpdateJSON = try sessionPermissionUpdate.map {
             try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys])

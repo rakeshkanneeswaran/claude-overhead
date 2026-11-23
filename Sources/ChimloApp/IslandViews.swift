@@ -1658,6 +1658,25 @@ private struct SessionPermissionView: View {
 
     private var request: ProviderPermissionRequest { presentation.request }
 
+    /// Where the request comes from and the permission mode its session is
+    /// in, so a card from a session thought to be in Auto explains itself.
+    private var sourceLabel: String {
+        let source = request.isUnattended ? "Unattended run" : "Claude permission"
+        guard let mode = ClaudePermissionModeName.displayName(for: request.permissionMode) else { return source }
+        return "\(source) · \(mode)"
+    }
+
+    private var sourceHelp: String {
+        var lines: [String] = []
+        if let mode = ClaudePermissionModeName.displayName(for: request.permissionMode) {
+            lines.append("This Claude Code session is in \(mode) mode.")
+        }
+        if request.isUnattended {
+            lines.append("It was started by a script, with nobody at a Claude Code prompt. If you don't answer, Claude Code denies the request.")
+        }
+        return lines.isEmpty ? "A permission request from Claude Code" : lines.joined(separator: " ")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .center, spacing: 7) {
@@ -1674,9 +1693,11 @@ private struct SessionPermissionView: View {
 
                 Spacer(minLength: 8)
 
-                Text("Claude permission")
+                Text(sourceLabel)
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(ChimloTheme.mutedPaper)
+                    .lineLimit(1)
+                    .help(sourceHelp)
 
                 if let handBack {
                     HandBackButton(
