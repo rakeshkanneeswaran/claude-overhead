@@ -206,18 +206,17 @@ struct WhatsNewWiringTests {
     }
 
     @Test("No release is built or published without its What's New")
-    func releaseWorkflowRequiresNotes() throws {
-        let workflow = try Self.source(".github/workflows/release.yml")
-        #expect(workflow.contains(#"run: ./Scripts/check-release-notes.sh --release "$TAG""#))
-        #expect(workflow.contains(#"run: ./Scripts/check-release-notes.sh --release "$TAG" --app "dist/Claude Overhead.app""#))
-        try Self.expect("name: What's New is ready for this version", before: "name: Build and verify the DMG", in: workflow, "notes are checked first")
-        // Only a tag from before 1.1.0 may be rebuilt without these checks.
-        try Self.expect("name: Which checks this tag has", before: "name: What's New is ready for this version", in: workflow, "the tag is classified first")
-        #expect(workflow.contains("v0.*|v1.0.*) echo \"modern=false\" >> \"$GITHUB_OUTPUT\" ;;"))
-        #expect(workflow.contains("*) echo \"$TAG has no Scripts/check-release-notes.sh or Scripts/smoke-launch.sh.\" >&2; exit 1 ;;"))
-        #expect(workflow.components(separatedBy: "if: steps.tag.outputs.modern == 'true'").count - 1 == 4)
-        try Self.expect("name: The packaged app draws its What's New", before: "name: Sign the update feed", in: workflow, "the app draws its notes before the feed is signed")
-        try Self.expect("name: Sign the update feed", before: "name: Publish the release", in: workflow, "publishing is last")
+    func releaseRequiresNotes() throws {
+        let release = try Self.source("Scripts/public-release.sh")
+        try Self.expect(#"./Scripts/check-release-notes.sh --release "$TAG""#, before: #"./Scripts/build-public-dmg.sh "$TAG" "$BUILD_NUMBER""#,
+                        in: release, "the notes are checked before anything is built")
+        try Self.expect(#"./Scripts/build-public-dmg.sh "$TAG" "$BUILD_NUMBER""#,
+                        before: #"./Scripts/check-release-notes.sh --release "$TAG" --app "dist/Claude Overhead.app""#,
+                        in: release, "the packaged app is checked once it exists")
+        try Self.expect(#"./Scripts/check-release-notes.sh --release "$TAG" --app "dist/Claude Overhead.app""#,
+                        before: #"./Scripts/generate-appcast.sh"#, in: release, "the app draws its notes before the feed is signed")
+        try Self.expect(#"./Scripts/generate-appcast.sh"#, before: #"./Scripts/publish-github-release.sh "$TAG""#,
+                        in: release, "publishing is last")
 
         let package = try Self.source("Scripts/package-app.sh")
         #expect(package.contains("print -u2 \"There is no ReleaseNotes/$NOTES_VERSION.json. Every release ships its What's New;\""))
@@ -227,6 +226,39 @@ struct WhatsNewWiringTests {
         try Self.expect(#"|| { print -u2 "$APPCAST does not carry the What's New of $VERSION."; exit 1; }"#,
                         before: "gh release create", in: publish, "nothing is uploaded without the notes")
         #expect(publish.contains(#""${WHATS_NEW_IMAGES[@]}" \"#))
+    }
+
+    @Test("There is one way to release: a tagged, pushed, CI-green commit, built here with a build number above the live one")
+    func releaseCommand() throws {
+        // No workflow publishes on a tag push any more.
+        #expect(!FileManager.default.fileExists(atPath: Self.root.appendingPathComponent(".github/workflows/release.yml").path))
+        #expect(try Self.source("Makefile").contains(#"./Scripts/public-release.sh "$(TAG)""#))
+
+        let release = try Self.source("Scripts/public-release.sh")
+        let order = [
+            #"if [[ -n "$(git status --porcelain)" ]]; then"#,
+            #"[[ "$TAG_COMMIT" == "$HEAD_COMMIT" ]] \"#,
+            #"[[ "$REMOTE_COMMIT" == "$HEAD_COMMIT" ]] \"#,
+            #"[[ "$INFO_VERSION" == "$VERSION" ]] \"#,
+            #"gh run list --repo "$REPOSITORY" --workflow CI --commit "$HEAD_COMMIT""#,
+            #"BUILD_NUMBER="${CHIMLO_BUILD_NUMBER:-$(( LIVE_BUILD + 1 ))}""#,
+            #"[[ "$BUILD_NUMBER" =~ '^[0-9]+$' ]] && (( BUILD_NUMBER > LIVE_BUILD )) \"#,
+            "make check\nmake test",
+            #"./Scripts/check-release-notes.sh --release "$TAG""#,
+            #"./Scripts/build-public-dmg.sh "$TAG" "$BUILD_NUMBER""#,
+            #"if [[ "$DRY_RUN" == "1" ]]; then"#,
+            #"./Scripts/publish-github-release.sh "$TAG""#,
+        ]
+        for (earlier, later) in zip(order, order.dropFirst()) {
+            try Self.expect(earlier, before: later, in: release, "the release command's order")
+        }
+        // A rehearsal stops before the upload.
+        let rehearsal = try #require(release.range(of: #"if [[ "$DRY_RUN" == "1" ]]; then"#))
+        #expect(release[rehearsal.upperBound...].prefix(400).contains("exit 0"))
+        // The build number comes from the live feed, and an older or repeated version is refused.
+        #expect(release.contains(#"FEED_URL="https://github.com/$REPOSITORY/releases/latest/download/appcast.xml""#))
+        #expect(release.contains(#"fail "$VERSION is older than the live release ($LIVE_VERSION).""#))
+        #expect(release.contains(#"|| fail "$VERSION is already the live release.""#))
     }
 
     @Test("Every push checks the notes: make check, CI and the readiness script")

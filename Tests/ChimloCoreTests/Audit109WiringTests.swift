@@ -120,16 +120,25 @@ struct Audit109WiringTests {
         #expect(!exists.contains("kSecReturnData"))
     }
 
-    @Test("A release is launched once before it is published")
+    @Test("A build is packaged and launched on a clean machine before it can be released")
     func releaseLaunchCheck() throws {
-        let workflow = try Self.source(".github/workflows/release.yml")
-        let launch = try #require(workflow.range(of: #"./Scripts/smoke-launch.sh "dist/Claude Overhead.app""#))
-        let publish = try #require(workflow.range(of: "- name: Publish the release"))
-        let build = try #require(workflow.range(of: "- name: Build and verify the DMG"))
-        #expect(build.lowerBound < launch.lowerBound)
-        #expect(launch.lowerBound < publish.lowerBound)
+        // CI packages the app as a release does, then starts it.
+        let ci = try Self.source(".github/workflows/ci.yml")
+        let package = try #require(ci.range(of: "CHIMLO_PACKAGE_VARIANT=release CHIMLO_CODE_SIGN_IDENTITY=- CHIMLO_ALLOW_ADHOC_RELEASE=1 ./Scripts/package-app.sh"))
+        let launch = try #require(ci.range(of: #"./Scripts/smoke-launch.sh "dist/Claude Overhead.app""#))
+        #expect(package.lowerBound < launch.lowerBound)
         let script = try Self.source("Scripts/smoke-launch.sh")
         #expect(script.contains(#""$HELPER" ping"#))
         #expect(script.contains("CHIMLO_RUNTIME_DESCRIPTOR"))
+
+        // And the release command publishes only a commit that run passed.
+        let release = try Self.source("Scripts/public-release.sh")
+        let verdict = try #require(release.range(of: #"gh run list --repo "$REPOSITORY" --workflow CI --commit "$HEAD_COMMIT""#))
+        let publish = try #require(release.range(of: #"./Scripts/publish-github-release.sh "$TAG""#))
+        #expect(verdict.lowerBound < publish.lowerBound)
+        #expect(release.contains(#""completed success")"#))
+        for refused in ["none)", "completed*)", "*)"] {
+            #expect(release.contains("    \(refused)\n      fail "), "CI state \(refused) must stop the release")
+        }
     }
 }

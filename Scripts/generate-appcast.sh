@@ -67,8 +67,9 @@ appcast_args=(
 SIGN_UPDATE="${GENERATE_APPCAST:h}/sign_update"
 
 # The private EdDSA key, in order of preference: SPARKLE_ED_PRIVATE_KEY (the
-# key itself, as CI passes its secret; sent on stdin, never written or
-# printed), SPARKLE_ED_KEY_FILE, or the login Keychain account.
+# key itself, as an automated job would pass a secret; sent on stdin, never
+# written or printed), SPARKLE_ED_KEY_FILE, or the login Keychain account,
+# which is what a release from the maintainer's Mac uses.
 with_key() {
   if [[ -n "${SPARKLE_ED_PRIVATE_KEY:-}" ]]; then
     print -rn -- "$SPARKLE_ED_PRIVATE_KEY" | "$@" --ed-key-file -

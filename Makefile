@@ -56,22 +56,19 @@ release-signing-restore:
 release-signing-freeze: release-app
 	./Scripts/verify-release-identity.sh "dist/Claude Overhead.app" --initialize
 
-# Public DMG releases (see Docs/RELEASING.md). CI runs these on every v* tag.
+# Releases (see Docs/RELEASING.md). `make public-release TAG=vX.Y.Z` builds,
+# checks and publishes one from this Mac. It refuses a commit that is not
+# tagged, pushed and green on CI, picks the build number itself (one more
+# than the live release's), and runs the checks and tests first. DRY_RUN=1
+# does everything but the upload.
+public-release:
+	@test -n "$(TAG)" || (echo "TAG=vX.Y.Z is required" >&2; exit 64)
+	$(if $(DRY_RUN),CHIMLO_DRY_RUN=1 )$(if $(BUILD_NUMBER),CHIMLO_BUILD_NUMBER="$(BUILD_NUMBER)" )./Scripts/public-release.sh "$(TAG)"
+
+# The disk image alone, built and verified, with nothing signed or uploaded.
 public-dmg:
 	@test -n "$(VERSION)" || (echo "VERSION=X.Y.Z is required" >&2; exit 64)
 	./Scripts/build-public-dmg.sh "$(VERSION)" "$(or $(BUILD_NUMBER),1)"
-
-# Sparkle offers an update only when its build number is higher than the
-# installed one, so a release from a Mac must name one above the last
-# release's (CI uses the workflow's run number).
-public-release:
-	@test -n "$(TAG)" || (echo "TAG=vX.Y.Z is required" >&2; exit 64)
-	@test -n "$(BUILD_NUMBER)" || (echo "BUILD_NUMBER is required and must be higher than the last release's CFBundleVersion" >&2; exit 64)
-	./Scripts/check-release-notes.sh --release "$(TAG)"
-	./Scripts/build-public-dmg.sh "$(TAG)" "$(BUILD_NUMBER)"
-	./Scripts/check-release-notes.sh --release "$(TAG)" --app "dist/Claude Overhead.app"
-	CHIMLO_RELEASE_TAG="$(TAG)" ./Scripts/generate-appcast.sh "dist/public/Claude-Overhead-$(patsubst v%,%,$(TAG)).dmg" dist/public/appcast.xml
-	./Scripts/publish-github-release.sh "$(TAG)"
 
 release:
 	@test -n "$(TAG)" || (echo "TAG=vX.Y.Z is required" >&2; exit 64)

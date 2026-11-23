@@ -11,5 +11,9 @@
   VERSION=<version>`, and look at every rendered page before tagging. The
   steps are in `Docs/RELEASING.md`, the format in `ReleaseNotes/README.md`.
   Never bypass or weaken these checks to get a release out.
+- Releases are built and published from the maintainer's Mac with `make
+  public-release TAG=vX.Y.Z`, after CI has passed on the tagged commit. No
+  workflow publishes on a tag push. Do not type a build number; the command
+  takes it from the live update feed.
 - Never commit, push, tag or publish a release without the maintainer's
   explicit go-ahead.

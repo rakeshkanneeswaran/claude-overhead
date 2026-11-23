@@ -9,6 +9,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+- **Releases are now built and published from the maintainer's Mac with one
+  command**, not by a workflow on GitHub. Nothing changes for installing or
+  updating: the same install command and the same signed update feed serve
+  them. The command publishes only a commit that GitHub's CI has built,
+  tested and launched on a clean machine, takes the build number from the
+  live feed, and runs every check that the workflow ran.
+- The tests no longer depend on how fast the machine running them is: speed
+  is measured as the work's own CPU time and how it grows, and no test waits
+  on a short deadline.
+
 ## [1.1.0] - 2026-11-24
 
 Sessions can wear their own pixel characters, an update now shows you what is
