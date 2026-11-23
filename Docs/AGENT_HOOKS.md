@@ -78,7 +78,14 @@ A second narrow, synchronous hook handles `PermissionRequest` in the same way.
 Connecting also installs a reversible status-line bridge. It passes Claude
 Code's status-line JSON to any status line you already had, unchanged, and
 caches only the `rate_limits` part for the usage display. Disconnecting
-restores your original status line.
+restores your original status line. A status line you set yourself after
+connecting is yours: Disconnect leaves it exactly as it is.
+
+The settings file is written atomically, through a symlink if it is one (a
+file kept in a dotfiles repository stays where it is), never over a version
+Claude Code saved in the meantime, and only when something in it actually
+changes. The first write keeps a one-time copy of your original file beside it
+as `settings.json.overhead-backup`.
 
 ## Questions and permission behavior
 
@@ -94,7 +101,15 @@ Claude Code tool permissions show the real bounded action preview with
 for the current session. Claude Overhead prefers Claude's own suggestion,
 narrows its destination to `session`, and uses Claude's `acceptEdits` session
 mode for file changes when no compatible suggestion exists. Persistent settings
-changes and `bypassPermissions` are never surfaced or returned.
+changes and `bypassPermissions` are never surfaced or returned. **Allow All**
+is offered only when a rule can be written that grants what the card shows and
+no more: a Bash command too long to name in a rule gets **Allow Once** and
+**Deny** only, because a rule without the command would allow every command.
+
+Approving is always a click. No key approves anything, and a click counts only
+if it names the request that is showing and the cards have been still for 0.4
+seconds, so a double-click can never answer the next question or approve the
+next card unread.
 
 A request leaves the notch as soon as Claude Code stops waiting for it: when
 you answer in the terminal, interrupt the turn, or the session ends, Claude

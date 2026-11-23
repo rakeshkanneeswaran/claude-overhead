@@ -9,6 +9,122 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-11-23
+
+A reliability release from a full audit of the app: every area was reviewed,
+the fixes below were made, and each has a regression test where the rule can
+be tested.
+
+### Approving stays in your hands
+
+- Approving is always a click. **Allow Once** and **Approve** no longer answer
+  to Return: after you typed an "Other…" answer the notch could keep the
+  keyboard while your terminal looked frontmost, so a Return meant for the
+  terminal could allow a request. The notch now also gives the keyboard back
+  when the answer field closes.
+- A click counts only on the card you were looking at. Clicks are ignored for
+  0.4 seconds after a card appears or moves, and each click names its request,
+  so a double-click can no longer answer the next question or allow the next
+  session's card that slid under the pointer.
+- **Allow All** never grants more than the card shows. For a Bash command too
+  long to name in a rule (over 4 KB), the session rule used to be written
+  without the command, which allowed every Bash command for the session. That
+  card now offers **Allow Once** and **Deny** only.
+- A session with a question open can no longer be archived out of sight, and a
+  session with a card open is not removed from the notch while it waits.
+
+### Claude Code never left waiting
+
+- If Claude Overhead quit without cleaning up (a crash, a force quit, a
+  restart), Claude Code's next question or permission request waited about 10
+  minutes before showing its own prompt. It now falls back at once (0.04 s
+  measured). The leftover connection file of a dead app is ignored, which also
+  stops another program on that port from being sent the request.
+- Large file writes and edits (hook input over 64 KB) reach the notch instead
+  of silently going to the terminal only.
+- A listener that stops after it started is noticed and restarted.
+
+### Your Claude Code settings
+
+- The status line works. Its command was written to `settings.json` without
+  quotes, and the path has a space in it ("Application Support"), so the shell
+  never ran it. Usage therefore came only from the slower `/usage` check, and a
+  status line you already had went blank after Connect. Existing installs are
+  corrected the next time the app starts; your own status line is passed
+  through again.
+- **Disconnect** leaves a status line you set after connecting exactly as it
+  is, instead of removing it or bringing an older one back.
+- A `settings.json` that is a symlink (kept in a dotfiles repository) stays a
+  symlink; the real file is edited.
+- The settings file is not rewritten at launch when nothing changed, and never
+  over a version Claude Code saved in the meantime.
+- Per-model weekly limits stay on screen when the status line (which reports
+  only the 5-hour and weekly limits) updates usage.
+
+### Lighter
+
+- After the setup window closed, its animation kept running out of sight and
+  used 6 to 20% of a CPU core for as long as the app ran. It now stops; the
+  idle app uses about 1 to 2%.
+- Memory no longer grows with every transcript ever scanned, and the app's
+  background checks no longer leave stuck threads behind.
+
+### Notch and companion
+
+- **Show the notch on** (General) now does what it says. On Macs without a
+  notch and with two displays, the notch could stop responding to the mouse
+  after you clicked a window on the other display; it now stays on one
+  display.
+- Leaving the first-run tour with a shortcut no longer leaves its demo session
+  behind as a "WAIT" nobody can answer.
+- The Focus button turns Focus off during a scheduled window (it pauses the
+  schedule until that window ends).
+- A first click on a card that opened under a resting pointer is no longer
+  lost to the app underneath. A failed session keeps the notch open for 4
+  seconds instead of half a second.
+- Recording a shortcut and then clicking another row no longer swallows your
+  next key press or saves it as a global shortcut.
+- The "couldn't find the terminal" alert no longer freezes the notch while it
+  is open. Reduce Motion and Increase Contrast changes apply without a
+  restart. **Open at login** shows what macOS really has. A typed "Other…"
+  answer is not carried into the next question. A receipt lists each run of
+  the same test command with its own result.
+- The usage check stops when the companion window is closed.
+
+### GitHub
+
+- Old news is no longer announced as new, and dismissed alerts stay dismissed:
+  a pull request that got no review or check lookup in a refresh keeps its
+  last known state instead of dropping to "unknown" and coming back.
+- Notifications found in a refresh that was cut short (a rate limit, a manual
+  refresh) are delivered instead of lost.
+- Many monitored repositories no longer exhaust GitHub's rate limit: the
+  response cache holds a whole refresh, and a rate-limited repository says so
+  instead of showing old data as current.
+- A revoked saved token no longer hides a working `gh` sign-in.
+- A merge made in the app is counted once in the daily recap.
+
+### History, usage and installing
+
+- A session that died mid-turn no longer shows "Running" in History for good.
+  After 12 hours without activity it is marked interrupted, and your retention
+  setting then applies to it like any finished session.
+- Reset times shown on the hour ("Resets 3pm") are read.
+- The Terminal installer puts the new copy beside the old one and swaps them,
+  so a failed copy never leaves you without the app, and it waits for the old
+  copy to quit.
+
+### Known limits
+
+- The display choice and the keyboard hand-back were checked on one built-in
+  display; a two-display setup has not been tried.
+- A sandboxed command's network approval and MCP input requests are still
+  answered only in Claude Code's own prompt.
+- After a failed tool call the notch can keep the previous activity label
+  until Claude's next step.
+- With a few dozen repositories selected, a reset rate limit shows as
+  "rate limit reached" on each repository until GitHub lifts it.
+
 ## [1.0.6] - 2026-11-23
 
 - Fixed a crash: clicking **Connect GitHub**, **Choose repositories**,
@@ -206,7 +322,8 @@ controls in the MacBook notch.
 - Accessibility permission is needed for Chimlo's volume and brightness
   controls. Agent activity remains available without it.
 
-[Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.0.6...HEAD
+[Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.0.7...HEAD
+[1.0.7]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.7
 [1.0.6]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.6
 [1.0.5]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.5
 [1.0.4]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.4
