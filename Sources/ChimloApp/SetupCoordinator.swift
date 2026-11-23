@@ -336,6 +336,13 @@ final class SetupCoordinator: NSObject, ObservableObject, NSWindowDelegate {
         let showPreview = closesIntoPreview && flow.isComplete
         closesIntoPreview = false
         onFinish?(showPreview)
+        // Let the closed window go. Kept, its SwiftUI content stays mounted
+        // and keeps animating off screen: the storyboard's wave cost 6 to 20%
+        // of a core for as long as the app ran after setup. The flow lives
+        // here, not in the views, so present() rebuilds the window in place.
+        let closed = window
+        window = nil
+        DispatchQueue.main.async { closed?.contentView = nil }
     }
 }
 
