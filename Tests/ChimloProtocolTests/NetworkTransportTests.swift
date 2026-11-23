@@ -15,7 +15,7 @@ struct NetworkTransportTests {
         defer { server.stop() }
         _ = try await server.start()
 
-        let client = try ChimloClient(descriptorStore: store, timeout: .seconds(1))
+        let client = try ChimloClient(descriptorStore: store, timeout: Patience.expected)
         try await client.ping()
     }
 
@@ -44,7 +44,7 @@ struct NetworkTransportTests {
         let server = try ChimloServer(descriptorStore: store, eventHandler: { _ in })
         defer { server.stop() }
         _ = try await server.start()
-        let client = try ChimloClient(descriptorStore: store, timeout: .seconds(1))
+        let client = try ChimloClient(descriptorStore: store, timeout: Patience.expected)
         let request = ChimloDecisionRequest(title: "Run command?", message: "No handler is installed")
 
         let response = await client.requestDecision(request)
@@ -71,7 +71,7 @@ struct NetworkTransportTests {
         )
         defer { server.stop() }
         _ = try await server.start()
-        let client = try ChimloClient(descriptorStore: store, timeout: .seconds(1))
+        let client = try ChimloClient(descriptorStore: store, timeout: Patience.expected)
         let request = ProviderPermissionRequest(
             sessionID: "claude-1",
             agent: .claude,
@@ -116,7 +116,7 @@ struct NetworkTransportTests {
         let response = await client.requestPermission(request)
 
         #expect(!response.outcome.grantsPermission)
-        #expect(await probe.wasCancelled(within: .seconds(3)))
+        #expect(await probe.wasCancelled(within: Patience.expected))
     }
 
     @Test("A question is cancelled too when its hook disconnects")
@@ -145,7 +145,7 @@ struct NetworkTransportTests {
         let response = await client.requestQuestion(request)
 
         #expect(response.outcome != .answered)
-        #expect(await probe.wasCancelled(within: .seconds(3)))
+        #expect(await probe.wasCancelled(within: Patience.expected))
     }
 
     @Test("An answer that arrives after the hook gave up never grants anything")
@@ -154,12 +154,16 @@ struct NetworkTransportTests {
             .appendingPathComponent("overhead-network-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = RuntimeDescriptorStore(descriptorURL: directory.appendingPathComponent("runtime.json"))
+        let hookGaveUp = Gate()
+        let answeredLate = Gate()
         let server = try ChimloServer(
             descriptorStore: store,
             eventHandler: { _ in },
             permissionHandler: { request in
-                // Ignores cancellation and approves late.
-                try? await Task.sleep(for: .milliseconds(600))
+                // Ignores cancellation and approves late: only once the hook
+                // has given up, however long either side takes to get there.
+                await hookGaveUp.wait()
+                await answeredLate.open()
                 return ProviderPermissionResponse(requestID: request.id, outcome: .allowedOnce)
             }
         )
@@ -175,9 +179,12 @@ struct NetworkTransportTests {
 
         #expect(response.outcome == .unavailable)
         #expect(!response.outcome.grantsPermission)
-        // The server survives writing to the closed connection.
-        try? await Task.sleep(for: .milliseconds(700))
-        try await ChimloClient(descriptorStore: store, timeout: .seconds(1)).ping()
+        // The hook has given up; now the late approval is sent, to a
+        // connection that is closed. The server survives writing to it.
+        await hookGaveUp.open()
+        await answeredLate.wait()
+        try? await Task.sleep(for: .milliseconds(100))
+        try await ChimloClient(descriptorStore: store, timeout: Patience.expected).ping()
     }
 
     @Test("A listener that failed to start is retried quickly, then every 30 seconds, never given up")
@@ -200,7 +207,7 @@ struct NetworkTransportTests {
         let server = try ChimloServer(descriptorStore: store, eventHandler: { _ in })
         defer { server.stop() }
         _ = try await server.start()
-        let client = try ChimloClient(descriptorStore: store, timeout: .seconds(1))
+        let client = try ChimloClient(descriptorStore: store, timeout: Patience.expected)
         let request = ProviderPermissionRequest(
             sessionID: "claude-1",
             agent: .claude,
@@ -234,7 +241,7 @@ struct NetworkTransportTests {
         )
         defer { server.stop() }
         _ = try await server.start()
-        let client = try ChimloClient(descriptorStore: store, timeout: .seconds(1))
+        let client = try ChimloClient(descriptorStore: store, timeout: Patience.expected)
         let request = ProviderQuestionRequest(
             sessionID: "claude-1",
             agent: .claude,
@@ -263,7 +270,7 @@ struct NetworkTransportTests {
         let server = try ChimloServer(descriptorStore: store, eventHandler: { _ in })
         defer { server.stop() }
         _ = try await server.start()
-        let client = try ChimloClient(descriptorStore: store, timeout: .seconds(1))
+        let client = try ChimloClient(descriptorStore: store, timeout: Patience.expected)
         let request = ProviderQuestionRequest(
             sessionID: "claude-1",
             agent: .claude,
@@ -281,6 +288,24 @@ struct NetworkTransportTests {
 
         #expect(response.outcome == .unavailable)
         #expect(response.answers.isEmpty)
+    }
+}
+
+/// Opens once, and lets through whoever is waiting. Tests order two events
+/// with it instead of guessing how long each takes.
+private actor Gate {
+    private var isOpen = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        if isOpen { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        for continuation in waiting { continuation.resume() }
+        waiting = []
     }
 }
 

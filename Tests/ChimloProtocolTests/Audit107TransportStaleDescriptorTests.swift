@@ -37,10 +37,10 @@ struct Audit107TransportStaleDescriptorTests {
         let descriptor = try await server.start()
 
         #expect(descriptor.isOwnerAlive)
-        try await ChimloClient(descriptorStore: store, timeout: .seconds(2)).ping()
+        try await ChimloClient(descriptorStore: store, timeout: Patience.expected).ping()
     }
 
-    @Test("A descriptor whose app is gone is never used, even if something answers on its port")
+    @Test("A descriptor whose app is gone is never used, even if something answers on its port", .timeLimit(.minutes(3)))
     func deadOwnerIsNeverContacted() async throws {
         let (store, directory) = Self.temporaryStore()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -68,7 +68,9 @@ struct Audit107TransportStaleDescriptorTests {
             authenticationToken: live.authenticationToken,
             processID: Self.deadProcessID
         ))
-        let client = try ChimloClient(descriptorStore: store, timeout: .seconds(5))
+        // Waiting out the timeout would take five minutes; failing at once
+        // is over long before that on any machine.
+        let client = try ChimloClient(descriptorStore: store, timeout: Patience.leftAlone)
 
         let started = ContinuousClock.now
         let permission = await client.requestPermission(Self.permissionRequest)
@@ -84,18 +86,18 @@ struct Audit107TransportStaleDescriptorTests {
         #expect(!permission.outcome.grantsPermission)
         #expect(question.outcome == .unavailable)
         #expect(question.answers.isEmpty)
-        #expect(ContinuousClock.now - started < .seconds(2))
+        #expect(ContinuousClock.now - started < Patience.expected)
         #expect(await received.value == 0)
     }
 
-    @Test("A port nobody listens on fails at once instead of waiting for the timeout")
+    @Test("A port nobody listens on fails at once instead of waiting for the timeout", .timeLimit(.minutes(3)))
     func refusedConnectionFailsFast() async throws {
         let (store, directory) = Self.temporaryStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         // The owner is alive (this process), so only the refused connection
         // can end the exchange. The timeout is far longer than the test allows.
         try store.write(RuntimeDescriptor(port: try Self.closedPort(), authenticationToken: Self.token))
-        let client = try ChimloClient(descriptorStore: store, timeout: .seconds(30))
+        let client = try ChimloClient(descriptorStore: store, timeout: Patience.leftAlone)
 
         let started = ContinuousClock.now
         let permission = await client.requestPermission(Self.permissionRequest)
@@ -109,7 +111,7 @@ struct Audit107TransportStaleDescriptorTests {
         #expect(question.outcome == .unavailable)
         #expect(question.answers.isEmpty)
         #expect(decision.outcome == .unavailable)
-        #expect(elapsed < .seconds(5), "four refused exchanges took \(elapsed)")
+        #expect(elapsed < Patience.expected, "four refused exchanges took \(elapsed)")
     }
 
     // MARK: Fixtures
@@ -171,7 +173,7 @@ struct Audit107TransportListenerFailureTests {
         #expect(ChimloServer.failureAfterReady(.cancelled) == nil)
     }
 
-    @Test("A listener that fails after it was ready removes its descriptor, reports once, and can be replaced")
+    @Test("A listener that fails after it was ready removes its descriptor, reports once, and can be replaced", .timeLimit(.minutes(3)))
     func failureAfterReadyIsReported() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("overhead-audit107-tests-\(UUID().uuidString)", isDirectory: true)
@@ -188,7 +190,7 @@ struct Audit107TransportListenerFailureTests {
         )
         defer { server.stop() }
         _ = try await server.start()
-        let client = try ChimloClient(descriptorStore: store, timeout: .seconds(30))
+        let client = try ChimloClient(descriptorStore: store, timeout: Patience.leftAlone)
         try await client.ping()
 
         // States that are not failures change nothing.
@@ -209,7 +211,7 @@ struct Audit107TransportListenerFailureTests {
         )
         let response = await client.requestPermission(request)
         #expect(response.outcome == .unavailable)
-        #expect(ContinuousClock.now - started < .seconds(2))
+        #expect(ContinuousClock.now - started < Patience.expected)
 
         // The owner's retry: the same server starts again and answers.
         _ = try await server.start()
@@ -230,7 +232,7 @@ struct Audit107TransportListenerFailureTests {
             listenerFailureHandler: { _ in Task { await failures.increment() } }
         )
         _ = try await server.start()
-        try await ChimloClient(descriptorStore: store, timeout: .seconds(2)).ping()
+        try await ChimloClient(descriptorStore: store, timeout: Patience.expected).ping()
 
         server.stop()
         try? await Task.sleep(for: .milliseconds(300))
@@ -239,7 +241,7 @@ struct Audit107TransportListenerFailureTests {
         #expect(!FileManager.default.fileExists(atPath: store.descriptorURL.path))
         // The server can be started again after a stop, as the retry loop does.
         _ = try await server.start()
-        try await ChimloClient(descriptorStore: store, timeout: .seconds(2)).ping()
+        try await ChimloClient(descriptorStore: store, timeout: Patience.expected).ping()
         server.stop()
     }
 }

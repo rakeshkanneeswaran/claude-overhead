@@ -43,7 +43,7 @@ private struct ScratchRepository {
             environment["GIT_COMMITTER_DATE"] = stamp
         }
         let result = await ProcessCommandRunner(environment: environment)
-            .run("/usr/bin/git", ["-C", root] + arguments, workingDirectory: nil, timeout: 30)
+            .run("/usr/bin/git", ["-C", root] + arguments, workingDirectory: nil, timeout: Patience.expectedSeconds)
         guard result.succeeded else {
             throw ScratchError.gitFailed(arguments.joined(separator: " "), result.stderr)
         }

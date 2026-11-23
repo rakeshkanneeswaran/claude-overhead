@@ -90,7 +90,7 @@ struct Audit107TransportHookFrameTests {
         )
         defer { server.stop() }
         _ = try await server.start()
-        let client = try ChimloClient(descriptorStore: store, timeout: .seconds(2))
+        let client = try ChimloClient(descriptorStore: store, timeout: Patience.expected)
         let request = ProviderPermissionRequest(
             sessionID: "claude-1", agent: .claude, title: "overhead",
             toolName: "Write", prompt: "Write big.txt?",
