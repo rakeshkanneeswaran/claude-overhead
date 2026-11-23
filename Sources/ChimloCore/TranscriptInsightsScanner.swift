@@ -308,11 +308,25 @@ public struct TranscriptInsightsScanner: Sendable {
     }
 
     private mutating func add(_ usage: Usage, sign: Int) {
-        insights.cache.inputTokens += sign * usage.input
-        insights.cache.cacheReadTokens += sign * usage.cacheRead
-        insights.cache.cacheCreationTokens += sign * usage.cacheCreation
-        insights.cache.outputTokens += sign * usage.output
+        insights.cache.inputTokens = Self.total(insights.cache.inputTokens, adding: sign * usage.input)
+        insights.cache.cacheReadTokens = Self.total(insights.cache.cacheReadTokens, adding: sign * usage.cacheRead)
+        insights.cache.cacheCreationTokens = Self.total(insights.cache.cacheCreationTokens, adding: sign * usage.cacheCreation)
+        insights.cache.outputTokens = Self.total(insights.cache.outputTokens, adding: sign * usage.output)
     }
+
+    /// A running token total, held inside 0...`maximumCount`. Transcript
+    /// numbers are untrusted; an absurd count must saturate, not overflow
+    /// (which traps and takes the app down).
+    static func total(_ current: Int, adding delta: Int) -> Int {
+        let (sum, overflowed) = current.addingReportingOverflow(delta)
+        if overflowed { return delta > 0 ? maximumCount : 0 }
+        return min(max(sum, 0), maximumCount)
+    }
+
+    /// The largest count taken from a transcript: far above any real token,
+    /// line or millisecond count, and low enough that thousands of them can
+    /// still be added together without overflowing.
+    public static let maximumCount = 1 << 50
 
     private mutating func recomputeContext() {
         insights.contextWindowTokens = ContextWindow.size(
@@ -390,10 +404,16 @@ extension TranscriptInsightsScanner {
 
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: Key.self)
-            input = max(values.lenientInt(.input) ?? 0, 0)
-            cacheRead = max(values.lenientInt(.cacheRead) ?? 0, 0)
-            cacheCreation = max(values.lenientInt(.cacheCreation) ?? 0, 0)
-            output = max(values.lenientInt(.output) ?? 0, 0)
+            input = Self.bounded(values.lenientInt(.input))
+            cacheRead = Self.bounded(values.lenientInt(.cacheRead))
+            cacheCreation = Self.bounded(values.lenientInt(.cacheCreation))
+            output = Self.bounded(values.lenientInt(.output))
+        }
+
+        /// One reported count, held inside 0...`maximumCount` so that
+        /// `promptTokens` and the running totals can never overflow.
+        private static func bounded(_ value: Int?) -> Int {
+            min(max(value ?? 0, 0), TranscriptInsightsScanner.maximumCount)
         }
 
         func fieldwiseMax(_ other: Usage) -> Usage {
@@ -449,10 +469,10 @@ extension TranscriptInsightsScanner {
             case "cost-state":
                 let cost = SessionCost(
                     totalUSD: values.lenientDouble(.totalCostUSD),
-                    linesAdded: values.lenientInt(.totalLinesAdded),
-                    linesRemoved: values.lenientInt(.totalLinesRemoved),
-                    durationMs: values.lenientInt(.totalDuration),
-                    apiDurationMs: values.lenientInt(.totalAPIDuration)
+                    linesAdded: values.lenientCount(.totalLinesAdded),
+                    linesRemoved: values.lenientCount(.totalLinesRemoved),
+                    durationMs: values.lenientCount(.totalDuration),
+                    apiDurationMs: values.lenientCount(.totalAPIDuration)
                 )
                 // An empty cost line carries no totals; keeping the previous
                 // ones is more truthful than blanking them.
@@ -678,8 +698,8 @@ extension TranscriptInsightsScanner {
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: Key.self)
             trigger = values.lenient(String.self, .trigger)
-            preTokens = values.lenientInt(.preTokens)
-            postTokens = values.lenientInt(.postTokens)
+            preTokens = values.lenientCount(.preTokens)
+            postTokens = values.lenientCount(.postTokens)
         }
 
         private enum Key: String, CodingKey {
@@ -705,8 +725,44 @@ private extension KeyedDecodingContainer {
         return Int(value)
     }
 
+    /// A count that later code adds up (lines, milliseconds, tokens), held
+    /// inside 0...`maximumCount` so those sums cannot overflow.
+    func lenientCount(_ key: Key) -> Int? {
+        lenientInt(key).map { min(max($0, 0), TranscriptInsightsScanner.maximumCount) }
+    }
+
     func lenientDouble(_ key: Key) -> Double? {
         guard let value = lenient(Double.self, key), value.isFinite else { return nil }
         return value
+    }
+}
+
+// MARK: - Cache retention
+
+/// Which per-transcript scan state a tailer may drop. The tailer keeps a
+/// cursor (and a read buffer as large as the longest line it met) for every
+/// transcript it has scanned; without a bound that grows for as long as the
+/// app runs. The files of the current pass always stay. A few more stay
+/// beside them, newest first, so a session that drops out of the pass for a
+/// while continues where it stopped when it comes back.
+public enum TranscriptCacheRetention {
+    /// The paths to forget.
+    /// - Parameters:
+    ///   - cached: every cached path with the time its file was last seen written.
+    ///   - selected: the paths the current pass scanned.
+    ///   - capacity: how many paths to keep in all.
+    public static func pathsToEvict(
+        cached: [String: Date],
+        selected: Set<String>,
+        capacity: Int
+    ) -> Set<String> {
+        let spare = cached.filter { !selected.contains($0.key) }
+        let room = max(0, capacity - selected.count)
+        guard spare.count > room else { return [] }
+        let newestFirst = spare.sorted { lhs, rhs in
+            if lhs.value != rhs.value { return lhs.value > rhs.value }
+            return lhs.key < rhs.key
+        }
+        return Set(newestFirst.dropFirst(room).map(\.key))
     }
 }

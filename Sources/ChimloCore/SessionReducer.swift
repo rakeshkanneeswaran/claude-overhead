@@ -9,11 +9,20 @@ public enum ReductionResult: Equatable, Sendable {
 
 public struct SessionReducer: Sendable {
     public private(set) var sessions: [String: AgentSession]
+    /// The most recent applied event ids, at most `maximumSeenMessageIDs`.
     public private(set) var seenMessageIDs: Set<UUID>
+    /// The same ids, oldest first, so the oldest can be forgotten.
+    private var seenMessageOrder: [UUID]
+
+    /// A repeated event arrives right behind its original (a transport
+    /// retry), so only recent ids need remembering. Without a bound the set
+    /// gains an id for every hook event for as long as the app runs.
+    public static let maximumSeenMessageIDs = 4_096
 
     public init(sessions: [String: AgentSession] = [:], seenMessageIDs: Set<UUID> = []) {
         self.sessions = sessions
-        self.seenMessageIDs = seenMessageIDs
+        seenMessageOrder = Array(seenMessageIDs.prefix(Self.maximumSeenMessageIDs))
+        self.seenMessageIDs = Set(seenMessageOrder)
     }
 
     public var orderedSessions: [AgentSession] {
@@ -117,7 +126,7 @@ public struct SessionReducer: Sendable {
                 lastSequence: event.sequence
             )
             sessions[event.sessionID] = session
-            seenMessageIDs.insert(event.id)
+            remember(event.id)
             return .applied(session)
         }
 
@@ -169,7 +178,15 @@ public struct SessionReducer: Sendable {
         }
 
         sessions[event.sessionID] = session
-        seenMessageIDs.insert(event.id)
+        remember(event.id)
         return .applied(session)
+    }
+
+    private mutating func remember(_ id: UUID) {
+        guard seenMessageIDs.insert(id).inserted else { return }
+        seenMessageOrder.append(id)
+        if seenMessageOrder.count > Self.maximumSeenMessageIDs {
+            seenMessageIDs.remove(seenMessageOrder.removeFirst())
+        }
     }
 }

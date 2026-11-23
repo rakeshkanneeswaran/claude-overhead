@@ -32,6 +32,9 @@ final class ProtocolBridge {
             var failures = 0
             while !Task.isCancelled {
                 guard let self else { return }
+                // A listener that was ready can still fail later; the server
+                // reports it here and the loop below starts a new one.
+                let (listenerFailures, reportListenerFailure) = AsyncStream<String>.makeStream()
                 do {
                     let server = try ChimloServer(
                         eventHandler: { event in
@@ -45,6 +48,9 @@ final class ProtocolBridge {
                         },
                         questionHandler: { request in
                             await answer(request)
+                        },
+                        listenerFailureHandler: { reason in
+                            reportListenerFailure.yield(reason)
                         }
                     )
                     self.server = server
@@ -55,7 +61,14 @@ final class ProtocolBridge {
                         return
                     }
                     self.setState(.listening(port: descriptor.port), notify: stateChanged)
-                    return
+                    failures = 0
+
+                    // Listening. Wait here until the listener fails (the
+                    // server has removed its descriptor by then) or stop()
+                    // cancels this task, which ends the stream with nil.
+                    var listenerFailure = listenerFailures.makeAsyncIterator()
+                    guard let reason = await listenerFailure.next(), !Task.isCancelled else { return }
+                    throw ChimloProtocolError.connectionFailed(reason)
                 } catch is CancellationError {
                     self.server?.stop()
                     self.server = nil

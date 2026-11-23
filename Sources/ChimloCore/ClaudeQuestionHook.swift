@@ -20,7 +20,9 @@ public enum ClaudeQuestionHookError: Error, LocalizedError, Sendable {
 /// tool context. The original question array is held only for this blocking
 /// hook invocation so the answer can be echoed back in `updatedInput`.
 public struct ClaudeQuestionHook: Sendable {
-    public static let maximumPayloadBytes = 64 * 1_024
+    /// How much hook input is read. The request built from it is bounded by
+    /// the per-field caps below, not by this.
+    public static let maximumPayloadBytes = 8 * 1_024 * 1_024
     public static let fallbackOutput = Data("{}\n".utf8)
 
     public let request: ProviderQuestionRequest

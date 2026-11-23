@@ -7,12 +7,16 @@ public final class ChimloServer: @unchecked Sendable {
     public typealias DecisionHandler = @Sendable (ChimloDecisionRequest) async -> ChimloDecisionResponse
     public typealias PermissionHandler = @Sendable (ProviderPermissionRequest) async -> ProviderPermissionResponse
     public typealias QuestionHandler = @Sendable (ProviderQuestionRequest) async -> ProviderQuestionResponse
+    /// Called once, with the reason, when a listener that was ready stops
+    /// listening on its own. The server has already stopped by then.
+    public typealias ListenerFailureHandler = @Sendable (String) -> Void
 
     private let descriptorStore: RuntimeDescriptorStore
     private let eventHandler: EventHandler
     private let decisionHandler: DecisionHandler
     private let permissionHandler: PermissionHandler
     private let questionHandler: QuestionHandler
+    private let listenerFailureHandler: ListenerFailureHandler
     private let authenticationToken: String
     private let queue = DispatchQueue(label: "com.rakesh.overhead.protocol.server", qos: .userInitiated)
     private let lock = NSLock()
@@ -30,13 +34,15 @@ public final class ChimloServer: @unchecked Sendable {
         },
         questionHandler: @escaping QuestionHandler = { request in
             .unavailable(for: request.id, reason: "No question handler is configured")
-        }
+        },
+        listenerFailureHandler: @escaping ListenerFailureHandler = { _ in }
     ) throws {
         self.descriptorStore = try descriptorStore ?? .live()
         self.eventHandler = eventHandler
         self.decisionHandler = decisionHandler
         self.permissionHandler = permissionHandler
         self.questionHandler = questionHandler
+        self.listenerFailureHandler = listenerFailureHandler
         self.authenticationToken = try SecureAuthenticationToken.generate()
     }
 
@@ -72,7 +78,17 @@ public final class ChimloServer: @unchecked Sendable {
                 authenticationToken: authenticationToken
             )
             try descriptorStore.write(descriptor)
-            lock.withLock { publishedDescriptor = descriptor }
+            // The listener can fail between becoming ready and here; a
+            // descriptor must never outlive it.
+            let isStillListening = lock.withLock { () -> Bool in
+                guard listener === newListener else { return false }
+                publishedDescriptor = descriptor
+                return true
+            }
+            guard isStillListening else {
+                try? descriptorStore.remove(ifAuthenticationTokenMatches: authenticationToken)
+                throw ChimloProtocolError.connectionFailed("Listener stopped while starting")
+            }
             return descriptor
         } catch {
             newListener.cancel()
@@ -106,7 +122,15 @@ public final class ChimloServer: @unchecked Sendable {
     private func waitUntilReady(_ listener: NWListener) async throws -> UInt16 {
         try await withCheckedThrowingContinuation { continuation in
             let gate = ContinuationGate()
-            listener.stateUpdateHandler = { [weak listener] state in
+            listener.stateUpdateHandler = { [weak self, weak listener] state in
+                // Once start() has its answer, the same states mean a
+                // listener that was working has stopped.
+                if gate.hasRun {
+                    if let reason = Self.failureAfterReady(state), let listener {
+                        self?.listenerFailed(listener, reason: reason)
+                    }
+                    return
+                }
                 switch state {
                 case .ready:
                     guard let rawPort = listener?.port?.rawValue else {
@@ -143,6 +167,46 @@ public final class ChimloServer: @unchecked Sendable {
             }
             listener.start(queue: queue)
         }
+    }
+
+    /// Why a listener that was ready no longer listens, or nil while it still
+    /// does. `.cancelled` is this server's own stop() and is not a failure.
+    static func failureAfterReady(_ state: NWListener.State) -> String? {
+        switch state {
+        case let .failed(error): "Listener failed: \(error)"
+        case let .waiting(error): "Listener is waiting: \(error)"
+        default: nil
+        }
+    }
+
+    /// The listener died after it was ready. Hooks would otherwise keep
+    /// finding a descriptor for a port nobody listens on, so the descriptor
+    /// goes first; then the owner is told, so it can start a new server.
+    private func listenerFailed(_ failed: NWListener, reason: String) {
+        lock.lock()
+        guard listener === failed else {
+            lock.unlock()
+            return
+        }
+        let descriptor = publishedDescriptor
+        listener = nil
+        publishedDescriptor = nil
+        lock.unlock()
+
+        failed.cancel()
+        // Without a published descriptor start() is still running, and
+        // reports the failure itself by throwing.
+        guard let descriptor else { return }
+        try? descriptorStore.remove(ifAuthenticationTokenMatches: descriptor.authenticationToken)
+        listenerFailureHandler(reason)
+    }
+
+    /// A seam for tests: hands the current listener's state handler a state,
+    /// as the Network framework does. A real listener cannot be made to fail
+    /// on demand.
+    func deliverListenerState(_ state: NWListener.State) {
+        let current = lock.withLock { listener }
+        current?.stateUpdateHandler?(state)
     }
 
     private func accept(_ connection: NWConnection) {
@@ -330,6 +394,11 @@ public struct ChimloClient: Sendable {
 
     private func exchange(_ message: ChimloWireMessage, messageID: UUID) async throws -> ChimloWireMessage {
         let descriptor = try descriptorStore.read()
+        // A descriptor left by an app that is gone is the same as no app:
+        // nothing is sent (the token included) to whatever holds its port now.
+        guard descriptor.isOwnerAlive else {
+            throw ChimloProtocolError.runtimeDescriptorUnavailable
+        }
         let envelope = ChimloEnvelope(
             messageID: messageID,
             authenticationToken: descriptor.authenticationToken,
@@ -360,14 +429,39 @@ private enum NetworkFrameIO {
             port: port,
             using: .tcp
         )
+        // A refused connection is parked in `.waiting` until the timeout, and
+        // a blocking hook's timeout is ten minutes. Loopback has nothing to
+        // wait for: cancelling fails the pending send or receive at once, so
+        // the hook hands back to Claude Code's own prompt.
+        let unreachable = UnreachableReason()
+        connection.stateUpdateHandler = { [weak connection] state in
+            guard let reason = unreachableReason(state) else { return }
+            unreachable.record(reason)
+            connection?.cancel()
+        }
         connection.start(queue: DispatchQueue.global(qos: .userInitiated))
-        return try await withTaskCancellationHandler {
-            try await send(frame, over: connection)
-            let response = try await receiveFrame(from: connection)
-            connection.cancel()
-            return response
-        } onCancel: {
-            connection.cancel()
+        do {
+            return try await withTaskCancellationHandler {
+                try await send(frame, over: connection)
+                let response = try await receiveFrame(from: connection)
+                connection.cancel()
+                return response
+            } onCancel: {
+                connection.cancel()
+            }
+        } catch {
+            // Say why the connection was given up, not just that it was cancelled.
+            if let reason = unreachable.reason { throw ChimloProtocolError.connectionFailed(reason) }
+            throw error
+        }
+    }
+
+    /// Why a loopback connection will never carry the exchange, or nil while
+    /// it still can.
+    static func unreachableReason(_ state: NWConnection.State) -> String? {
+        switch state {
+        case let .waiting(error), let .failed(error): String(describing: error)
+        default: nil
         }
     }
 
@@ -459,17 +553,32 @@ private extension ChimloWireMessage {
     }
 }
 
+/// The first reason a client connection became unreachable.
+private final class UnreachableReason: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: String?
+
+    var reason: String? { lock.withLock { recorded } }
+
+    func record(_ reason: String) {
+        lock.withLock { if recorded == nil { recorded = reason } }
+    }
+}
+
 private final class ContinuationGate: @unchecked Sendable {
     private let lock = NSLock()
-    private var hasRun = false
+    private var _hasRun = false
+
+    /// Whether the continuation has been resumed already.
+    var hasRun: Bool { lock.withLock { _hasRun } }
 
     func run(_ operation: () -> Void) {
         lock.lock()
-        guard !hasRun else {
+        guard !_hasRun else {
             lock.unlock()
             return
         }
-        hasRun = true
+        _hasRun = true
         lock.unlock()
         operation()
     }

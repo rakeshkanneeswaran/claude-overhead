@@ -60,8 +60,10 @@ final class LocalAgentProcessDiscovery: @unchecked Sendable {
                 continue
             }
 
-            let fileOutput = run("/usr/sbin/lsof", ["-a", "-p", "\(process.processID)", "-Fn"])
-            let cwdOutput = run("/usr/sbin/lsof", ["-a", "-p", "\(process.processID)", "-d", "cwd", "-Fn"])
+            // -n and -P: no host or port name lookups. Only paths are read,
+            // and a slow resolver would otherwise hold up every pass.
+            let fileOutput = run("/usr/sbin/lsof", ["-n", "-P", "-a", "-p", "\(process.processID)", "-Fn"])
+            let cwdOutput = run("/usr/sbin/lsof", ["-n", "-P", "-a", "-p", "\(process.processID)", "-d", "cwd", "-Fn"])
             let workingDirectory = Self.firstPath(in: cwdOutput)
             if agent == .claude,
                workingDirectory == ClaudeUsageProbe.workingDirectoryURL().path {
@@ -105,12 +107,22 @@ final class LocalAgentProcessDiscovery: @unchecked Sendable {
         } catch {
             return nil
         }
+        // Read as the output arrives instead of blocking a thread until end
+        // of file: a descendant that inherited the pipe can hold it open long
+        // after the command itself has exited.
         let output = CommandOutputBox()
         let drained = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .utility).async {
-            output.data = pipe.fileHandleForReading.readDataToEndOfFile()
-            drained.signal()
+        let reader = pipe.fileHandleForReading
+        reader.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                handle.readabilityHandler = nil
+                drained.signal()
+            } else {
+                output.append(chunk)
+            }
         }
+        defer { reader.readabilityHandler = nil }
         if exited.wait(timeout: .now() + timeout) == .timedOut {
             process.terminate()
             if exited.wait(timeout: .now() + 1) == .timedOut {
@@ -119,8 +131,11 @@ final class LocalAgentProcessDiscovery: @unchecked Sendable {
             }
             return nil
         }
-        guard drained.wait(timeout: .now() + 2) == .success,
-              process.terminationStatus == 0 else { return nil }
+        // The command has exited, so everything it wrote is in the pipe. End
+        // of file may never come while a descendant holds the pipe; after a
+        // short grace, what was read is the command's whole output.
+        _ = drained.wait(timeout: .now() + 2)
+        guard process.terminationStatus == 0 else { return nil }
         return String(data: output.data, encoding: .utf8)
     }
 
@@ -229,6 +244,9 @@ final class LocalTranscriptDiscovery: @unchecked Sendable {
     private let fileManager: FileManager
     private let maximumAge: TimeInterval
     private let maximumFilesPerProvider: Int
+    /// How many transcripts keep their scan state: the files of a pass and
+    /// room for a few that dropped out of it (`TranscriptCacheRetention`).
+    private var maximumCachedFiles: Int { maximumFilesPerProvider * 4 }
     private var cursors: [String: TranscriptCursor] = [:]
     /// The latest insights per session, read by the same pass that finds sessions.
     private var insightsBySessionID: [String: TranscriptInsights] = [:]
@@ -294,7 +312,29 @@ final class LocalTranscriptDiscovery: @unchecked Sendable {
 
         let selected = files.sorted { $0.modifiedAt > $1.modifiedAt }
             .prefix(maximumFiles)
-        return selected.compactMap { scan($0.url, modifiedAt: $0.modifiedAt) }
+        let candidates = selected.compactMap { scan($0.url, modifiedAt: $0.modifiedAt) }
+        forgetStaleFiles(keeping: Set(selected.map(\.url.path)))
+        return candidates
+    }
+
+    /// Drops the scan state of transcripts that left the pass long enough
+    /// ago, so the caches stay bounded however long the app runs. A dropped
+    /// file that is written again starts over with a fresh bounded scan.
+    private func forgetStaleFiles(keeping selected: Set<String>) {
+        let evicted = TranscriptCacheRetention.pathsToEvict(
+            cached: modifiedAtByPath,
+            selected: selected,
+            capacity: maximumCachedFiles
+        )
+        guard !evicted.isEmpty else { return }
+        for path in evicted {
+            cursors.removeValue(forKey: path)
+            modifiedAtByPath.removeValue(forKey: path)
+        }
+        for (id, source) in insightsSource where evicted.contains(source.path) {
+            insightsSource.removeValue(forKey: id)
+            insightsBySessionID.removeValue(forKey: id)
+        }
     }
 
     private func scan(
@@ -772,8 +812,16 @@ private extension JSONDecoder {
     }
 }
 
-/// The command's output, written once by the reader before it signals.
+/// The command's output so far. The pipe's reader appends on its own queue
+/// while the caller waits, so every access takes the lock.
 private final class CommandOutputBox: @unchecked Sendable {
-    var data = Data()
+    private let lock = NSLock()
+    private var buffer = Data()
+
+    var data: Data { lock.withLock { buffer } }
+
+    func append(_ chunk: Data) {
+        lock.withLock { buffer.append(chunk) }
+    }
 }
 

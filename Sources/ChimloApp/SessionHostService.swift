@@ -77,7 +77,8 @@ enum SessionHostService {
     nonisolated private static func workingDirectory(of processID: Int32) -> String? {
         guard let output = LocalAgentProcessDiscovery.commandOutput(
             executable: "/usr/sbin/lsof",
-            arguments: ["-a", "-p", "\(processID)", "-d", "cwd", "-Fn"]
+            // -n -P: no host or port name lookups, which can stall on DNS.
+            arguments: ["-n", "-P", "-a", "-p", "\(processID)", "-d", "cwd", "-Fn"]
         ) else { return nil }
         return output.split(whereSeparator: \.isNewline)
             .first { $0.first == "n" }

@@ -45,6 +45,15 @@ public struct RuntimeDescriptor: Codable, Equatable, Sendable {
         }
     }
 
+    /// Whether the process that wrote this descriptor still exists. An app
+    /// that crashed or was killed leaves its descriptor behind, pointing at a
+    /// port nobody answers on (or that another process has since taken).
+    /// Only "no such process" counts as gone: a process this one may not
+    /// signal still exists.
+    public var isOwnerAlive: Bool {
+        kill(processID, 0) == 0 || errno != ESRCH
+    }
+
     private static let loopbackHosts: Set<String> = ["127.0.0.1", "::1", "localhost"]
 }
 

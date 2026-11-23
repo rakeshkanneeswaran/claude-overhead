@@ -10,15 +10,32 @@ The app chooses an available `127.0.0.1` port at launch and writes a runtime
 descriptor beneath `~/Library/Application Support/Overhead/`. The descriptor
 contains:
 
-- protocol major and minor version
+- protocol version
 - loopback host and port
 - app process identifier
 - creation time
 - a random per-launch bearer token
 
-The descriptor and its directory must only be readable by the current user.
-Clients reject descriptors with an unexpected owner, broad permissions, stale
-process identifier, unsupported major version, or non-loopback host.
+The app writes the descriptor with mode `0600` inside a `0700` directory, so
+only the current user can read the token, and removes it when it quits or when
+its listener stops. A client checks what it reads before it connects, and
+treats each of these as "the app is not running":
+
+- a missing, empty, oversized or undecodable descriptor
+- an unsupported protocol version
+- a host that is not loopback, a zero port, or a token shorter than 32 bytes
+- a process identifier that no longer exists. An app that crashed or was
+  killed leaves its descriptor behind; nothing, the token included, is sent to
+  whatever holds that port afterwards.
+
+A client does not check the descriptor file's owner or mode; the directory's
+mode is what keeps other users out.
+
+A connection that is refused fails at once instead of waiting for the client's
+timeout, so a hook hands back to Claude Code's own prompt straight away. The
+reply is accepted only when it carries the descriptor's token and the
+request's identifier. That ties a reply to its request; the liveness check
+above is what ties the port to the app.
 
 ## Envelope
 
