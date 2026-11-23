@@ -223,8 +223,17 @@ final class ApplicationModel: ObservableObject {
         // A closed notch reopens on Claude. GitHub Mode keeps its tab and
         // detail for the next time the owner enters it.
         didSet {
-            // The open notch shows usage top left: freshen it if it is old.
-            if panelMode == .sessions, oldValue != .sessions { refreshClaudeCapacityFromCLIIfNeeded() }
+            // Leaving the tour by anything but its own buttons (a shortcut, a
+            // banner) ends it too, so its demo session never stays behind as
+            // a request nobody can answer.
+            if oldValue == .onboarding, panelMode != .onboarding, onboardingSessionID != nil { closeTour() }
+            if panelMode == .sessions, oldValue != .sessions {
+                // The cards have only just come into view: a click already
+                // on its way must not land on one.
+                clickGuard.cardsMoved(at: Self.uptime)
+                // The open notch shows usage top left: freshen it if it is old.
+                refreshClaudeCapacityFromCLIIfNeeded()
+            }
             guard panelMode == .compact else { return }
             if githubNavigation.content == .github { githubNavigation.returnToClaude() }
             // A closed notch reopens on the session list.
@@ -287,6 +296,9 @@ final class ApplicationModel: ObservableObject {
     @Published private(set) var contextCriticalThreshold = 0.9
     /// How strongly the completion wave shows, 0...1; 0 turns it off.
     @Published private(set) var glowIntensity = 1.0
+    /// Which display the notch lives on (`OverheadSettings.preferredDisplay`).
+    /// The window coordinator turns it into a screen.
+    @Published private(set) var preferredDisplay: DisplayPreference = .notchedDisplay
     /// Flips Overhead's Focus mode; set by the services.
     var toggleFocusMode: (() -> Void)?
     /// Brings a session's terminal or editor forward; set by the services.
@@ -323,6 +335,16 @@ final class ApplicationModel: ObservableObject {
     /// session's bell on in the notch. Kept for the session's lifetime.
     @Published private(set) var soundPreferences = SessionSoundPreferences()
     private var soundGate = SessionSoundGate()
+    /// Which clicks on a permission, question or decision card may act.
+    private var clickGuard = OwnerClickGuard()
+    /// What the cards and the rows around them looked like when last laid
+    /// out; a change means the cards moved.
+    private var cardLayout: [String] = []
+    /// Monotonic seconds, for `OwnerClickGuard`.
+    private static var uptime: TimeInterval { ProcessInfo.processInfo.systemUptime }
+    /// How long the notch stays open when it opened to show the owner
+    /// something that is not waiting on them (a failure, a shortcut's move).
+    private static let glanceMilliseconds = 4_000
     /// Previews closed with ×, by reply (presentation only).
     private var previewDismissals = ConversationPreviewDismissals()
     private var soundChoice: NotificationSoundChoice = .chime
@@ -562,7 +584,9 @@ final class ApplicationModel: ObservableObject {
             return
         }
 
-        NotificationCenter.default.addObserver(
+        // NSWorkspace posts its notifications on its own centre, not the
+        // default one.
+        NSWorkspace.shared.notificationCenter.addObserver(
             self,
             selector: #selector(accessibilityOptionsChanged),
             name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
@@ -642,6 +666,7 @@ final class ApplicationModel: ObservableObject {
         liveSessionTask?.cancel()
         liveSessionTask = nil
         NotificationCenter.default.removeObserver(self)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
     func openPanel() {
@@ -960,6 +985,7 @@ final class ApplicationModel: ObservableObject {
             soundsEnabled = settings.notifications.soundsEnabled
         }
         if isNotchLocked != settings.notchLocked { isNotchLocked = settings.notchLocked }
+        if preferredDisplay != settings.preferredDisplay { preferredDisplay = settings.preferredDisplay }
         soundChoice = settings.notifications.soundChoice
         soundVolume = settings.notifications.soundVolume
         if contextAttentionThreshold != settings.contextAttentionThreshold {
@@ -1002,7 +1028,7 @@ final class ApplicationModel: ObservableObject {
         guard let next = SelectionCycle.next(in: ids, current: selectedSessionID, offset: offset) else { return }
         selectedSessionID = next
         openPanel()
-        scheduleCollapseAfterHover(delayMilliseconds: 4_000)
+        scheduleCollapseAfterHover(delayMilliseconds: Self.glanceMilliseconds)
     }
 
     func selectSession(id: String) {
@@ -1126,7 +1152,7 @@ final class ApplicationModel: ObservableObject {
         consume(
             AgentEvent(
                 sessionID: sessionID,
-                sequence: current.lastSequence + 1,
+                sequence: RequestArithmetic.nextSequence(after: current.lastSequence),
                 kind: .permissionResolved,
                 agent: current.agent,
                 detail: allowed ? "Running three focused checks" : "Request denied safely",
@@ -1144,7 +1170,7 @@ final class ApplicationModel: ObservableObject {
             consume(
                 AgentEvent(
                     sessionID: sessionID,
-                    sequence: latest.lastSequence + 1,
+                    sequence: RequestArithmetic.nextSequence(after: latest.lastSequence),
                     kind: .completed,
                     agent: latest.agent,
                     detail: allowed ? "Three focused checks passed" : "Nothing ran and nothing changed",
@@ -1156,12 +1182,18 @@ final class ApplicationModel: ObservableObject {
         }
     }
 
-    func finishOnboarding() {
+    /// Ends the tour and takes its demo session with it. The panel is left
+    /// to the caller.
+    private func closeTour() {
         onboardingTask?.cancel()
         hideExistingDemoSessions()
         onboardingSessionID = nil
         onboardingEvents = []
         defaults.set(true, forKey: Keys.completedOnboarding)
+    }
+
+    func finishOnboarding() {
+        closeTour()
         panelMode = preferredIdlePanelMode
         if sessions.isEmpty, keepPreviewSession, case .failed = serverState {
             installPreviewSession()
@@ -1300,33 +1332,56 @@ final class ApplicationModel: ObservableObject {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    func respondToPendingDecision(approved: Bool) {
+    /// Whether an owner click on a card may act: it must name the request
+    /// (and question step) showing now, and the cards must have held still
+    /// long enough to be read (`OwnerClickGuard`). Every card action below
+    /// takes the ids the view was showing when it was clicked.
+    private func acceptsClick(on requestID: UUID, step: Int = 0) -> Bool {
+        clickGuard.accepts(requestID, step: step, at: Self.uptime)
+    }
+
+    func respondToPendingDecision(requestID: UUID, approved: Bool) {
+        guard pendingDecision?.id == requestID, acceptsClick(on: requestID) else { return }
         finishPendingDecision(outcome: approved ? .approved : .denied, note: nil)
     }
 
     /// The × on a permission card: Claude Code shows its own prompt in the
     /// terminal instead. Finishing as cancelled makes the hook return no
     /// decision, which never grants anything.
-    func handSessionPermissionBackToClaude(sessionID: String) {
-        guard let request = sessionPermissions[sessionID]?.request else { return }
+    func handSessionPermissionBackToClaude(sessionID: String, requestID: UUID) {
+        guard let request = sessionPermissions[sessionID]?.request,
+              request.id == requestID, acceptsClick(on: requestID) else { return }
         finishPermission(requestID: request.id, outcome: .cancelled, note: "Handed back to Claude Code")
     }
 
     func respondToSessionPermission(
         sessionID: String,
+        requestID: UUID,
         outcome: ProviderPermissionOutcome
     ) {
         guard let request = sessionPermissions[sessionID]?.request,
+              request.id == requestID, acceptsClick(on: requestID),
               outcome == .allowedOnce
                 || outcome == .denied
-                || outcome == .allowedForSession else {
+                // Only where the card offered it (a rule exists that grants
+                // no more than the card shows).
+                || (outcome == .allowedForSession && request.allowsSessionApproval) else {
             return
         }
         finishPermission(requestID: request.id, outcome: outcome, note: nil)
     }
 
-    func selectQuestionOption(sessionID: String, label: String) {
+    /// The question card `sessionID` is showing, when a click on the card
+    /// for `requestID` at question `step` may act on it.
+    private func clickedQuestion(sessionID: String, requestID: UUID, step: Int) -> SessionQuestionPresentation? {
         guard let presentation = sessionQuestions[sessionID],
+              presentation.requestID == requestID, presentation.questionIndex == step,
+              acceptsClick(on: requestID, step: step) else { return nil }
+        return presentation
+    }
+
+    func selectQuestionOption(sessionID: String, requestID: UUID, step: Int, label: String) {
+        guard let presentation = clickedQuestion(sessionID: sessionID, requestID: requestID, step: step),
               var flow = questionFlows[presentation.requestID],
               let option = flow.currentQuestion.options.first(where: { $0.label == label }) else {
             return
@@ -1346,8 +1401,8 @@ final class ApplicationModel: ObservableObject {
         }
     }
 
-    func submitQuestionSelections(sessionID: String) {
-        guard let presentation = sessionQuestions[sessionID],
+    func submitQuestionSelections(sessionID: String, requestID: UUID, step: Int) {
+        guard let presentation = clickedQuestion(sessionID: sessionID, requestID: requestID, step: step),
               var flow = questionFlows[presentation.requestID],
               flow.currentQuestion.allowsMultipleSelections,
               !flow.selectedLabels.isEmpty else { return }
@@ -1359,8 +1414,8 @@ final class ApplicationModel: ObservableObject {
     }
 
     /// Opens the "Other…" field, like Claude Code's own prompt offers.
-    func beginCustomAnswer(sessionID: String) {
-        guard let presentation = sessionQuestions[sessionID],
+    func beginCustomAnswer(sessionID: String, requestID: UUID, step: Int) {
+        guard let presentation = clickedQuestion(sessionID: sessionID, requestID: requestID, step: step),
               var flow = questionFlows[presentation.requestID] else { return }
         cancelCollapse()
         flow.isEnteringCustomAnswer = true
@@ -1368,8 +1423,11 @@ final class ApplicationModel: ObservableObject {
         publishQuestion(flow)
     }
 
-    func cancelCustomAnswer(sessionID: String) {
+    /// Closing the field answers nothing, so it needs no arming delay; it
+    /// only has to belong to the question that is showing.
+    func cancelCustomAnswer(sessionID: String, requestID: UUID, step: Int) {
         guard let presentation = sessionQuestions[sessionID],
+              presentation.requestID == requestID, presentation.questionIndex == step,
               var flow = questionFlows[presentation.requestID] else { return }
         flow.isEnteringCustomAnswer = false
         questionFlows[flow.request.id] = flow
@@ -1378,18 +1436,18 @@ final class ApplicationModel: ObservableObject {
 
     /// Sends the owner's own words as the answer. Empty or oversized text is
     /// ignored rather than sent, so nothing reaches Claude by accident.
-    func submitCustomAnswer(sessionID: String, text: String) {
+    func submitCustomAnswer(sessionID: String, requestID: UUID, step: Int, text: String) {
         let answer = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard ClaudeQuestionHook.isValidCustomAnswer(answer),
-              let presentation = sessionQuestions[sessionID],
+              let presentation = clickedQuestion(sessionID: sessionID, requestID: requestID, step: step),
               var flow = questionFlows[presentation.requestID] else { return }
         flow.answers[flow.currentQuestion.prompt] = answer
         flow.isEnteringCustomAnswer = false
         advanceOrFinish(flow)
     }
 
-    func answerQuestionInClaudeCode(sessionID: String) {
-        guard let requestID = sessionQuestions[sessionID]?.requestID else { return }
+    func answerQuestionInClaudeCode(sessionID: String, requestID: UUID, step: Int) {
+        guard clickedQuestion(sessionID: sessionID, requestID: requestID, step: step) != nil else { return }
         finishQuestion(
             requestID: requestID,
             outcome: .cancelled,
@@ -1404,9 +1462,13 @@ final class ApplicationModel: ObservableObject {
     }
 
     func archiveSession(_ session: SessionDisplayModel) {
+        // A session with a card open is never archived out of sight, even
+        // when a later event cleared the reducer's own pending request.
         guard !session.isDemo,
               let source = reducer.sessions[session.id],
-              source.pendingRequest == nil else { return }
+              source.pendingRequest == nil,
+              sessionPermissions[session.id] == nil,
+              sessionQuestions[session.id] == nil else { return }
 
         archivedSessionMarkers[session.id] = SessionArchiveMarker()
         persistArchivedSessionMarkers()
@@ -1418,6 +1480,11 @@ final class ApplicationModel: ObservableObject {
         recordReceipt(for: event.agent)
         if OwnerInteractionLifetime.endsPendingRequests(event.kind) {
             cancelOwnerInteractions(forEndedSession: event.sessionID)
+        }
+        if event.kind != .sessionEnded {
+            // The session is still talking: a removal scheduled when it
+            // looked finished no longer applies.
+            sessionRemovalTasks.removeValue(forKey: event.sessionID)?.cancel()
         }
         if event.kind == .sessionEnded {
             previewDismissals.forget(event.sessionID)
@@ -1454,7 +1521,7 @@ final class ApplicationModel: ObservableObject {
             )
         }
 
-        let nextSequence = (reducer.sessions[event.sessionID]?.lastSequence ?? 0) + 1
+        let nextSequence = RequestArithmetic.nextSequence(after: reducer.sessions[event.sessionID]?.lastSequence ?? 0)
         consume(event.replacingSequence(with: nextSequence), isDemo: false)
         if event.kind == .sessionEnded {
             scheduleSessionRemoval(event.sessionID)
@@ -1505,7 +1572,9 @@ final class ApplicationModel: ObservableObject {
             cancelCollapse()
             showsUsageDetails = false
             panelMode = .sessions
-            scheduleCollapseAfterHover()
+            // A card keeps the notch open by itself. Without one (a failure)
+            // it stays long enough to be read, not half a second.
+            scheduleCollapseAfterHover(delayMilliseconds: Self.glanceMilliseconds)
         }
     }
 
@@ -1722,6 +1791,7 @@ final class ApplicationModel: ObservableObject {
                 isDemo: isDemo,
                 needsAttention: session.pendingRequest != nil
                     || sessionPermissions[session.id] != nil
+                    || sessionQuestions[session.id] != nil
                     || session.phase == .failed,
                 terminal: session.terminal,
                 projectPath: session.projectPath,
@@ -1751,10 +1821,28 @@ final class ApplicationModel: ObservableObject {
         if let inspectedSessionID, byID[inspectedSessionID] == nil {
             self.inspectedSessionID = nil
         }
+        noteCardLayout()
         resetSessionRevealIfNoOwnerInteraction()
         updateCompactActivity()
         scheduleSessionActivityExpiry(now: now)
         refreshSoundPreferences(liveSessionIDs: sessions.map(\.id))
+    }
+
+    /// Rows changing order or height move the cards under the pointer, so
+    /// every card waits again before a click on it counts.
+    private func noteCardLayout() {
+        let layout = displayedSessions.map { session in
+            [
+                session.id,
+                session.permission?.id.uuidString ?? "",
+                session.question.map { "\($0.requestID)#\($0.questionIndex)#\($0.isEnteringCustomAnswer)" } ?? "",
+                session.showsCompletedConversation ? "preview" : "",
+                showsMetaLine(for: session) ? "meta" : "",
+            ].joined(separator: "|")
+        }
+        guard layout != cardLayout else { return }
+        cardLayout = layout
+        clickGuard.cardsMoved(at: Self.uptime)
     }
 
     /// The closed notch's strip: the session that needs the owner, else the
@@ -1904,7 +1992,7 @@ final class ApplicationModel: ObservableObject {
                 // usage card), keep it fresh. The probe runs only when the
                 // saved numbers are over five minutes old, and backs off
                 // after a failure (CapacityPolicy.shouldProbeClaudeUsage).
-                if showsUsageDetails || panelMode == .sessions || usageViewers > 0 {
+                if showsUsageDetails || panelMode == .sessions || isShowingUsageInCompanion {
                     refreshClaudeCapacityFromCLIIfNeeded()
                 }
             }
@@ -1918,7 +2006,11 @@ final class ApplicationModel: ObservableObject {
               snapshot.observedAt > (capacitySnapshots[.claude]?.observedAt ?? .distantPast) else {
             return
         }
-        receiveCapacity(snapshot, persist: false)
+        // The status line reports no per-model limits. Keep the ones the
+        // /usage panel found until they reset, and save them with the new
+        // reading so a relaunch keeps them too.
+        let merged = snapshot.keepingModelLimits(from: capacitySnapshots[.claude])
+        receiveCapacity(merged, persist: merged != snapshot)
     }
 
     /// Room for the lock glyph and its spacing in the closed notch's trailing
@@ -1927,6 +2019,21 @@ final class ApplicationModel: ObservableObject {
 
     /// Usage cards in the companion window that are on screen.
     private var usageViewers = 0
+    /// The companion window itself is open. Closing a window does not tell
+    /// its views they disappeared, so the cards alone cannot say that nobody
+    /// is looking any more.
+    private var isCompanionWindowOpen = false
+
+    private var isShowingUsageInCompanion: Bool {
+        isCompanionWindowOpen && usageViewers > 0
+    }
+
+    /// The companion window opened or closed; set by its coordinator.
+    func companionWindowChanged(isOpen: Bool) {
+        guard isCompanionWindowOpen != isOpen else { return }
+        isCompanionWindowOpen = isOpen
+        if isShowingUsageInCompanion { refreshClaudeCapacityFromCLIIfNeeded() }
+    }
 
     /// A companion usage card appeared: count it, and freshen old numbers.
     func usageCardAppeared() {
@@ -1942,7 +2049,9 @@ final class ApplicationModel: ObservableObject {
         let now = Date.now
         guard claudeUsageRefreshTask == nil,
               CapacityPolicy.shouldProbeClaudeUsage(
-                snapshot: capacitySnapshots[.claude],
+                // Per-model limits come only from this probe, so their age
+                // counts even while the status line keeps the rest fresh.
+                snapshot: capacitySnapshots[.claude]?.datedByOldestLimit,
                 lastAttemptAt: lastClaudeUsageProbeAttemptAt,
                 now: now
               ) else {
@@ -2026,6 +2135,12 @@ final class ApplicationModel: ObservableObject {
     }
 
     private func removeSession(_ sessionID: String) {
+        // A card still waiting on the owner keeps its session in the notch;
+        // look again once it may have been answered.
+        guard sessionPermissions[sessionID] == nil, sessionQuestions[sessionID] == nil else {
+            scheduleSessionRemoval(sessionID)
+            return
+        }
         sessionRemovalTasks.removeValue(forKey: sessionID)?.cancel()
         completionDetailExpiryTasks.removeValue(forKey: sessionID)?.cancel()
         sessionsArmedForCompletion.remove(sessionID)
@@ -2178,6 +2293,7 @@ final class ApplicationModel: ObservableObject {
                 showsAllSessionsDuringOwnerInteraction = false
                 pendingDecision = request
                 decisionContinuation = continuation
+                clickGuard.presented(request.id, at: Self.uptime)
                 if NotchLockPolicy.opens(.ownerRequest, isLocked: isNotchLocked) {
                     showsUsageDetails = false
                     panelMode = .sessions
@@ -2224,7 +2340,6 @@ final class ApplicationModel: ObservableObject {
               !request.sessionID.isEmpty,
               !request.toolName.isEmpty,
               !request.prompt.isEmpty,
-              request.allowsSessionApproval,
               sessionPermissions[request.sessionID] == nil,
               sessionQuestions[request.sessionID] == nil else {
             return .unavailable(
@@ -2246,6 +2361,7 @@ final class ApplicationModel: ObservableObject {
                 showsAllSessionsDuringOwnerInteraction = false
                 permissionRequests[request.id] = request
                 permissionContinuations[request.id] = continuation
+                clickGuard.presented(request.id, at: Self.uptime)
                 sessionPermissions[request.sessionID] = SessionPermissionPresentation(request: request)
                 presentPermissionEvent(for: request)
                 if NotchLockPolicy.opens(.ownerRequest, isLocked: isNotchLocked) {
@@ -2283,7 +2399,7 @@ final class ApplicationModel: ObservableObject {
 
     private func schedulePermissionExpiry(for request: ProviderPermissionRequest) {
         guard let expiresAt = request.expiresAt else { return }
-        let nanoseconds = UInt64(max(0, expiresAt.timeIntervalSinceNow) * 1_000_000_000)
+        let nanoseconds = RequestArithmetic.sleepNanoseconds(for: expiresAt.timeIntervalSinceNow)
         permissionExpiryTasks[request.id] = Task { [weak self] in
             try? await Task.sleep(nanoseconds: nanoseconds)
             guard !Task.isCancelled else { return }
@@ -2301,6 +2417,7 @@ final class ApplicationModel: ObservableObject {
         note: String?
     ) {
         guard let request = permissionRequests.removeValue(forKey: requestID) else { return }
+        clickGuard.removed(requestID, at: Self.uptime)
         permissionExpiryTasks.removeValue(forKey: requestID)?.cancel()
         if sessionPermissions[request.sessionID]?.request.id == requestID {
             sessionPermissions.removeValue(forKey: request.sessionID)
@@ -2321,7 +2438,7 @@ final class ApplicationModel: ObservableObject {
             consume(
                 AgentEvent(
                     sessionID: current.id,
-                    sequence: current.lastSequence + 1,
+                    sequence: RequestArithmetic.nextSequence(after: current.lastSequence),
                     kind: .permissionResolved,
                     agent: current.agent,
                     detail: detail,
@@ -2378,6 +2495,7 @@ final class ApplicationModel: ObservableObject {
                 let flow = QuestionFlow(request: request)
                 questionFlows[request.id] = flow
                 questionContinuations[request.id] = continuation
+                clickGuard.presented(request.id, step: flow.questionIndex, at: Self.uptime)
                 publishQuestion(flow)
                 presentQuestionEvent(for: flow)
                 if NotchLockPolicy.opens(.ownerRequest, isLocked: isNotchLocked) {
@@ -2401,6 +2519,9 @@ final class ApplicationModel: ObservableObject {
             next.isEnteringCustomAnswer = false
             showsAllSessionsDuringOwnerInteraction = false
             questionFlows[next.request.id] = next
+            // The next question takes the place of the one just answered: it
+            // waits like a new card, so a double-click cannot answer it unread.
+            clickGuard.presented(next.request.id, step: next.questionIndex, at: Self.uptime)
             publishQuestion(next)
             presentQuestionEvent(for: next)
         } else {
@@ -2451,7 +2572,7 @@ final class ApplicationModel: ObservableObject {
 
     private func scheduleQuestionExpiry(for request: ProviderQuestionRequest) {
         guard let expiresAt = request.expiresAt else { return }
-        let nanoseconds = UInt64(max(0, expiresAt.timeIntervalSinceNow) * 1_000_000_000)
+        let nanoseconds = RequestArithmetic.sleepNanoseconds(for: expiresAt.timeIntervalSinceNow)
         questionExpiryTasks[request.id] = Task { [weak self] in
             try? await Task.sleep(nanoseconds: nanoseconds)
             guard !Task.isCancelled else { return }
@@ -2471,6 +2592,7 @@ final class ApplicationModel: ObservableObject {
         note: String?
     ) {
         guard let flow = questionFlows.removeValue(forKey: requestID) else { return }
+        clickGuard.removed(requestID, at: Self.uptime)
         questionExpiryTasks.removeValue(forKey: requestID)?.cancel()
         sessionQuestions.removeValue(forKey: flow.request.sessionID)
 
@@ -2478,7 +2600,7 @@ final class ApplicationModel: ObservableObject {
             consume(
                 AgentEvent(
                     sessionID: current.id,
-                    sequence: current.lastSequence + 1,
+                    sequence: RequestArithmetic.nextSequence(after: current.lastSequence),
                     kind: .questionResolved,
                     agent: current.agent,
                     detail: outcome == .answered ? "Answer sent to Claude Code" : "Answer in Claude Code",
@@ -2518,7 +2640,7 @@ final class ApplicationModel: ObservableObject {
     private func scheduleDecisionExpiry(for request: ChimloDecisionRequest) {
         decisionExpiryTask?.cancel()
         guard let expiresAt = request.expiresAt else { return }
-        let nanoseconds = UInt64(max(0, expiresAt.timeIntervalSinceNow) * 1_000_000_000)
+        let nanoseconds = RequestArithmetic.sleepNanoseconds(for: expiresAt.timeIntervalSinceNow)
         decisionExpiryTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: nanoseconds)
             guard !Task.isCancelled, self?.pendingDecision?.id == request.id else { return }
@@ -2533,6 +2655,7 @@ final class ApplicationModel: ObservableObject {
         let continuation = decisionContinuation
         decisionContinuation = nil
         pendingDecision = nil
+        clickGuard.removed(request.id, at: Self.uptime)
         resetSessionRevealIfNoOwnerInteraction()
         continuation?.resume(
             returning: ChimloDecisionResponse(

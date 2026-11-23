@@ -111,6 +111,14 @@ final class CompanionWindowCoordinator: NSObject, NSWindowDelegate {
         }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+        services.model.companionWindowChanged(isOpen: true)
+    }
+
+    /// A closed window keeps its pages, and they are never told they went
+    /// away. The model hears it here, so it stops refreshing usage for a
+    /// usage card nobody can see.
+    func windowWillClose(_ notification: Notification) {
+        services.model.companionWindowChanged(isOpen: false)
     }
 
     var isVisible: Bool { window?.isVisible == true }

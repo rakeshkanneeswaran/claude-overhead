@@ -28,6 +28,9 @@ final class OverheadServices: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     private var clockTask: Task<Void, Never>?
     private var hasStarted = false
+    /// Set while the launch-at-login setting is being corrected to what
+    /// macOS reports, so the correction is not taken for a new request.
+    private var isReconcilingLoginItem = false
 
     init(model: ApplicationModel, settings: SettingsModel = SettingsModel()) {
         self.model = model
@@ -60,7 +63,7 @@ final class OverheadServices: ObservableObject {
         }
 
         model.toggleFocusMode = { [weak self] in
-            self?.settings.settings.focus.isOn.toggle()
+            self?.settings.settings.focus.toggle(at: .now)
         }
         model.focusSessionHost = { [weak self] session in
             self?.focusHost(of: session)
@@ -70,6 +73,9 @@ final class OverheadServices: ObservableObject {
             self?.apply(new, previous: old)
         }
         apply(settings.settings, previous: nil)
+        // macOS has the last word on Login Items (the owner can change it in
+        // System Settings), so the switch starts from what macOS reports.
+        reconcileLoginItem(with: LoginItem.isEnabled)
 
         // The notch's own mute button writes the model; mirror it back so the
         // setting and the button never disagree.
@@ -189,11 +195,15 @@ final class OverheadServices: ObservableObject {
         if previous?.shortcuts != new.shortcuts || previous?.shortcutsEnabled != new.shortcutsEnabled {
             registerShortcuts(new)
         }
-        if let previous, previous.launchAtLogin != new.launchAtLogin {
+        if let previous, previous.launchAtLogin != new.launchAtLogin, !isReconcilingLoginItem {
             let result = LoginItem.setEnabled(new.launchAtLogin)
-            loginItemProblem = result == new.launchAtLogin
-                ? nil
-                : "macOS did not change Login Items. Check System Settings → General → Login Items."
+            if result == new.launchAtLogin {
+                loginItemProblem = nil
+            } else {
+                // macOS refused, so the switch goes back to what is true.
+                reconcileLoginItem(with: result)
+                loginItemProblem = "macOS did not change Login Items. Check System Settings → General → Login Items."
+            }
         }
         // macOS asks for banner permission only when the owner turns a
         // banner on, never at launch.
@@ -205,6 +215,15 @@ final class OverheadServices: ObservableObject {
     /// Launch at login as macOS reports it, which the owner can also change
     /// in System Settings.
     var launchesAtLogin: Bool { LoginItem.isEnabled }
+
+    /// Makes the saved setting say what macOS reports, without asking macOS
+    /// to change anything.
+    private func reconcileLoginItem(with enabled: Bool) {
+        guard settings.settings.launchAtLogin != enabled else { return }
+        isReconcilingLoginItem = true
+        settings.settings.launchAtLogin = enabled
+        isReconcilingLoginItem = false
+    }
 
     func refreshBannerAuthorization() {
         Task { bannerAuthorization = await notifier.authorization() }
@@ -262,7 +281,7 @@ final class OverheadServices: ObservableObject {
         case .openHistory:
             openCompanion?(.history, nil)
         case .toggleFocusMode:
-            settings.settings.focus.isOn.toggle()
+            settings.settings.focus.toggle(at: .now)
         case .toggleGitHubMode:
             model.toggleGitHubMode()
         case .openSettings:
@@ -281,7 +300,13 @@ final class OverheadServices: ObservableObject {
             if session.jumpURL != nil {
                 model.open(session)
             } else {
-                Self.explainFocusFailure(for: session)
+                // Not from inside this task: a modal alert run from a task
+                // holds the main queue until it is dismissed, and with it
+                // every hook event, request card and timer. A run-loop block
+                // leaves the main queue free while the alert is up.
+                RunLoop.main.perform {
+                    MainActor.assumeIsolated { OverheadServices.explainFocusFailure(for: session) }
+                }
             }
         }
     }

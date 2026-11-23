@@ -728,6 +728,12 @@ private struct ShortcutRecorder: View {
             }
         }
         .onDisappear { removeMonitor() }
+        // Another row started recording, so this one stopped without a key
+        // press: its monitor must go, or it swallows the next key typed
+        // anywhere in the app and may save it as this row's shortcut.
+        .onChange(of: isRecording) { _, recording in
+            if !recording { removeMonitor() }
+        }
     }
 
     private func begin() {

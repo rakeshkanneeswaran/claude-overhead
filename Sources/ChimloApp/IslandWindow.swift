@@ -97,6 +97,10 @@ final class IslandWindowCoordinator {
     private var globalPointerMonitor: Any?
     private var localPointerMonitor: Any?
     private var pointerInsideIntendedFrame = false
+    /// The display the notch is on. `chooseScreen` is the only place that
+    /// picks it, and the panel's frame and pointer hit-testing both read this
+    /// one value, so the notch is always tested where it is drawn.
+    private var screen: NSScreen?
 
     init(model: ApplicationModel, github: GitHubModel, openSettings: @escaping () -> Void) {
         self.model = model
@@ -108,6 +112,7 @@ final class IslandWindowCoordinator {
             backing: .buffered,
             defer: false
         )
+        screen = chooseScreen()
         refreshLayout()
         configurePanel()
         observeChanges()
@@ -151,6 +156,9 @@ final class IslandWindowCoordinator {
             .ignoresCycle,
         ]
         panel.animationBehavior = .none
+        // An alert or save panel of ours must never stop the owner from
+        // answering a request in the notch.
+        panel.worksWhenModal = true
         panel.ignoresMouseEvents = true
         let hostingView = FullBleedHostingView(
             rootView: IslandRootView(model: model, github: github, openSettings: openSettings)
@@ -195,6 +203,10 @@ final class IslandWindowCoordinator {
     }
 
     private func handlePointerEvent(_ event: NSEvent) {
+        if model.preferredDisplay == .displayWithPointer, chooseScreen() != screen {
+            // The pointer crossed to another display: the notch follows it.
+            updateHostFrame()
+        }
         refreshPointerPresence()
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
@@ -230,7 +242,7 @@ final class IslandWindowCoordinator {
     }
 
     private var intendedPanelFrameContainsPointer: Bool {
-        guard let screen = targetScreen else { return false }
+        guard let screen else { return false }
         let intendedFrame = IslandGeometry.frame(
             for: model.panelSize,
             on: screen,
@@ -266,11 +278,67 @@ final class IslandWindowCoordinator {
                 self?.updateHostFrame()
             }
             .store(in: &cancellables)
+
+        // "Show the notch on" in Settings.
+        model.$preferredDisplay
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateHostFrame()
+                self?.refreshPointerPresence()
+            }
+            .store(in: &cancellables)
+
+        // The island changes size without the pointer moving: a request
+        // opens it, a card leaves. Look again at where the pointer is, so
+        // the panel takes clicks exactly where it is drawn and a first click
+        // never falls through to the app underneath.
+        model.objectWillChange
+            .receive(on: RunLoop.main)
+            .throttle(for: .milliseconds(50), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] _ in
+                guard let self, panel.isVisible else { return }
+                // A closed notch opens on a real pointer move, never because
+                // it grew under a pointer at rest.
+                if model.panelMode == .compact, !pointerInsideIntendedFrame { return }
+                refreshPointerPresence()
+            }
+            .store(in: &cancellables)
+
+        // The panel takes the keyboard only for the "Other…" answer field
+        // (or a click on selectable text). Once that field is gone, or the
+        // notch closes, the keyboard goes back, so later keystrokes reach the
+        // app the owner is looking at and not a card in the notch.
+        model.$sessionQuestions
+            .map { $0.values.contains(where: \.isEnteringCustomAnswer) }
+            .removeDuplicates()
+            .filter { !$0 }
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.releaseKeyboard() }
+            .store(in: &cancellables)
+        model.$panelMode
+            .removeDuplicates()
+            .filter { $0 == .compact }
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.releaseKeyboard() }
+            .store(in: &cancellables)
+    }
+
+    /// Gives up key status, which a non-activating panel otherwise keeps
+    /// until the owner clicks another window. Taking the panel off screen and
+    /// straight back is how AppKit hands the keyboard to the window that had
+    /// it before.
+    private func releaseKeyboard() {
+        guard panel.isKeyWindow else { return }
+        panel.orderOut(nil)
+        panel.orderFrontRegardless()
     }
 
     private func updateHostFrame() {
-        guard let screen = targetScreen else { return }
-        refreshLayout(for: screen)
+        screen = chooseScreen()
+        guard let screen else { return }
+        refreshLayout()
         let target = IslandGeometry.hostFrame(
             on: screen,
             hasCameraHousing: model.islandLayout.hasCameraHousing
@@ -279,15 +347,22 @@ final class IslandWindowCoordinator {
         panel.setFrame(target, display: true)
     }
 
-    private var targetScreen: NSScreen? {
-        if let builtIn = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) {
-            return builtIn
-        }
-        return NSScreen.main ?? NSScreen.screens.first
+    /// The display the owner chose in Settings (`NotchScreenChoice`): by
+    /// default the one with a notch, else the primary display.
+    private func chooseScreen() -> NSScreen? {
+        let screens = NSScreen.screens
+        let index = NotchScreenChoice.index(
+            preference: model.preferredDisplay,
+            screens: screens.map {
+                NotchScreenChoice.Screen(frame: $0.frame, hasNotch: $0.safeAreaInsets.top > 0)
+            },
+            pointer: NSEvent.mouseLocation
+        )
+        return index.map { screens[$0] }
     }
 
-    private func refreshLayout(for screen: NSScreen? = nil) {
-        guard let screen = screen ?? targetScreen else { return }
+    private func refreshLayout() {
+        guard let screen else { return }
         let leftArea = screen.auxiliaryTopLeftArea
         let rightArea = screen.auxiliaryTopRightArea
         let safeTopInset = max(

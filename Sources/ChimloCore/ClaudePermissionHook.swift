@@ -20,7 +20,11 @@ public enum ClaudePermissionHookError: Error, LocalizedError, Sendable {
 /// Code permission prompt. Tool input and permission rules live only for this
 /// blocking helper invocation and are never written to Claude Overhead's session store.
 public struct ClaudePermissionHook: Sendable {
-    public static let maximumPayloadBytes = 64 * 1_024
+    /// How much hook input is read. Claude Code sends the whole tool input,
+    /// so a Write or Edit of a large file is far bigger than the request
+    /// built from it: every field kept is capped and the preview is clipped,
+    /// which is what keeps the request inside one protocol frame.
+    public static let maximumPayloadBytes = 8 * 1_024 * 1_024
     public static let fallbackOutput = Data("{}\n".utf8)
 
     public let request: ProviderPermissionRequest
@@ -80,13 +84,14 @@ public struct ClaudePermissionHook: Sendable {
             prompt: presentation.prompt,
             detail: presentation.detail,
             preview: presentation.preview,
-            allowsSessionApproval: true,
+            // "Allow All" is offered only when a rule exists that grants
+            // what the card shows and no more.
+            allowsSessionApproval: sessionPermissionUpdate != nil,
             expiresAt: expiresAt
         )
-        sessionPermissionUpdateJSON = try JSONSerialization.data(
-            withJSONObject: sessionPermissionUpdate,
-            options: [.sortedKeys]
-        )
+        sessionPermissionUpdateJSON = try sessionPermissionUpdate.map {
+            try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys])
+        }
     }
 
     public func output(for response: ProviderPermissionResponse) -> Data {
@@ -200,11 +205,17 @@ public struct ClaudePermissionHook: Sendable {
     /// to this session. File edits fall back to Claude's documented
     /// `acceptEdits` session mode, which is the native "allow all edits"
     /// behavior. Bypass mode is never forwarded by Claude Overhead.
+    ///
+    /// Returns nil when no rule can be written that matches what the card
+    /// shows. A rule without its content covers the whole tool: for Bash that
+    /// is every command, so a command (or a suggested rule) too long to carry
+    /// must never be shortened to "allow Bash". The card then has no "Allow
+    /// All", and Allow Once still grants the one call.
     private static func sessionPermissionUpdate(
         from value: Any?,
         currentToolName: String,
         toolInput: [String: Any]
-    ) -> [String: Any] {
+    ) -> [String: Any]? {
         let suggestions = value as? [[String: Any]] ?? []
 
         for suggestion in suggestions {
@@ -231,10 +242,14 @@ public struct ClaudePermissionHook: Sendable {
                     break
                 }
                 var rule: [String: Any] = ["toolName": ruleToolName]
-                if let ruleContent = optionalBoundedString(
-                    rawRule["ruleContent"],
-                    maximumBytes: 4_096
-                ) {
+                if let rawContent = rawRule["ruleContent"], !(rawContent is NSNull) {
+                    // Content that cannot be carried whole makes the rule
+                    // broader than Claude suggested, so the suggestion is
+                    // dropped rather than widened.
+                    guard let ruleContent = boundedString(rawContent, maximumBytes: 4_096) else {
+                        rules.removeAll()
+                        break
+                    }
                     rule["ruleContent"] = ruleContent
                 }
                 includesCurrentTool = includesCurrentTool
@@ -260,13 +275,15 @@ public struct ClaudePermissionHook: Sendable {
         }
 
         var rule: [String: Any] = ["toolName": currentToolName]
-        if currentToolName == "Bash",
-           let command = optionalBoundedString(toolInput["command"], maximumBytes: 4_096) {
+        if currentToolName == "Bash" {
+            // Without the command the rule would allow every command.
+            guard let command = boundedString(toolInput["command"], maximumBytes: 4_096) else { return nil }
             rule["ruleContent"] = command
-        } else if currentToolName == "WebFetch",
-                  let rawURL = optionalBoundedString(toolInput["url"], maximumBytes: 4_096),
+        } else if currentToolName == "WebFetch" {
+            // Without the domain the rule would allow every site.
+            guard let rawURL = boundedString(toolInput["url"], maximumBytes: 4_096),
                   let host = URL(string: rawURL)?.host,
-                  !host.isEmpty {
+                  !host.isEmpty else { return nil }
             rule["ruleContent"] = "domain:\(host)"
         }
         return [
@@ -314,4 +331,5 @@ public struct ClaudePermissionHook: Sendable {
         guard value != nil else { return nil }
         return boundedString(value, maximumBytes: maximumBytes)
     }
+
 }

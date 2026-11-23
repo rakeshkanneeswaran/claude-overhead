@@ -785,7 +785,9 @@ private struct ReceiptCard: View {
                     }
                     if !receipt.tests.isEmpty {
                         Text("Tests").font(.system(size: 11, weight: .semibold)).foregroundStyle(palette.textTertiary)
-                        ForEach(receipt.tests, id: \.command) { test in
+                        // By position: the same command often runs more than
+                        // once, and each run has its own outcome.
+                        ForEach(Array(receipt.tests.enumerated()), id: \.offset) { _, test in
                             HStack {
                                 Text(test.command).font(.system(size: 11, design: .monospaced)).lineLimit(1)
                                 Spacer()

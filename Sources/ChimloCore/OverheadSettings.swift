@@ -43,6 +43,18 @@ public struct DailyWindow: Codable, Equatable, Sendable {
         return !window.weekdaysOnly || !calendar.isDateInWeekend(startDay)
     }
 
+    /// When the window `date` is inside comes to its end, or nil when `date`
+    /// is outside the window.
+    public func end(ofWindowContaining date: Date, calendar: Calendar = .current) -> Date? {
+        guard contains(date, calendar: calendar) else { return nil }
+        let end = normalized().endMinutes
+        return calendar.nextDate(
+            after: date,
+            matching: DateComponents(hour: end / 60, minute: end % 60, second: 0),
+            matchingPolicy: .nextTime
+        )
+    }
+
     /// Minutes wrapped into 0..<1440, so a stray value still means a time.
     public func normalized() -> DailyWindow {
         DailyWindow(
@@ -77,10 +89,13 @@ public enum SessionSort: String, Codable, Sendable, CaseIterable {
     case project
 }
 
+/// Which display the notch lives on (`NotchScreenChoice` applies it).
 public enum DisplayPreference: String, Codable, Sendable, CaseIterable {
     /// The built-in display with a notch, falling back to the main display.
     case notchedDisplay
+    /// The primary display, the one System Settings calls the main display.
     case mainDisplay
+    /// Whichever display the pointer is on; the notch follows it.
     case displayWithPointer
 }
 
@@ -96,6 +111,9 @@ public struct FocusPreferences: Codable, Equatable, Sendable {
     public var hideActivityLabels: Bool
     public var schedule: DailyWindow?
     public var scheduleEnabled: Bool
+    /// The schedule is skipped until this moment: the owner turned Focus off
+    /// during a scheduled window, which holds for the rest of that window.
+    public var schedulePausedUntil: Date?
 
     public init(
         isOn: Bool = false,
@@ -104,8 +122,10 @@ public struct FocusPreferences: Codable, Equatable, Sendable {
         reduceAnimations: Bool = true,
         hideActivityLabels: Bool = true,
         schedule: DailyWindow? = nil,
-        scheduleEnabled: Bool = false
+        scheduleEnabled: Bool = false,
+        schedulePausedUntil: Date? = nil
     ) {
+        self.schedulePausedUntil = schedulePausedUntil
         self.isOn = isOn
         self.suppressInformational = suppressInformational
         self.muteSounds = muteSounds
@@ -115,15 +135,36 @@ public struct FocusPreferences: Codable, Equatable, Sendable {
         self.scheduleEnabled = scheduleEnabled
     }
 
-    /// On manually, or inside an enabled schedule.
+    /// On manually, or inside an enabled schedule the owner has not paused.
     public func isActive(at date: Date, calendar: Calendar = .current) -> Bool {
         if isOn { return true }
         guard scheduleEnabled, let schedule else { return false }
+        if let schedulePausedUntil, date < schedulePausedUntil { return false }
         return schedule.contains(date, calendar: calendar)
+    }
+
+    /// The notch's Focus button and its shortcut. Off always turns Focus
+    /// off: when the schedule is what keeps it on, the schedule is paused
+    /// until the current window ends, and resumes with the next one. On
+    /// turns it on by hand, as before.
+    public mutating func toggle(at date: Date, calendar: Calendar = .current) {
+        guard isActive(at: date, calendar: calendar) else {
+            isOn = true
+            schedulePausedUntil = nil
+            return
+        }
+        isOn = false
+        if scheduleEnabled, let schedule, schedule.contains(date, calendar: calendar) {
+            // A window whose end cannot be worked out is paused for a day,
+            // which is the longest any window lasts.
+            schedulePausedUntil = schedule.end(ofWindowContaining: date, calendar: calendar)
+                ?? date.addingTimeInterval(86_400)
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
         case isOn, suppressInformational, muteSounds, reduceAnimations, hideActivityLabels, schedule, scheduleEnabled
+        case schedulePausedUntil
     }
 
     public init(from decoder: any Decoder) throws {
@@ -136,6 +177,7 @@ public struct FocusPreferences: Codable, Equatable, Sendable {
         hideActivityLabels = container.lenient(Bool.self, .hideActivityLabels) ?? fallback.hideActivityLabels
         schedule = container.lenient(DailyWindow.self, .schedule)
         scheduleEnabled = container.lenient(Bool.self, .scheduleEnabled) ?? fallback.scheduleEnabled
+        schedulePausedUntil = container.lenient(Date.self, .schedulePausedUntil)
     }
 }
 

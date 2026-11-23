@@ -1081,27 +1081,58 @@ private struct SessionListView: View {
                                 soundEnabled: model.isSoundEnabled(for: session.id),
                                 onToggleSound: session.isDemo ? nil : { model.toggleSound(for: session.id) },
                                 onDismissPreview: { model.dismissConversationPreview(sessionID: session.id) },
+                                // Each click names the request, and the
+                                // question step, this row was showing, so
+                                // the model can refuse one that was aimed
+                                // at a card no longer there.
                                 onPermissionDecision: { outcome in
+                                    guard let requestID = session.permission?.id else { return }
                                     model.respondToSessionPermission(
                                         sessionID: session.id,
+                                        requestID: requestID,
                                         outcome: outcome
                                     )
                                 },
-                                onPermissionHandBack: { model.handSessionPermissionBackToClaude(sessionID: session.id) },
+                                onPermissionHandBack: {
+                                    guard let requestID = session.permission?.id else { return }
+                                    model.handSessionPermissionBackToClaude(sessionID: session.id, requestID: requestID)
+                                },
                                 onQuestionOption: { label in
-                                    model.selectQuestionOption(sessionID: session.id, label: label)
+                                    guard let question = session.question else { return }
+                                    model.selectQuestionOption(
+                                        sessionID: session.id,
+                                        requestID: question.requestID,
+                                        step: question.questionIndex,
+                                        label: label
+                                    )
                                 },
                                 onSubmitQuestion: {
-                                    model.submitQuestionSelections(sessionID: session.id)
+                                    guard let question = session.question else { return }
+                                    model.submitQuestionSelections(
+                                        sessionID: session.id,
+                                        requestID: question.requestID,
+                                        step: question.questionIndex
+                                    )
                                 },
                                 onAnswerInClaude: {
-                                    model.answerQuestionInClaudeCode(sessionID: session.id)
+                                    guard let question = session.question else { return }
+                                    model.answerQuestionInClaudeCode(
+                                        sessionID: session.id,
+                                        requestID: question.requestID,
+                                        step: question.questionIndex
+                                    )
                                 },
                                 onCustomAnswer: { action in
+                                    guard let question = session.question else { return }
+                                    let requestID = question.requestID
+                                    let step = question.questionIndex
                                     switch action {
-                                    case .begin: model.beginCustomAnswer(sessionID: session.id)
-                                    case .cancel: model.cancelCustomAnswer(sessionID: session.id)
-                                    case let .submit(text): model.submitCustomAnswer(sessionID: session.id, text: text)
+                                    case .begin:
+                                        model.beginCustomAnswer(sessionID: session.id, requestID: requestID, step: step)
+                                    case .cancel:
+                                        model.cancelCustomAnswer(sessionID: session.id, requestID: requestID, step: step)
+                                    case let .submit(text):
+                                        model.submitCustomAnswer(sessionID: session.id, requestID: requestID, step: step, text: text)
                                     }
                                 }
                             )
@@ -1164,16 +1195,17 @@ private struct LiveDecisionView: View {
             HStack(spacing: 8) {
                 Spacer()
                 Button(decision.denyLabel) {
-                    model.respondToPendingDecision(approved: false)
+                    model.respondToPendingDecision(requestID: decision.id, approved: false)
                 }
                 .buttonStyle(ChimloButtonStyle(kind: .destructive, compact: true))
                 .keyboardShortcut(.cancelAction)
 
+                // No keyboard shortcut: approving is always a click, so a
+                // stray Return can never approve anything.
                 Button(decision.approveLabel) {
-                    model.respondToPendingDecision(approved: true)
+                    model.respondToPendingDecision(requestID: decision.id, approved: true)
                 }
                 .buttonStyle(ChimloButtonStyle(kind: .primary, compact: true))
-                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(11)
@@ -1236,6 +1268,9 @@ struct SessionRow: View {
                     answerInClaude: { onAnswerInClaude?() },
                     customAnswer: { onCustomAnswer?($0) }
                 )
+                // Each question starts with its own empty answer field, so
+                // words typed for one are never offered for the next.
+                .id("\(question.requestID)#\(question.questionIndex)")
             }
 
             if session.showsCompletedConversation {
@@ -1687,18 +1722,24 @@ private struct SessionPermissionView: View {
                 .keyboardShortcut(.cancelAction)
                 .accessibilityHint("Deny this Claude Code tool request")
 
+                // No keyboard shortcut: allowing is always a click, so a
+                // stray Return can never allow anything.
                 Button("Allow Once") {
                     decide(.allowedOnce)
                 }
                 .buttonStyle(PermissionActionButtonStyle(kind: .once))
-                .keyboardShortcut(.defaultAction)
                 .accessibilityHint("Allow only this Claude Code tool request")
 
-                Button("Allow All") {
-                    decide(.allowedForSession)
+                // Offered only when a session rule exists that grants what
+                // this card shows and no more (not for a command too long
+                // to name in a rule, which would become "allow all Bash").
+                if request.allowsSessionApproval {
+                    Button("Allow All") {
+                        decide(.allowedForSession)
+                    }
+                    .buttonStyle(PermissionActionButtonStyle(kind: .session))
+                    .accessibilityHint("Allow Claude's matching requests for this session only")
                 }
-                .buttonStyle(PermissionActionButtonStyle(kind: .session))
-                .accessibilityHint("Allow Claude's matching requests for this session only")
             }
         }
         // The stepped cut removes six points at the top-left. Twelve points of
