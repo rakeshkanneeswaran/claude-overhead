@@ -247,13 +247,19 @@ struct AgentIntegrationManager {
             fileManager: fileManager
         )
         if plan.changed {
-            try writeConfiguration(
-                plan.data,
-                to: claudeSettingsURL,
-                existingData: existing,
-                provider: .claude,
-                fileManager: fileManager
-            )
+            do {
+                try writeConfiguration(
+                    plan.data,
+                    to: claudeSettingsURL,
+                    existingData: existing,
+                    provider: .claude,
+                    fileManager: fileManager
+                )
+            } catch ConfigurationFileWriter.WriteError.changedMeanwhile {
+                // Nobody asked for this write. Leave Claude Code's newer file
+                // alone; the next launch tries again.
+                return false
+            }
         }
         return true
     }
@@ -271,7 +277,8 @@ struct AgentIntegrationManager {
         case .claude:
             let hookPlan = try ClaudeHookConfiguration.removing(existingData: existing)
             let statusLinePlan = try ClaudeStatusLineConfiguration.removing(
-                existingData: hookPlan.data
+                existingData: hookPlan.data,
+                wrapperPath: claudeStatusLineWrapperURL.path
             )
             data = statusLinePlan.data
             changed = hookPlan.changed || statusLinePlan.changed
@@ -281,11 +288,13 @@ struct AgentIntegrationManager {
             return
         }
 
-        let permissions = try fileManager.attributesOfItem(atPath: destination.path)[.posixPermissions] as? NSNumber
-        try data.write(to: destination, options: .atomic)
-        try fileManager.setAttributes(
-            [.posixPermissions: permissions ?? NSNumber(value: 0o600)],
-            ofItemAtPath: destination.path
+        // Through a symlink, keeping the file's mode, and never over a
+        // version Claude Code wrote since we read it.
+        try ConfigurationFileWriter.replace(
+            destination,
+            with: data,
+            expecting: existing,
+            fileManager: fileManager
         )
         if provider == .claude { removeClaudeStatusLineScripts(fileManager: fileManager) }
     }
@@ -319,14 +328,15 @@ struct AgentIntegrationManager {
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
-        let permissions = try existingData.flatMap { _ in
-            try fileManager.attributesOfItem(atPath: destination.path)[.posixPermissions] as? NSNumber
-        }
+        // Checked before the one-time backup is taken, so the backup is
+        // always a copy of the file as it really was.
+        try ConfigurationFileWriter.requireUnchanged(destination, since: existingData, fileManager: fileManager)
         let backup = try preserveFirstBackup(existingData, destination: destination, fileManager: fileManager)
-        try data.write(to: destination, options: .atomic)
-        try fileManager.setAttributes(
-            [.posixPermissions: permissions ?? NSNumber(value: 0o600)],
-            ofItemAtPath: destination.path
+        try ConfigurationFileWriter.replace(
+            destination,
+            with: data,
+            expecting: existingData,
+            fileManager: fileManager
         )
 
         let written = try Data(contentsOf: destination)
@@ -355,7 +365,9 @@ struct AgentIntegrationManager {
         let backupURL = destination.appendingPathExtension("overhead-backup")
         guard !fileManager.fileExists(atPath: backupURL.path) else { return nil }
         try existingData.write(to: backupURL, options: .atomic)
-        let permissions = try fileManager.attributesOfItem(atPath: destination.path)[.posixPermissions] as? NSNumber
+        let permissions = try fileManager.attributesOfItem(
+            atPath: ConfigurationFileWriter.target(for: destination).path
+        )[.posixPermissions] as? NSNumber
         try fileManager.setAttributes(
             [.posixPermissions: permissions ?? NSNumber(value: 0o600)],
             ofItemAtPath: backupURL.path
@@ -383,8 +395,10 @@ struct AgentIntegrationManager {
         # Claude Overhead status-line bridge. Managed by Claude Overhead.
         input=$(cat)
         printf '%s' "$input" | \(helper) __capture-claude-capacity \(cache) >/dev/null 2>&1 || true
-        if [ -x \(delegate) ]; then
-          printf '%s' "$input" | \(delegate)
+        # The marker stops a status line that (by mistake) points back at
+        # this script from calling itself without end.
+        if [ -z "$OVERHEAD_STATUS_LINE" ] && [ -x \(delegate) ]; then
+          printf '%s' "$input" | OVERHEAD_STATUS_LINE=1 \(delegate)
         fi
         """ + "\n"
         try writeExecutable(wrapper, to: claudeStatusLineWrapperURL, fileManager: fileManager)

@@ -38,6 +38,23 @@ public enum ClaudeStatusLineConfiguration {
     public static let originalKey = "_overheadOriginalStatusLine"
     public static let refreshIntervalSeconds = 60
 
+    /// The `statusLine.command` written to Claude's settings. Claude Code runs
+    /// the command through a shell, and the wrapper lives under "Application
+    /// Support": unquoted, the shell splits the path at the space and nothing
+    /// runs, which also blanks the status line the wrapper is meant to pass
+    /// through. Through 1.0.6 the bare path was written.
+    public static func command(wrapperPath: String) -> String {
+        "'\(wrapperPath.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    /// Whether a `statusLine.command` is Claude Overhead's own: the quoted
+    /// command, or the bare path earlier versions wrote. The bare path must
+    /// count, or repairing it would save it as the owner's "original".
+    public static func isManagedCommand(_ command: String?, wrapperPath: String) -> Bool {
+        guard let command else { return false }
+        return command == Self.command(wrapperPath: wrapperPath) || command == wrapperPath
+    }
+
     public static func installationState(
         in data: Data?,
         wrapperPath: String
@@ -47,7 +64,7 @@ public enum ClaudeStatusLineConfiguration {
         guard root[managedKey] as? Bool == true else { return .missing }
         guard let statusLine = root["statusLine"] as? [String: Any],
               statusLine["type"] as? String == "command",
-              statusLine["command"] as? String == wrapperPath,
+              statusLine["command"] as? String == command(wrapperPath: wrapperPath),
               (statusLine["refreshInterval"] as? NSNumber)?.intValue
                 == refreshIntervalSeconds else {
             return .needsRepair
@@ -59,7 +76,8 @@ public enum ClaudeStatusLineConfiguration {
         existingData: Data?,
         wrapperPath: String
     ) throws -> ClaudeStatusLineConfigurationPlan {
-        var root = try existingData.flatMap { $0.isEmpty ? nil : try decodeRoot($0) } ?? [:]
+        let existingRoot = try existingData.flatMap { $0.isEmpty ? nil : try decodeRoot($0) }
+        var root = existingRoot ?? [:]
         let wasManaged = root[managedKey] as? Bool == true
 
         if let existingStatusLine = root["statusLine"] {
@@ -69,8 +87,13 @@ public enum ClaudeStatusLineConfiguration {
                 throw ClaudeStatusLineConfigurationError.malformedStatusLine
             }
             let existingCommand = object["command"] as? String
-            if !wasManaged || existingCommand != wrapperPath {
+            let isOurs = isManagedCommand(existingCommand, wrapperPath: wrapperPath)
+            if !isOurs {
                 root[originalKey] = object
+            } else if !wasManaged {
+                // Our wrapper without our bookkeeping: there is no original
+                // to keep, and the wrapper must never become its own delegate.
+                root.removeValue(forKey: originalKey)
             }
         } else if wasManaged {
             // If another tool deliberately removed Claude Overhead's wrapper, do not
@@ -78,18 +101,30 @@ public enum ClaudeStatusLineConfiguration {
             root.removeValue(forKey: originalKey)
         }
 
+        // The saved original must never be our own wrapper: its delegate
+        // script would run the wrapper, which runs the delegate, without end.
+        // 1.0.6 and earlier save it that way when they "repair" the quoted
+        // command a newer version wrote.
+        if let original = root[originalKey] as? [String: Any],
+           isManagedCommand(original["command"] as? String, wrapperPath: wrapperPath) {
+            root.removeValue(forKey: originalKey)
+        }
+
         var managed = (root[originalKey] as? [String: Any]) ?? [:]
         managed["type"] = "command"
-        managed["command"] = wrapperPath
+        managed["command"] = command(wrapperPath: wrapperPath)
         managed["refreshInterval"] = refreshIntervalSeconds
         root["statusLine"] = managed
         root[managedKey] = true
 
-        let data = try encode(root)
-        return ClaudeStatusLineConfigurationPlan(
-            data: data,
-            changed: data != existingData
-        )
+        // Compared as values, not bytes: Claude Code rewrites this file in
+        // its own formatting, and a byte comparison would then have every
+        // launch rewrite the owner's settings for nothing.
+        if let existingData, let existingRoot,
+           NSDictionary(dictionary: root).isEqual(to: existingRoot) {
+            return ClaudeStatusLineConfigurationPlan(data: existingData, changed: false)
+        }
+        return ClaudeStatusLineConfigurationPlan(data: try encode(root), changed: true)
     }
 
     /// Produces the capacity-bridge migration only when Claude's Claude Overhead hooks
@@ -111,16 +146,28 @@ public enum ClaudeStatusLineConfiguration {
         return try merging(existingData: existingData, wrapperPath: wrapperPath)
     }
 
-    public static func removing(existingData: Data) throws -> ClaudeStatusLineConfigurationPlan {
+    public static func removing(
+        existingData: Data,
+        wrapperPath: String
+    ) throws -> ClaudeStatusLineConfigurationPlan {
         var root = try decodeRoot(existingData)
         guard root[managedKey] as? Bool == true else {
             return ClaudeStatusLineConfigurationPlan(data: existingData, changed: false)
         }
 
-        if let original = root[originalKey] {
-            root["statusLine"] = original
-        } else {
-            root.removeValue(forKey: "statusLine")
+        // Only our own wrapper is taken out. A status line the owner set
+        // after connecting (or removed on purpose) is theirs: it stays
+        // exactly as it is, and only the bookkeeping goes.
+        let current = root["statusLine"] as? [String: Any]
+        if isManagedCommand(current?["command"] as? String, wrapperPath: wrapperPath) {
+            if let original = root[originalKey] as? [String: Any],
+               !isManagedCommand(original["command"] as? String, wrapperPath: wrapperPath) {
+                root["statusLine"] = original
+            } else {
+                // Nothing to give back (or only our own wrapper, saved by an
+                // older version's repair): the status line simply goes.
+                root.removeValue(forKey: "statusLine")
+            }
         }
         root.removeValue(forKey: originalKey)
         root.removeValue(forKey: managedKey)
