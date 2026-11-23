@@ -58,9 +58,9 @@ release-signing-freeze: release-app
 
 # Releases (see Docs/RELEASING.md). `make public-release TAG=vX.Y.Z` builds,
 # checks and publishes one from this Mac. It refuses a commit that is not
-# tagged, pushed and green on CI, picks the build number itself (one more
-# than the live release's), and runs the checks and tests first. DRY_RUN=1
-# does everything but the upload.
+# tagged and pushed, picks the build number itself (one more than the live
+# release's), and runs the checks and tests first. DRY_RUN=1 does everything
+# but the upload. There is no CI: this command is where a release is checked.
 public-release:
 	@test -n "$(TAG)" || (echo "TAG=vX.Y.Z is required" >&2; exit 64)
 	$(if $(DRY_RUN),CHIMLO_DRY_RUN=1 )$(if $(BUILD_NUMBER),CHIMLO_BUILD_NUMBER="$(BUILD_NUMBER)" )./Scripts/public-release.sh "$(TAG)"

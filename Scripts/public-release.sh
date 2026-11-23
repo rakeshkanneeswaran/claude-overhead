@@ -9,18 +9,18 @@
 #
 #   1. the working tree is clean, the tag is the commit checked out, and the
 #      same tag is on GitHub;
-#   2. GitHub's CI built, tested and launched this commit on a clean machine;
-#   3. the build number is higher than the release people have now, so their
+#   2. the build number is higher than the release people have now, so their
 #      copies are offered this one (read from the live update feed);
-#   4. the checks and the whole test suite pass here;
-#   5. the release has its What's New, the packaged app carries it and draws
-#      every page of it;
-#   6. the update feed is signed and carries exactly those notes;
-#   7. the published files are downloaded again and compared.
+#   3. the checks and the whole test suite pass here;
+#   4. the release has its What's New, the packaged app and its helper run,
+#      and the app carries the notes and draws every page of them;
+#   5. the update feed is signed and carries exactly those notes;
+#   6. the published files are downloaded again and compared.
+#
+# Nothing else builds or tests a release: there is no CI. What this command
+# checks is everything that is checked.
 #
 # CHIMLO_DRY_RUN=1 does everything except the upload, to rehearse a release.
-# CHIMLO_SKIP_CI_CHECK=1 publishes without GitHub's verdict (step 2), for when
-#   GitHub Actions itself is down. Say so in the release if you use it.
 # CHIMLO_BUILD_NUMBER=N names the build number; it must still be higher than
 #   the live one.
 # CHIMLO_REPLACE_ASSETS=1 rebuilds a version that is already published.
@@ -73,29 +73,6 @@ INFO_VERSION="$(/usr/bin/plutil -extract CFBundleShortVersionString raw Packagin
   || fail "Packaging/Info.plist is at $INFO_VERSION, not $VERSION."
 print "$TAG is ${HEAD_COMMIT[1,7]}, here and on GitHub."
 
-step "GitHub built, tested and launched this commit"
-if [[ "${CHIMLO_SKIP_CI_CHECK:-0}" == "1" ]]; then
-  print "Skipped (CHIMLO_SKIP_CI_CHECK=1). This release has no clean-machine check behind it."
-else
-  CI_STATE="$(gh run list --repo "$REPOSITORY" --workflow CI --commit "$HEAD_COMMIT" --limit 1 \
-    --json status,conclusion --jq 'if length == 0 then "none" else "\(.[0].status) \(.[0].conclusion)" end')" \
-    || fail "Could not ask GitHub about this commit's CI run." "Is the GitHub CLI signed in? (gh auth status)"
-  case "$CI_STATE" in
-    "completed success")
-      print "CI passed for ${HEAD_COMMIT[1,7]}."
-      ;;
-    none)
-      fail "GitHub has no CI run for this commit." "Push it to main and wait for the run: git push origin HEAD:main"
-      ;;
-    completed*)
-      fail "CI did not pass for this commit ($CI_STATE)." "Fix it and tag the commit that passes."
-      ;;
-    *)
-      fail "CI is still running for this commit ($CI_STATE)." "Wait for it: gh run watch --repo $REPOSITORY"
-      ;;
-  esac
-fi
-
 step "The build number"
 # An installed copy is offered an update only when its build number is higher
 # than the one it has, so this is one more than the newest release's.
@@ -132,7 +109,12 @@ step "What's New is ready"
 step "Build and verify the app and its disk image"
 ./Scripts/build-public-dmg.sh "$TAG" "$BUILD_NUMBER"
 
-step "The packaged app carries and draws its What's New"
+step "The packaged app and its helper run, and the app draws its What's New"
+# The app is not started in full here: it would run against this Mac's own
+# settings and sessions. Its binary is run to draw the notes, and the helper
+# Claude Code's hooks call is run on its own.
+"dist/Claude Overhead.app/Contents/Helpers/overhead" help >/dev/null \
+  || fail "The packaged helper does not run."
 ./Scripts/check-release-notes.sh --release "$TAG" --app "dist/Claude Overhead.app"
 
 step "Sign the update feed"

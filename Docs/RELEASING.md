@@ -13,10 +13,11 @@ the command never changes between versions, and nobody needs a GitHub account.
 `install.sh` (from `Scripts/install.sh`) downloads that release's
 `Claude-Overhead.dmg`, checks it against `SHA256SUMS.txt`, and installs the app.
 
-GitHub Actions does not build releases. It runs CI on every push
-(`.github/workflows/ci.yml`): build, checks, tests, every What's New drawn,
-and the app packaged as a release packages it and launched once on a clean
-machine. A release is published only from a commit that run passed.
+GitHub hosts the code and the releases and runs nothing: there are no
+workflows, so nothing is built or tested on a push. Everything is built,
+tested and checked on the maintainer's Mac. Run `make check` and `make test`
+before pushing; the release command runs both again and refuses to publish
+when either fails.
 
 ## Publish a release
 
@@ -33,7 +34,7 @@ machine. A release is published only from a commit that run passed.
    make whats-new VERSION=1.2.0       # every page, drawn to dist/whats-new/1.2.0/
    ```
 
-5. Commit all three and push `main`. Wait for CI to pass on that commit.
+5. Commit all three and push `main`.
 6. Tag the commit, push the tag, and release:
 
    ```sh
@@ -48,8 +49,6 @@ that is not ready. In order, it:
 - refuses a working tree with uncommitted changes, a tag that is not the
   commit checked out, a tag that is not on GitHub, and a version that differs
   from `Info.plist`;
-- refuses a commit that GitHub's CI has not passed (not run, still running,
-  or failed);
 - reads the live update feed and takes its build number plus one. Installed
   copies are offered an update only when its build number is higher than the
   one they have, so this is never typed by hand; a version older than the
@@ -60,8 +59,8 @@ that is not ready. In order, it:
 - builds `Claude Overhead.app` (bundle id `com.rakesh.overhead`) and the DMG
   with `Scripts/build-public-dmg.sh`, which mounts the image and checks the
   app, its signature, its version and its bundle id;
-- has the packaged app draw every page of its own What's New
-  (`Scripts/check-release-notes.sh --app`); the pages land in
+- runs the packaged helper, and has the packaged app draw every page of its
+  own What's New (`Scripts/check-release-notes.sh --app`); the pages land in
   `dist/whats-new/<version>/`;
 - signs the update feed, `appcast.xml`, with the key in the login Keychain
   (`Scripts/generate-appcast.sh`). The feed carries the release's What's New,
@@ -76,20 +75,30 @@ that is not ready. In order, it:
 The release appears only with its DMG attached, so the stable link never points
 at a release without one.
 
-Three switches, for the cases that need them:
+Two switches, for the cases that need them:
 
 - `make public-release TAG=v1.2.0 DRY_RUN=1` does everything except the
   upload: a rehearsal. The files it would publish are left in `dist/public/`.
-- `CHIMLO_SKIP_CI_CHECK=1` publishes without GitHub's verdict, for when GitHub
-  Actions itself is down. That release has no clean-machine build or launch
-  behind it, so say so in its notes.
 - `CHIMLO_REPLACE_ASSETS=1` rebuilds a version that is already published and
   replaces its files. To rebuild an old tag, check it out and use the scripts
   it has.
 
-The launch check is CI's alone. The packaged release app is not started on
-the maintainer's Mac, because it would run against their own settings and
-sessions; CI starts it on a machine that has neither.
+### What is not checked
+
+With no CI, two things that a clean machine would prove are not proved:
+
+- **That the repository builds anywhere but this Mac.** A file that was never
+  committed, or a tool only this Mac has, would not be noticed. Cloning the
+  repository into a fresh folder and running `make public-release … DRY_RUN=1`
+  there checks it.
+- **That the packaged app starts in full.** The command runs the packaged
+  app's binary (to draw the notes) and its helper, but does not start the app
+  itself: that would run it against the maintainer's own settings and
+  sessions. `Scripts/smoke-launch.sh` does start a packaged app and waits for
+  its helper to reach it; use it only on a Mac or a user account that has no
+  Claude Overhead data of its own. Otherwise the first full launch of a
+  release is the maintainer's own update to it, so make that update straight
+  after publishing.
 
 ## What's New
 
@@ -141,8 +150,8 @@ notes, `CHANGELOG.md` and `Packaging/Info.plist` disagree.
 
 | Where | What it refuses |
 | --- | --- |
-| `make check`, CI, `make test` | A notes file that breaks a rule; a dated `CHANGELOG.md` section from 1.1.0 on without notes, or with another date; an `Info.plist` version without notes |
-| `Scripts/public-release.sh` (`make public-release`) | A commit that is not tagged, pushed and green on CI; then, through `Scripts/check-release-notes.sh --release`, a tag whose notes, changelog section or `Info.plist` version is missing |
+| `make check`, `make test` | A notes file that breaks a rule; a dated `CHANGELOG.md` section from 1.1.0 on without notes, or with another date; an `Info.plist` version without notes |
+| `Scripts/public-release.sh` (`make public-release`) | A commit that is not tagged and pushed, or whose checks or tests fail here; then, through `Scripts/check-release-notes.sh --release`, a tag whose notes, changelog section or `Info.plist` version is missing |
 | `Scripts/package-app.sh` | A release build without notes for its version |
 | `Scripts/check-release-notes.sh --app` | A packaged app that does not carry the published notes, or whose What's New window cannot draw every page |
 | `Scripts/generate-appcast.sh`, `Scripts/publish-github-release.sh` | A feed that does not carry exactly the version's notes |

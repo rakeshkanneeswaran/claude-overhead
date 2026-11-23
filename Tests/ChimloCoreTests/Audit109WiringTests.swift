@@ -120,25 +120,26 @@ struct Audit109WiringTests {
         #expect(!exists.contains("kSecReturnData"))
     }
 
-    @Test("A build is packaged and launched on a clean machine before it can be released")
-    func releaseLaunchCheck() throws {
-        // CI packages the app as a release does, then starts it.
-        let ci = try Self.source(".github/workflows/ci.yml")
-        let package = try #require(ci.range(of: "CHIMLO_PACKAGE_VARIANT=release CHIMLO_CODE_SIGN_IDENTITY=- CHIMLO_ALLOW_ADHOC_RELEASE=1 ./Scripts/package-app.sh"))
-        let launch = try #require(ci.range(of: #"./Scripts/smoke-launch.sh "dist/Claude Overhead.app""#))
-        #expect(package.lowerBound < launch.lowerBound)
+    @Test("Nothing on GitHub builds or tests; the release command runs the packaged binaries itself")
+    func releaseRunsThePackagedBinaries() throws {
+        // No workflows: every check a release gets, it gets from the release command.
+        let workflows = Self.root.appendingPathComponent(".github/workflows").path
+        #expect(((try? FileManager.default.contentsOfDirectory(atPath: workflows)) ?? []).isEmpty)
+
+        // The helper Claude Code's hooks call, and the app's own binary, are
+        // run from the packaged app before anything is published.
+        let release = try Self.source("Scripts/public-release.sh")
+        let helper = try #require(release.range(of: #""dist/Claude Overhead.app/Contents/Helpers/overhead" help >/dev/null"#))
+        let draws = try #require(release.range(of: #"./Scripts/check-release-notes.sh --release "$TAG" --app "dist/Claude Overhead.app""#))
+        let publish = try #require(release.range(of: #"./Scripts/publish-github-release.sh "$TAG""#))
+        #expect(helper.lowerBound < publish.lowerBound)
+        #expect(draws.lowerBound < publish.lowerBound)
+        #expect(!release.contains("gh run list"))
+
+        // Starting the app in full is left to a machine with no data of its
+        // own; the tool for it starts the app and waits for its helper.
         let script = try Self.source("Scripts/smoke-launch.sh")
         #expect(script.contains(#""$HELPER" ping"#))
         #expect(script.contains("CHIMLO_RUNTIME_DESCRIPTOR"))
-
-        // And the release command publishes only a commit that run passed.
-        let release = try Self.source("Scripts/public-release.sh")
-        let verdict = try #require(release.range(of: #"gh run list --repo "$REPOSITORY" --workflow CI --commit "$HEAD_COMMIT""#))
-        let publish = try #require(release.range(of: #"./Scripts/publish-github-release.sh "$TAG""#))
-        #expect(verdict.lowerBound < publish.lowerBound)
-        #expect(release.contains(#""completed success")"#))
-        for refused in ["none)", "completed*)", "*)"] {
-            #expect(release.contains("    \(refused)\n      fail "), "CI state \(refused) must stop the release")
-        }
     }
 }

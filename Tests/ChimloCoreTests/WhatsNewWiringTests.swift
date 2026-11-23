@@ -228,10 +228,11 @@ struct WhatsNewWiringTests {
         #expect(publish.contains(#""${WHATS_NEW_IMAGES[@]}" \"#))
     }
 
-    @Test("There is one way to release: a tagged, pushed, CI-green commit, built here with a build number above the live one")
+    @Test("There is one way to release: a tagged, pushed commit, tested and built here with a build number above the live one")
     func releaseCommand() throws {
-        // No workflow publishes on a tag push any more.
-        #expect(!FileManager.default.fileExists(atPath: Self.root.appendingPathComponent(".github/workflows/release.yml").path))
+        // Nothing on GitHub builds, tests or publishes: there are no workflows.
+        let workflows = Self.root.appendingPathComponent(".github/workflows").path
+        #expect(((try? FileManager.default.contentsOfDirectory(atPath: workflows)) ?? []).isEmpty)
         #expect(try Self.source("Makefile").contains(#"./Scripts/public-release.sh "$(TAG)""#))
 
         let release = try Self.source("Scripts/public-release.sh")
@@ -240,7 +241,6 @@ struct WhatsNewWiringTests {
             #"[[ "$TAG_COMMIT" == "$HEAD_COMMIT" ]] \"#,
             #"[[ "$REMOTE_COMMIT" == "$HEAD_COMMIT" ]] \"#,
             #"[[ "$INFO_VERSION" == "$VERSION" ]] \"#,
-            #"gh run list --repo "$REPOSITORY" --workflow CI --commit "$HEAD_COMMIT""#,
             #"BUILD_NUMBER="${CHIMLO_BUILD_NUMBER:-$(( LIVE_BUILD + 1 ))}""#,
             #"[[ "$BUILD_NUMBER" =~ '^[0-9]+$' ]] && (( BUILD_NUMBER > LIVE_BUILD )) \"#,
             "make check\nmake test",
@@ -261,14 +261,13 @@ struct WhatsNewWiringTests {
         #expect(release.contains(#"|| fail "$VERSION is already the live release.""#))
     }
 
-    @Test("Every push checks the notes: make check, CI and the readiness script")
-    func everyPushChecksTheNotes() throws {
+    @Test("The notes are checked by make check, and again by the release command before it builds")
+    func notesAreChecked() throws {
         let makefile = try Self.source("Makefile")
         #expect(makefile.contains("check:\n\t./Scripts/swift.sh run overhead-check\n\t./Scripts/swift.sh run overhead-release-notes check\n"))
-        let ci = try Self.source(".github/workflows/ci.yml")
-        #expect(ci.contains("run: make check"))
-        // And the app as built on that push draws every release's notes.
-        #expect(ci.contains(#"./Scripts/check-release-notes.sh --render "$(basename "$notes" .json)""#))
+        // With no CI, the release command is what always runs it.
+        try Self.expect("make check\nmake test", before: #"./Scripts/build-public-dmg.sh "$TAG" "$BUILD_NUMBER""#,
+                        in: try Self.source("Scripts/public-release.sh"), "checks and tests come before the build")
 
         let readiness = try Self.source("Scripts/check-release-notes.sh")
         #expect(readiness.contains(#"tool check --release "$RELEASE""#))
