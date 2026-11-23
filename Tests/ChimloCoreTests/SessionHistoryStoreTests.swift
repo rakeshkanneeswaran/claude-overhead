@@ -100,7 +100,9 @@ struct SessionHistoryStoreTests {
         #expect(upgraded?["schemaVersion"] as? Int == SessionHistoryStore.schemaVersion)
     }
 
-    @Test("Upserts coalesce into one background save that round-trips exactly")
+    // The limit is only there so a save that never ends fails the run
+    // instead of hanging it; a healthy one takes a twentieth of a second.
+    @Test("Upserts coalesce into one background save that round-trips exactly", .timeLimit(.minutes(5)))
     func debouncedSaveRoundTrip() async throws {
         let directory = try HistoryStoreTestDirectory()
         defer { directory.remove() }
@@ -111,13 +113,17 @@ struct SessionHistoryStoreTests {
         original.agents = [HistoryAgent(id: "agent-1", type: "Explore")]
         await store.upsert(original)
         await store.upsert(record(id: "session-b", lastActivityOffset: -10))
-        // The caller never waits for I/O: nothing is written synchronously.
-        #expect(!FileManager.default.fileExists(atPath: directory.historyURL.path))
 
-        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-        while !FileManager.default.fileExists(atPath: directory.historyURL.path), ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        // Wait for the save itself, however long the machine takes to get to
+        // it. Polling for the file against a deadline measured how busy the
+        // test runner was, not the store: with every suite running at once
+        // on a slow CI runner, neither this test nor the save got a thread
+        // for seconds, and the deadline passed with nothing wrong.
+        await store.scheduledSaveFinished()
+        // Had the save failed, this says why instead of "no file".
+        #expect(await store.lastSaveError == nil)
+        // Two upserts, one write.
+        #expect(await store.completedSaves == 1)
         #expect(FileManager.default.fileExists(atPath: directory.historyURL.path))
 
         let reloaded = SessionHistoryStore(fileURL: directory.historyURL)
@@ -128,6 +134,26 @@ struct SessionHistoryStoreTests {
 
         let attributes = try FileManager.default.attributesOfItem(atPath: directory.historyURL.path)
         #expect((attributes[.posixPermissions] as? Int) == 0o600)
+    }
+
+    @Test("An upsert never writes on the caller's path")
+    func upsertDoesNotWriteItself() async throws {
+        let directory = try HistoryStoreTestDirectory()
+        defer { directory.remove() }
+        // The save is an hour away, so "nothing has been written yet" cannot
+        // depend on how quickly this test is given a thread.
+        let store = SessionHistoryStore(fileURL: directory.historyURL, saveDelay: .seconds(3_600))
+
+        await store.upsert(record(id: "session-a"))
+        await store.upsert(record(id: "session-b", lastActivityOffset: -10))
+        #expect(!FileManager.default.fileExists(atPath: directory.historyURL.path))
+        #expect(await store.completedSaves == 0)
+
+        // Flushing writes at once and takes the scheduled save's place.
+        try await store.flush()
+        #expect(FileManager.default.fileExists(atPath: directory.historyURL.path))
+        await store.scheduledSaveFinished()
+        #expect(await store.completedSaves == 1)
     }
 
     @Test("Flush writes immediately and upsert merges with the stored record")

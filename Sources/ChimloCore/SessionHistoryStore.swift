@@ -74,6 +74,9 @@ public actor SessionHistoryStore {
     private var isDirty = false
     private var writeBlock: WriteBlock?
     private var pendingSave: Task<Void, Never>?
+    /// How many times the history has been written to disk. Tests count
+    /// writes with it; the app has no use for it.
+    private(set) var completedSaves = 0
     /// Identifies the current scheduled save so a superseded timer that wakes
     /// late (after `flush()`) cannot clear its successor.
     private var saveGeneration = 0
@@ -256,6 +259,13 @@ public actor SessionHistoryStore {
         try writeIfDirty()
     }
 
+    /// Waits for the save now scheduled, if there is one. For tests, so they
+    /// wait for the save itself and not for a guessed length of time; the
+    /// app never waits on a save.
+    func scheduledSaveFinished() async {
+        await pendingSave?.value
+    }
+
     /// Writes a human-readable copy: `{schemaVersion, exportedAt, records}`
     /// with ISO 8601 dates and sorted keys. The preview policy already applies
     /// to the in-memory records, so an export never leaks stripped previews.
@@ -368,6 +378,7 @@ public actor SessionHistoryStore {
         let data = try JSONEncoder().encode(envelope)
         try writeAtomically(data)
         isDirty = false
+        completedSaves += 1
     }
 
     private func writeAtomically(_ data: Data) throws {

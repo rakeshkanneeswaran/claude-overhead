@@ -307,20 +307,43 @@ struct ActivityCaptureTests {
 
     @Test("Reading thousands of lines stays fast and bounded")
     func performance() {
-        let lines = (0..<6_000).flatMap { index in
-            [
-                Line.tool("t\(index)", "Bash", ["command": "swift test --filter Case\(index)", "description": "Run case \(index)"], second: index % 3_600),
-                Line.result("t\(index)", isError: index.isMultiple(of: 7), second: index % 3_600),
-            ]
-        }.map { Data($0.utf8) }
-        let clock = ContinuousClock()
-        var scanner = TranscriptInsightsScanner(homeDirectory: nil)
-        let elapsed = clock.measure {
-            for line in lines { scanner.consume(line: line) }
+        func lines(_ calls: Int) -> [Data] {
+            (0..<calls).flatMap { index in
+                [
+                    Line.tool("t\(index)", "Bash", ["command": "swift test --filter Case\(index)", "description": "Run case \(index)"], second: index % 3_600),
+                    Line.result("t\(index)", isError: index.isMultiple(of: 7), second: index % 3_600),
+                ]
+            }.map { Data($0.utf8) }
         }
+        let all = lines(6_000)
+        let tenth = lines(600)
+
+        var scanner = TranscriptInsightsScanner(homeDirectory: nil)
+        // The scanner's own CPU time, not the wall clock: see ThreadCPUTime.
+        let cost = CostGrowth.measure(
+            whole: {
+                scanner = TranscriptInsightsScanner(homeDirectory: nil)
+                for line in all { scanner.consume(line: line) }
+            },
+            tenth: {
+                var small = TranscriptInsightsScanner(homeDirectory: nil)
+                for line in tenth { small.consume(line: line) }
+            }
+        )
+
+        // Bounded: twelve thousand lines leave only the newest activities.
         #expect(scanner.insights.activities.count == TranscriptInsightsScanner.maximumActivities)
-        // Generous for a loaded CI machine; typical runs take a fraction.
-        #expect(elapsed < .seconds(10))
+        // Fast on any machine: a session ten times as long costs about ten
+        // times as much to read, never a hundred (see CostGrowth).
+        #expect(
+            CostGrowth.isInStep(whole: cost.whole, tenth: cost.tenth),
+            "12,000 lines took \(cost.whole); 1,200 took \(cost.tenth)"
+        )
+        // And fast outright: half a second of CPU time on a current Mac. The
+        // limit leaves room for its slow cores; a CI runner's can be slower
+        // still, so there it only catches a scanner that has become absurd.
+        let limit: Duration = ProcessInfo.processInfo.environment["CI"] == nil ? .seconds(10) : .seconds(30)
+        #expect(cost.whole < limit, "took \(cost.whole) of CPU time, limit \(limit)")
     }
 }
 

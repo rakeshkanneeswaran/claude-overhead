@@ -87,20 +87,31 @@ struct SessionHistorySearchTests {
         }
         let query = HistoryQuery(text: "resume NEEDLE fixture", statuses: [.running])
 
-        let clock = ContinuousClock()
         var matches: [SessionHistoryRecord] = []
-        // Best of three, so one scheduling hiccup on a busy machine does not
-        // fail the run. Shared CI runners are about twice as slow as a
-        // developer Mac with every suite in parallel, so they get more room;
-        // a quadratic search would still blow far past either budget.
-        let elapsed = (0..<3).map { _ in
-            clock.measure { matches = HistorySearch.filter(records, query: query) }
-        }.min() ?? .seconds(60)
-        let budget: Duration = ProcessInfo.processInfo.environment["CI"] == nil ? .milliseconds(500) : .milliseconds(1_500)
+        // The search's own CPU time, not the wall clock: a wall clock also
+        // counted the time this thread waited for a core, which on a shared
+        // CI runner failed the limit at random (see ThreadCPUTime).
+        let firstThousand = Array(records.prefix(1_000))
+        let cost = CostGrowth.measure(
+            rounds: 5,
+            whole: { matches = HistorySearch.filter(records, query: query) },
+            tenth: { _ = HistorySearch.filter(firstThousand, query: query) }
+        )
 
         #expect(matches.count == 1_429)
         #expect(matches.first?.id == "session-9996")
-        #expect(elapsed < budget, "took \(elapsed), budget \(budget)")
+        // Fast on any machine: ten times the records cost about ten times
+        // as much to search, never a hundred (see CostGrowth).
+        #expect(
+            CostGrowth.isInStep(whole: cost.whole, tenth: cost.tenth),
+            "10,000 records took \(cost.whole); 1,000 took \(cost.tenth)"
+        )
+        // And fast outright. A developer's Mac must meet the limit the
+        // history window is built for; a CI runner's cores can be several
+        // times slower, so there this only catches a search that has become
+        // absurd.
+        let budget: Duration = ProcessInfo.processInfo.environment["CI"] == nil ? .milliseconds(500) : .seconds(10)
+        #expect(cost.whole < budget, "took \(cost.whole) of CPU time, budget \(budget)")
     }
 
     private func ids(_ text: String, in records: [SessionHistoryRecord]) -> [String] {
