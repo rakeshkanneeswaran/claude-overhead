@@ -14,11 +14,22 @@
 #   CLAUDE_OVERHEAD_INSTALL_DIR=DIR  install into DIR
 #   CLAUDE_OVERHEAD_NO_OPEN=1        do not open the app afterwards
 
-# Scratch space, removed on exit whatever happens.
+# Scratch space, removed on exit whatever happens. STAGE is the folder beside
+# the installed app that holds the new copy until it is swapped in, and the
+# copy being replaced until the swap is done (RESTORE_FROM, back to RESTORE_TO).
 WORK=""
 MOUNT=""
+STAGE=""
+RESTORE_FROM=""
+RESTORE_TO=""
 cleanup() {
   if [[ -n "$MOUNT" ]]; then /usr/bin/hdiutil detach "$MOUNT" -quiet >/dev/null 2>&1 || true; fi
+  # Interrupted between the two halves of the swap: the previous copy goes
+  # back. If even that fails, the staging folder that holds it is kept.
+  if [[ -n "$RESTORE_FROM" && -d "$RESTORE_FROM" && ! -e "$RESTORE_TO" ]]; then
+    mv "$RESTORE_FROM" "$RESTORE_TO" 2>/dev/null || STAGE=""
+  fi
+  if [[ -n "$STAGE" ]]; then rm -rf "$STAGE"; fi
   if [[ -n "$WORK" ]]; then rm -rf "$WORK"; fi
 }
 
@@ -90,8 +101,29 @@ main() {
   local app_version
   app_version="$(/usr/bin/plutil -extract CFBundleShortVersionString raw "$source/Contents/Info.plist")"
 
-  # The copy being replaced is closed first, so the new one starts cleanly.
-  # Only a process running from exactly that path; any other copy is left alone.
+  # The new copy is made beside the destination first and only then swapped
+  # in, so a copy that fails (a full disk, Ctrl-C) leaves the installed app
+  # exactly as it was. A folder in the same place is on the same volume, which
+  # keeps the swap a rename.
+  step "Installing Claude Overhead $app_version into $install_dir"
+  STAGE="$(mktemp -d "$install_dir/.claude-overhead-install.XXXXXX")" \
+    || fail "Could not write to $install_dir. Nothing was changed."
+  local stage="$STAGE"
+  local staged="$stage/$app_name"
+  /usr/bin/ditto "$source" "$staged" \
+    || fail "Could not copy Claude Overhead into $install_dir. Nothing was changed."
+  /usr/bin/codesign --verify --deep --strict "$staged" 2>/dev/null \
+    || fail "The copied app's code signature is not intact. Nothing was changed."
+  # A copy made by curl is not quarantined; clear the flag anyway in case an
+  # earlier browser download left one behind.
+  /usr/bin/xattr -dr com.apple.quarantine "$staged" 2>/dev/null || true
+
+  /usr/bin/hdiutil detach "$mount" -quiet >/dev/null 2>&1 || true
+  MOUNT=""
+
+  # The copy being replaced is closed before the swap, so the new one starts
+  # cleanly. Only a process running from exactly that path; any other copy is
+  # left alone.
   local pid running=""
   for pid in $(/usr/bin/pgrep -x Overhead || true); do
     if [[ "$(/bin/ps -o command= -p "$pid" 2>/dev/null)" == "$destination/Contents/MacOS/Overhead"* ]]; then
@@ -101,22 +133,49 @@ main() {
   if [[ -n "$running" ]]; then
     step "Closing the running Claude Overhead"
     kill $running 2>/dev/null || true
-    sleep 1
+    # Wait for it to quit (up to 10 seconds) rather than assume it has: a copy
+    # still running would be reopened in place of the new one.
+    local waited=0 alive=1
+    while (( alive && waited < 20 )); do
+      alive=0
+      for pid in $running; do
+        if kill -0 "$pid" 2>/dev/null; then alive=1; fi
+      done
+      if (( alive )); then sleep 0.5; waited=$(( waited + 1 )); fi
+    done
+    if (( alive )); then
+      kill -9 $running 2>/dev/null || true
+      sleep 0.5
+    fi
   fi
 
-  step "Installing Claude Overhead $app_version into $install_dir"
   if [[ -d "$destination" ]]; then
     # Only ever the exact app bundle this script installs.
     [[ "$destination" == */"$app_name" ]] || fail "Refusing to replace $destination."
-    rm -rf "$destination"
+    # The old copy is moved aside, not deleted, until the new one is in place.
+    local previous="$stage/previous"
+    RESTORE_FROM="$previous"
+    RESTORE_TO="$destination"
+    mv "$destination" "$previous" \
+      || fail "Could not replace $destination. Your installed copy is unchanged."
+    if ! mv "$staged" "$destination"; then
+      if mv "$previous" "$destination"; then
+        RESTORE_FROM=""
+        fail "Could not put the new copy in place. Your installed copy is unchanged."
+      fi
+      # Neither copy is in place. The old one is kept where it is, not cleaned up.
+      RESTORE_FROM=""
+      STAGE=""
+      fail "Could not put the new copy in place. Your previous copy is in \"$previous\"."
+    fi
+    RESTORE_FROM=""
+  else
+    mv "$staged" "$destination" \
+      || fail "Could not put Claude Overhead into $install_dir. Nothing was installed."
   fi
-  /usr/bin/ditto "$source" "$destination"
-  # A copy made by curl is not quarantined; clear the flag anyway in case an
-  # earlier browser download left one on this path.
-  /usr/bin/xattr -dr com.apple.quarantine "$destination" 2>/dev/null || true
-
-  /usr/bin/hdiutil detach "$mount" -quiet >/dev/null 2>&1 || true
-  MOUNT=""
+  # Removes the staging folder and, with it, the copy that was replaced.
+  rm -rf "$stage" || true
+  STAGE=""
 
   if [[ "${CLAUDE_OVERHEAD_NO_OPEN:-0}" != "1" ]]; then
     step "Opening Claude Overhead"

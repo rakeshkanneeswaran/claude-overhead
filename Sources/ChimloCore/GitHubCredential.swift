@@ -149,13 +149,27 @@ public struct GitHubCredentialResolver: Sendable {
 
     /// A Keychain read failure falls through to the CLI rather than failing:
     /// a locked or unavailable Keychain should not hide a working gh sign-in.
-    public func resolve() async -> GitHubCredential? {
-        if let stored = try? tokenStore.read() {
+    ///
+    /// `skippingStoredToken` goes straight to the CLI, for a stored token
+    /// GitHub has already rejected.
+    public func resolve(skippingStoredToken: Bool = false) async -> GitHubCredential? {
+        if !skippingStoredToken, let stored = try? tokenStore.read() {
             let token = stored.trimmingCharacters(in: .whitespacesAndNewlines)
             if !token.isEmpty {
                 return GitHubCredential(token: token, source: .personalAccessToken)
             }
         }
         return await cli.credential()
+    }
+
+    /// The credential to try after GitHub rejected `rejected` (HTTP 401).
+    /// A revoked stored token must not hide a working gh sign-in, so the CLI
+    /// gets its turn. Nothing stands behind the CLI's own token, and the
+    /// rejected token is never offered again.
+    public func fallback(afterRejecting rejected: GitHubCredential) async -> GitHubCredential? {
+        guard rejected.source == .personalAccessToken,
+              let candidate = await cli.credential(),
+              candidate.token != rejected.token else { return nil }
+        return candidate
     }
 }

@@ -177,7 +177,12 @@ struct SessionHistoryStoreTests {
         #expect(reopenedRecord?.latestUserPrompt == nil)
     }
 
-    @Test("Retention prunes old finished sessions but keeps running ones")
+    // Changed for the 1.0.7 audit: a running or waiting record used to be
+    // kept whatever its age, so a session killed mid-turn stayed "Running"
+    // for good and outlived the retention setting. One idle for
+    // `staleActiveInterval` is now interrupted and then ages out; one that
+    // can still be live is kept as before.
+    @Test("Retention prunes old finished sessions, keeps live ones, and no longer keeps long-dead running ones")
     func retentionKeepsRunning() async throws {
         let directory = try HistoryStoreTestDirectory()
         defer { directory.remove() }
@@ -186,11 +191,15 @@ struct SessionHistoryStoreTests {
         await store.upsert(record(id: "old-completed", status: .completed, lastActivityOffset: -30 * day))
         await store.upsert(record(id: "old-running", status: .running, lastActivityOffset: -30 * day))
         await store.upsert(record(id: "old-waiting", status: .waiting, lastActivityOffset: -30 * day))
+        await store.upsert(record(id: "live-running", status: .running, lastActivityOffset: -3_600))
+        await store.upsert(record(id: "live-waiting", status: .waiting, lastActivityOffset: -3_600))
         await store.upsert(record(id: "recent-failed", status: .failed, lastActivityOffset: -1 * day))
 
         await store.prune(now: now)
         let kept = Set(await store.records().map(\.id))
-        #expect(kept == ["old-running", "old-waiting", "recent-failed"])
+        #expect(kept == ["live-running", "live-waiting", "recent-failed"])
+        let liveStatus = await store.record(id: "live-running")?.status
+        #expect(liveStatus == .running)
 
         await store.setRetention(days: nil)
         await store.upsert(record(id: "ancient", status: .completed, lastActivityOffset: -900 * day))

@@ -38,6 +38,12 @@ public actor SessionHistoryStore {
     public static let schemaVersion = 1
     /// Bounds the file size; previews are for recognition, not archival.
     public static let maxPreviewLength = 2_000
+    /// A record still marked running or waiting after this long without
+    /// activity belongs to a session that ended unseen (the terminal was
+    /// closed, the Mac restarted). The notch only follows a session for
+    /// `SessionVisibilityPolicy.activityLifetime` (two hours) after its last
+    /// activity, so six times that can never be a session it still reports.
+    public static let staleActiveInterval: TimeInterval = 12 * 60 * 60
 
     public nonisolated let fileURL: URL
     public private(set) var storesConversationPreviews: Bool
@@ -209,7 +215,9 @@ public actor SessionHistoryStore {
     }
 
     /// Drops records whose last activity is older than the retention window.
-    /// Running and waiting sessions are kept regardless of age.
+    /// Running and waiting sessions are kept while they can still be live;
+    /// one idle for `staleActiveInterval` is marked interrupted first, and
+    /// from then on ages out like any finished session.
     public func prune(now: Date = .now) {
         if pruneExpired(now: now) { scheduleSave() }
     }
@@ -260,13 +268,35 @@ public actor SessionHistoryStore {
         text.count > maxPreviewLength ? String(text.prefix(maxPreviewLength)) : text
     }
 
-    /// Returns whether anything was removed.
+    /// Returns whether anything was changed or removed.
     private func pruneExpired(now: Date) -> Bool {
-        guard let retentionDays else { return false }
+        let interrupted = interruptStaleActive(now: now)
+        guard let retentionDays else { return interrupted }
         let cutoff = now.addingTimeInterval(-Double(retentionDays) * 86_400)
         let expired = recordsByID.values.filter { !$0.status.isActive && $0.lastActivityAt < cutoff }
         for record in expired { recordsByID.removeValue(forKey: record.id) }
-        return !expired.isEmpty
+        return interrupted || !expired.isEmpty
+    }
+
+    /// Marks running and waiting records that went quiet long ago as
+    /// interrupted. Nothing ever reports the end of a session that was
+    /// killed mid-turn, so without this its record says "Running" for good
+    /// and retention, which keeps active sessions, never removes it. Only the
+    /// status and the end time change; a session that does come back is
+    /// running again on its next update, because a newer status wins a merge.
+    private func interruptStaleActive(now: Date) -> Bool {
+        let cutoff = now.addingTimeInterval(-Self.staleActiveInterval)
+        var changed = false
+        for (id, record) in recordsByID where record.status.isActive && record.lastActivityAt < cutoff {
+            var interrupted = record
+            interrupted.status = .interrupted
+            // Last seen then. An earlier end (a turn that finished before the
+            // session went on) would understate how long it ran.
+            interrupted.endedAt = max(record.endedAt ?? record.lastActivityAt, record.lastActivityAt)
+            recordsByID[id] = interrupted
+            changed = true
+        }
+        return changed
     }
 
     private func scheduleSave() {

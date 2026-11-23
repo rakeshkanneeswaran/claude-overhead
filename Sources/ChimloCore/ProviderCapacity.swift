@@ -454,13 +454,15 @@ public enum ProviderCapacityParser {
         observedAt: Date
     ) -> Date? {
         guard let expression = try? NSRegularExpression(
-            pattern: #"resets?\s*(\d{1,2}):(\d{2})\s*(am|pm)\s*(?:\(([^)]+)\))?"#,
+            // Claude Code drops the minutes on the hour ("Resets 3pm"), so
+            // they are optional and read as :00.
+            pattern: #"resets?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:\(([^)]+)\))?"#,
             options: [.caseInsensitive]
         ), let match = expression.firstMatch(
             in: line,
             range: NSRange(line.startIndex..., in: line)
         ), let hour = capturedInteger(match, at: 1, in: line),
-           let minute = capturedInteger(match, at: 2, in: line),
+           let minute = capturedMinute(match, at: 2, in: line),
            let meridiem = capturedString(match, at: 3, in: line),
            let hour24 = hour24(hour, meridiem: meridiem),
            (0..<60).contains(minute),
@@ -502,7 +504,8 @@ public enum ProviderCapacityParser {
         guard let expression = try? NSRegularExpression(
             // Spaces are optional: the panel sometimes draws words apart with
             // cursor moves, which read as "ResetsNov24at1:30pm(Asia/Calcutta)".
-            pattern: #"resets?\s*([a-z]{3,9})\s*(\d{1,2})(?:,?\s*(\d{4}))?\s*at\s*(\d{1,2}):(\d{2})\s*(am|pm)\s*(?:\(([^)]+)\))?"#,
+            // Minutes are optional: on the hour the panel shows "at 1pm".
+            pattern: #"resets?\s*([a-z]{3,9})\s*(\d{1,2})(?:,?\s*(\d{4}))?\s*at\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:\(([^)]+)\))?"#,
             options: [.caseInsensitive]
         ), let match = expression.firstMatch(
             in: line,
@@ -511,7 +514,7 @@ public enum ProviderCapacityParser {
            let month = claudeMonth(monthName),
            let day = capturedInteger(match, at: 2, in: line),
            let hour = capturedInteger(match, at: 4, in: line),
-           let minute = capturedInteger(match, at: 5, in: line),
+           let minute = capturedMinute(match, at: 5, in: line),
            let meridiem = capturedString(match, at: 6, in: line),
            let hour24 = hour24(hour, meridiem: meridiem),
            (1...31).contains(day),
@@ -535,17 +538,26 @@ public enum ProviderCapacityParser {
         ) else { return nil }
 
         if explicitYear == nil, reset <= observedAt {
-            year += 1
-            guard let nextYear = validatedDate(
-                calendar: calendar,
-                timeZone: timeZone,
-                year: year,
-                month: month,
-                day: day,
-                hour: hour24,
-                minute: minute
-            ) else { return nil }
-            reset = nextYear
+            let endOfDisplayedMinute = reset.addingTimeInterval(60)
+            if observedAt < endOfDisplayedMinute {
+                // The panel still shows the minute that is passing. Reading
+                // it as next year's date would keep this window alive for a
+                // year, so it ends with the displayed minute, as the
+                // session reset does.
+                reset = endOfDisplayedMinute
+            } else {
+                year += 1
+                guard let nextYear = validatedDate(
+                    calendar: calendar,
+                    timeZone: timeZone,
+                    year: year,
+                    month: month,
+                    day: day,
+                    hour: hour24,
+                    minute: minute
+                ) else { return nil }
+                reset = nextYear
+            }
         }
         let interval = reset.timeIntervalSince(observedAt)
         return interval > 0 && interval <= 370 * 24 * 60 * 60 ? reset : nil
@@ -616,6 +628,18 @@ public enum ProviderCapacityParser {
             return nil
         }
         return Int(value[range])
+    }
+
+    /// The minutes of a reset time. A time shown without them ("3pm") is on
+    /// the hour; minutes that are present but unreadable are still an error.
+    private static func capturedMinute(
+        _ match: NSTextCheckingResult,
+        at index: Int,
+        in value: String
+    ) -> Int? {
+        guard index < match.numberOfRanges else { return nil }
+        guard match.range(at: index).location != NSNotFound else { return 0 }
+        return capturedInteger(match, at: index, in: value)
     }
 
     private static func capturedString(

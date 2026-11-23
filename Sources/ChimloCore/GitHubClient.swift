@@ -60,17 +60,34 @@ public struct GitHubClient: Sendable {
 
     /// Open pull requests, most recently updated first (up to 30). The first
     /// `detailLimit` also get review and CI state.
-    public func openPullRequests(_ repo: GitRemote, detailLimit: Int = GitHubClient.detailLimit) async throws -> [GitHubPullRequest] {
+    ///
+    /// `previous` is the last result for this repository. A pull request that
+    /// gets no review or check answer this time (it is past `detailLimit`, or
+    /// the lookup failed) keeps what `previous` knew for the same head commit.
+    public func openPullRequests(
+        _ repo: GitRemote,
+        detailLimit: Int = GitHubClient.detailLimit,
+        previous: [GitHubPullRequest] = []
+    ) async throws -> [GitHubPullRequest] {
         let pulls = try await get(
             ["repos", repo.owner, repo.name, "pulls"],
             query: [("state", "open"), ("sort", "updated"), ("direction", "desc"), ("per_page", "30")],
             as: [PullRequestDTO].self
         )
         var pullRequests = pulls.map { $0.pullRequest(fallbackRepository: repo.fullName) }
+        let known = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let detailed = max(0, detailLimit)
         // Sequential on purpose: GitHub's secondary rate limits penalize bursts
         // of concurrent requests from one token.
-        for index in pullRequests.indices.prefix(max(0, detailLimit)) {
-            pullRequests[index] = try await withReviewsAndChecks(pullRequests[index], in: repo)
+        for index in pullRequests.indices {
+            let earlier = known[pullRequests[index].id]
+            if index < detailed {
+                pullRequests[index] = try await withReviewsAndChecks(pullRequests[index], in: repo, previous: earlier)
+            } else if let earlier {
+                pullRequests[index] = pullRequests[index]
+                    .carryingReviewState(from: earlier)
+                    .carryingCIState(from: earlier)
+            }
         }
         return pullRequests
     }
@@ -253,7 +270,8 @@ public struct GitHubClient: Sendable {
     /// list; a fine-grained token without Checks access should still see PRs.
     private func withReviewsAndChecks(
         _ pullRequest: GitHubPullRequest,
-        in repo: GitRemote
+        in repo: GitRemote,
+        previous: GitHubPullRequest? = nil
     ) async throws -> GitHubPullRequest {
         var updated = pullRequest
         // The DTO mapping marks pending review requests (users or teams) as
@@ -265,11 +283,18 @@ public struct GitHubClient: Sendable {
         async let checks = tolerant {
             try await self.combinedCheckState(repo, sha: pullRequest.headSha)
         }
+        // A lookup that failed says nothing new, so what was known for this
+        // commit stands; otherwise one network hiccup would clear a failure
+        // and the next refresh would announce it again.
         if let records = try await reviews {
             updated.reviewState = GitHubReviewState.resolve(reviews: records, hasPendingRequests: hasPendingRequests)
+        } else if let previous {
+            updated = updated.carryingReviewState(from: previous)
         }
         if let state = try await checks {
             updated.ciState = state
+        } else if let previous {
+            updated = updated.carryingCIState(from: previous)
         }
         return updated
     }
@@ -515,25 +540,66 @@ final class GitHubResponseCache: @unchecked Sendable {
         let body: Data
     }
 
-    /// Bounds memory; oldest entries go first. A refresh touches far fewer.
-    static let capacity = 256
+    /// Entries kept. A refresh asks for at most about 16 URLs per repository
+    /// once many are monitored (runs, two pull request lists, and reviews and
+    /// checks for a few pull requests), so this holds a full pass over 100
+    /// repositories with room to spare. It has to: a cache smaller than one
+    /// pass evicts every entry before it is asked for again, no request ever
+    /// comes back 304, and the hourly allowance is gone in minutes.
+    static let capacity = 4_096
+    /// Bytes of bodies kept. Bodies are held to answer a 304, and a long pull
+    /// request list is several hundred kilobytes, so memory is bounded too.
+    static let byteLimit = 96 * 1_024 * 1_024
 
-    private let lock = NSLock()
-    private var entries: [String: Entry] = [:]
-    private var insertionOrder: [String] = []
-    private var latestRateLimit: GitHubRateLimit?
-
-    func entry(for key: String) -> Entry? {
-        lock.withLock { entries[key] }
+    private struct Slot {
+        var entry: Entry
+        var lastUsed: UInt64
     }
 
+    private let capacity: Int
+    private let byteLimit: Int
+    private let lock = NSLock()
+    private var slots: [String: Slot] = [:]
+    private var storedBytes = 0
+    private var clock: UInt64 = 0
+    private var latestRateLimit: GitHubRateLimit?
+
+    init(capacity: Int = GitHubResponseCache.capacity, byteLimit: Int = GitHubResponseCache.byteLimit) {
+        self.capacity = max(1, capacity)
+        self.byteLimit = max(0, byteLimit)
+    }
+
+    var count: Int {
+        lock.withLock { slots.count }
+    }
+
+    func entry(for key: String) -> Entry? {
+        lock.withLock {
+            guard var slot = slots[key] else { return nil }
+            clock += 1
+            slot.lastUsed = clock
+            slots[key] = slot
+            return slot.entry
+        }
+    }
+
+    /// Least recently used goes first. URLs asked for on every refresh stay,
+    /// and the check-run URLs of commits that were since replaced, which are
+    /// never asked for again, are the ones that leave.
     func store(_ entry: Entry, for key: String) {
         lock.withLock {
-            if entries.updateValue(entry, forKey: key) == nil {
-                insertionOrder.append(key)
+            if let replaced = slots.removeValue(forKey: key) {
+                storedBytes -= replaced.entry.body.count
             }
-            while insertionOrder.count > Self.capacity {
-                entries[insertionOrder.removeFirst()] = nil
+            // A body larger than the whole budget is not worth emptying the cache for.
+            guard entry.body.count <= byteLimit else { return }
+            clock += 1
+            slots[key] = Slot(entry: entry, lastUsed: clock)
+            storedBytes += entry.body.count
+            while slots.count > capacity || storedBytes > byteLimit,
+                  let oldest = slots.min(by: { $0.value.lastUsed < $1.value.lastUsed }) {
+                slots[oldest.key] = nil
+                storedBytes -= oldest.value.entry.body.count
             }
         }
     }

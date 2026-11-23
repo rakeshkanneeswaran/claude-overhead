@@ -280,6 +280,71 @@ extension GitHubPullRequest {
     }
 }
 
+// MARK: - Detail carried between refreshes
+
+/// Reviews and checks are looked up only for the most recently updated pull
+/// requests, and a lookup can fail. A pull request that got no answer this
+/// time keeps what was last known for the same head commit, instead of
+/// dropping to "unknown" and then looking like a fresh failure or approval
+/// when its turn comes round again.
+extension GitHubPullRequest {
+    /// The same pull request at the same commit, so earlier detail still
+    /// describes it. A pull request without a head commit never matches.
+    func hasSameHead(as earlier: GitHubPullRequest) -> Bool {
+        guard id == earlier.id, let headSha, !headSha.isEmpty else { return false }
+        return headSha == earlier.headSha
+    }
+
+    /// For a pass that made no review lookup. An approval or a change
+    /// request stands until a lookup says otherwise; a pending request is
+    /// something the list itself reports, so the list's word wins there.
+    func carryingReviewState(from earlier: GitHubPullRequest) -> GitHubPullRequest {
+        guard hasSameHead(as: earlier) else { return self }
+        var copy = self
+        switch earlier.reviewState {
+        case .changesRequested, .approved:
+            copy.reviewState = earlier.reviewState
+        case .commented:
+            if reviewState == .none { copy.reviewState = .commented }
+        case .reviewRequired, .none:
+            break
+        }
+        return copy
+    }
+
+    /// For a pass that made no check lookup, which leaves `.unknown`.
+    func carryingCIState(from earlier: GitHubPullRequest) -> GitHubPullRequest {
+        guard ciState == .unknown, hasSameHead(as: earlier) else { return self }
+        var copy = self
+        copy.ciState = earlier.ciState
+        return copy
+    }
+
+    /// Keeps GitHub's last merge verdict while this pass has none: the list
+    /// never reports one, the single pull request lookup can fail, and
+    /// GitHub answers "unknown" while it recomputes. Without this a conflict
+    /// would clear and then be announced again.
+    public func carryingMergeState(from earlier: GitHubPullRequest) -> GitHubPullRequest {
+        let undecided = mergeableState == nil || mergeableState?.lowercased() == "unknown"
+        guard undecided, earlier.mergeableState != nil, hasSameHead(as: earlier) else { return self }
+        var copy = self
+        copy.mergeableState = earlier.mergeableState
+        return copy
+    }
+
+    /// `carryingMergeState` for a whole list, matched by pull request.
+    public static func carryingMergeStates(
+        _ current: [GitHubPullRequest],
+        from earlier: [GitHubPullRequest]
+    ) -> [GitHubPullRequest] {
+        guard !earlier.isEmpty else { return current }
+        let known = Dictionary(earlier.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return current.map { pullRequest in
+            known[pullRequest.id].map(pullRequest.carryingMergeState(from:)) ?? pullRequest
+        }
+    }
+}
+
 public enum GitHubPRFilter: String, Codable, Sendable, CaseIterable, Identifiable {
     case all
     case open
@@ -690,4 +755,43 @@ public enum GitHubPollBudget {
     /// How soon to look again at repositories with running workflows, when
     /// the owner allows faster checks. Never faster than 45 seconds.
     public static let activeRunInterval: TimeInterval = 45
+}
+
+// MARK: - Lookups that failed
+
+/// Remembers lookups that failed, so they are not repeated on every refresh.
+/// A folder that is not a repository, or a repository this sign-in cannot
+/// see, is asked about again only after `interval`: often enough to notice a
+/// `git init` or a new permission, without spending a request (or a git
+/// process) on it every 30 seconds.
+public struct GitHubLookupBackoff: Sendable {
+    public let interval: TimeInterval
+    private var failures: [String: Date] = [:]
+
+    public init(interval: TimeInterval) {
+        self.interval = interval
+    }
+
+    /// Whether `key` failed recently enough to leave alone for now.
+    public func shouldSkip(_ key: String, at now: Date = .now) -> Bool {
+        guard let failedAt = failures[key] else { return false }
+        let elapsed = now.timeIntervalSince(failedAt)
+        // A clock set back makes the failure look like the future; ask again.
+        return elapsed >= 0 && elapsed < interval
+    }
+
+    public mutating func recordFailure(_ key: String, at now: Date = .now) {
+        // Lapsed entries go here, so the record never outgrows what is live.
+        failures = failures.filter { now.timeIntervalSince($0.value) < interval }
+        failures[key] = now
+    }
+
+    public mutating func recordSuccess(_ key: String) {
+        failures[key] = nil
+    }
+
+    /// Forgets everything, for a new sign-in that may see what the last one could not.
+    public mutating func reset() {
+        failures.removeAll()
+    }
 }

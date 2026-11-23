@@ -92,8 +92,21 @@ final class GitHubModel: ObservableObject {
     private var preferences = GitHubPreferences()
     private var pollTask: Task<Void, Never>?
     private var repositoryInfo: [String: GitRepositoryInfo?] = [:]
+    /// Folders git could not read as a repository. Asked again after a few
+    /// minutes, so a later `git init` or a slow first read is picked up
+    /// without restarting Overhead.
+    private var gitMisses = GitHubLookupBackoff(interval: 5 * 60)
     /// "owner/name" (lowercased) → GitHub identity, so a remote is resolved once.
     private var resolvedRemotes: [String: GitHubRepoRef] = [:]
+    /// Remotes GitHub would not show this sign-in. Each asking costs a
+    /// request against the hourly allowance, so they wait half an hour.
+    private var remoteMisses = GitHubLookupBackoff(interval: 30 * 60)
+    /// While GitHub's rate limit is in force no request is sent, not even
+    /// for "Refresh now": asking again only extends a secondary limit.
+    private var rateLimitedUntil: Date?
+    /// GitHub rejected the Keychain token, so sign-in goes to the GitHub CLI
+    /// until the owner saves or removes a token.
+    private var storedTokenRejected = false
     /// Local folders per repository, for matching sessions to pull requests.
     private var localPaths: [Int64: [String]] = [:]
     private var defaultBranches: [Int64: String] = [:]
@@ -262,13 +275,13 @@ final class GitHubModel: ObservableObject {
     func savePersonalAccessToken(_ token: String) throws {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         try tokenStore.save(trimmed)
-        client = nil
+        forgetClient(tokenChanged: true)
         refreshNow()
     }
 
     func removePersonalAccessToken() throws {
         try tokenStore.delete()
-        client = nil
+        forgetClient(tokenChanged: true)
         refreshNow()
     }
 
@@ -280,11 +293,21 @@ final class GitHubModel: ObservableObject {
     /// in-memory client. The GitHub CLI's own login is the CLI's to manage.
     func disconnect() {
         try? tokenStore.delete()
-        client = nil
+        forgetClient(tokenChanged: true)
         stop()
         connection = .off
         snapshots = []
         reviewRequests = []
+    }
+
+    /// Drops the client and what was learned about its credential. Another
+    /// sign-in has its own rate limit and may see repositories this one
+    /// could not. `tokenChanged` also gives the Keychain token a fresh try.
+    private func forgetClient(tokenChanged: Bool = false) {
+        client = nil
+        rateLimitedUntil = nil
+        remoteMisses.reset()
+        if tokenChanged { storedTokenRejected = false }
     }
 
     // MARK: Lookups for the UI
@@ -511,15 +534,40 @@ final class GitHubModel: ObservableObject {
         defer { if refreshGeneration == generation { isRefreshing = false } }
         rollCountsIfNeeded()
 
+        if let until = rateLimitedUntil {
+            if Date.now < until { return max(5, until.timeIntervalSinceNow) }
+            rateLimitedUntil = nil
+            // Every repository was marked as held up by the limit; a full
+            // pass is what clears that, so the first one after it is full.
+            nextFullRefresh = .distantPast
+        }
+
         if client == nil {
             connection = .checking
-            guard let credential = await GitHubCredentialResolver(tokenStore: tokenStore).resolve() else {
-                connection = .signedOut(await GitHubCLI().status())
+            let resolver = GitHubCredentialResolver(tokenStore: tokenStore)
+            guard var credential = await resolver.resolve(skippingStoredToken: storedTokenRejected) else {
+                connection = storedTokenRejected
+                    ? .failed("GitHub rejected the saved token. Save a new token, or run `gh auth login`.")
+                    : .signedOut(await GitHubCLI().status())
                 return fullInterval
             }
-            let candidate = GitHubClient(credential: credential, transport: GitHubNetwork.transport)
+            var candidate = GitHubClient(credential: credential, transport: GitHubNetwork.transport)
             do {
-                let login = try await candidate.viewerLogin()
+                let login: String
+                do {
+                    login = try await candidate.viewerLogin()
+                } catch GitHubError.unauthorized {
+                    // A revoked Keychain token must not hide a working gh
+                    // sign-in: the CLI gets one try, and the dead token is
+                    // then left alone instead of being rejected every refresh.
+                    if credential.source == .personalAccessToken { storedTokenRejected = true }
+                    guard let fallback = await resolver.fallback(afterRejecting: credential) else {
+                        throw GitHubError.unauthorized
+                    }
+                    credential = fallback
+                    candidate = GitHubClient(credential: fallback, transport: GitHubNetwork.transport)
+                    login = try await candidate.viewerLogin()
+                }
                 client = candidate
                 connection = .connected(login: login, source: credential.source)
             } catch {
@@ -529,7 +577,9 @@ final class GitHubModel: ObservableObject {
         guard let client else { return fullInterval }
 
         let full = Date.now >= nextFullRefresh
+        let startedAt = Date.now
         var notices: [GitHubNotice] = []
+        var failure: (any Error)?
         do {
             if full {
                 await discoverRepositories(client: client)
@@ -556,13 +606,26 @@ final class GitHubModel: ObservableObject {
                 notices += try await refreshReviewRequests(client: client)
             }
         } catch {
-            if let pause = handle(error) { return pause }
+            failure = error
+        }
+        // The repositories this pass got through already hold their new
+        // state, so the next pass sees nothing change there. Their notices go
+        // out now, even when the pass was cut short by a rate limit or a
+        // newer refresh; held back, they would never be shown.
+        deliver(notices)
+        if let failure {
+            if let pause = handle(failure, passStartedAt: startedAt) { return pause }
+            // A rejected sign-in refreshed nothing. Nothing is stamped as
+            // refreshed, and the next pass signs in again straight away.
+            if failure as? GitHubError == .unauthorized { return 5 }
         }
         // A cancelled refresh leaves the schedule alone; the new one decides.
         if Task.isCancelled { return 0 }
-        deliver(notices)
         rateLimit = client.lastRateLimit
-        lastRefresh = .now
+        // "Updated just now" is only true when something answered. With
+        // every repository failing (offline, say) the last good time stays.
+        let answered = snapshots.contains { ($0.lastUpdated ?? .distantPast) >= startedAt }
+        if answered || (snapshots.isEmpty && failure == nil) { lastRefresh = .now }
         reconcileDismissals()
         if full { nextFullRefresh = Date.now.addingTimeInterval(fullInterval) }
         // What was already there at launch is not "new activity"; only what
@@ -601,7 +664,11 @@ final class GitHubModel: ObservableObject {
             snapshot.lastUpdated = snapshot.lastUpdated ?? .now
             store(snapshot)
             if full, preferences.trackPullRequests {
-                var open = try await client.openPullRequests(remote, detailLimit: detailLimit)
+                // What the last pass knew rides along: a pull request that
+                // gets no review or check lookup this time keeps its state.
+                var open = try await client.openPullRequests(
+                    remote, detailLimit: detailLimit, previous: snapshot.pullRequests
+                )
                 let closed = (try? await client.recentlyClosedPullRequests(remote, limit: 8)) ?? snapshot.recentlyClosed
                 // The viewer's own PRs also get GitHub's merge state, so a
                 // conflict on them can be reported.
@@ -613,6 +680,9 @@ final class GitHubModel: ObservableObject {
                         }
                     }
                 }
+                // The same for GitHub's merge verdict, which only the lookups
+                // above report: no answer this time is not "no conflict".
+                open = GitHubPullRequest.carryingMergeStates(open, from: snapshot.pullRequests)
                 if pullRequestBaseline.contains(id) {
                     let before = snapshot.allPullRequests
                     var after = open + closed
@@ -756,17 +826,35 @@ final class GitHubModel: ObservableObject {
                 // the owner to ask (`readProtectedFolders`).
                 awaiting.append(path)
                 continue
+            } else if gitMisses.shouldSkip(path) {
+                continue
             } else {
+                // Only a repository is remembered for good. "Not a
+                // repository" may be a folder before its `git init`, or a
+                // read that timed out, so it is asked again later.
                 info = await gitReader.info(for: path)
-                repositoryInfo[path] = info
+                if let info {
+                    repositoryInfo[path] = info
+                    gitMisses.recordSuccess(path)
+                } else {
+                    gitMisses.recordFailure(path)
+                }
             }
             guard let info, let remote = info.gitHubRemote, remote.host == "github.com" else { continue }
             let key = remote.fullName.lowercased()
             var ref = resolvedRemotes[key]
-            if ref == nil, let resolved = try? await client.repository(remote) {
-                ref = resolved.ref
-                resolvedRemotes[key] = resolved.ref
-                if let branch = resolved.defaultBranch { defaultBranches[resolved.ref.id] = branch }
+            if ref == nil, !remoteMisses.shouldSkip(key) {
+                do {
+                    let resolved = try await client.repository(remote)
+                    ref = resolved.ref
+                    resolvedRemotes[key] = resolved.ref
+                    remoteMisses.recordSuccess(key)
+                    if let branch = resolved.defaultBranch { defaultBranches[resolved.ref.id] = branch }
+                } catch GitHubError.notFound, GitHubError.forbidden {
+                    // GitHub answered: this sign-in cannot see it. A network
+                    // error is not an answer and is tried again next time.
+                    remoteMisses.recordFailure(key)
+                } catch {}
             }
             guard let ref else { continue }
             if let branch = info.defaultBranch, defaultBranches[ref.id] == nil { defaultBranches[ref.id] = branch }
@@ -803,7 +891,9 @@ final class GitHubModel: ObservableObject {
     static let notConnectedMessage = "GitHub isn't connected right now. It loads again on its own once it reconnects; check Settings → GitHub."
     static let notMonitoredMessage = "This repository is no longer monitored."
 
-    private func handle(_ error: any Error) -> TimeInterval? {
+    /// `passStartedAt` is when the refresh that failed began; repositories
+    /// that answered since then are current and are not marked as held up.
+    private func handle(_ error: any Error, passStartedAt: Date = .now) -> TimeInterval? {
         guard let error = error as? GitHubError else {
             if error is CancellationError { return nil }
             if !connection.isConnected { connection = .failed(error.localizedDescription) }
@@ -811,11 +901,24 @@ final class GitHubModel: ObservableObject {
         }
         switch error {
         case .unauthorized:
-            client = nil
+            forgetClient()
             connection = .failed("GitHub rejected the sign-in. Run `gh auth login` again or save a new token.")
             return nil
         case let .rateLimited(resetAt):
             let wait = max(60, (resetAt ?? .now.addingTimeInterval(300)).timeIntervalSinceNow)
+            rateLimitedUntil = Date.now.addingTimeInterval(wait)
+            if let latest = client?.lastRateLimit { rateLimit = latest }
+            // Each repository the limit kept from refreshing says why its
+            // numbers stopped moving, rather than showing old data as if it
+            // were current. The next refresh that gets through marks it
+            // available again.
+            let reason = error.localizedDescription
+            for snapshot in snapshots
+            where !snapshot.availability.isUnavailable && (snapshot.lastUpdated ?? .distantPast) < passStartedAt {
+                var limited = snapshot
+                limited.availability = .failed(reason)
+                store(limited)
+            }
             connection = connection.isConnected ? connection : .failed("GitHub rate limit reached.")
             return wait
         default:
@@ -865,7 +968,8 @@ final class GitHubModel: ObservableObject {
         case .ciPassed: body = "Checks passed."
         case .merged:
             body = "Merged."
-            todayCounts.pullRequestsMerged += 1
+            // A merge made from Overhead was counted when it went through.
+            if !mergedHere.contains(pr.id) { todayCounts.pullRequestsMerged += 1 }
         case .mergeConflict: body = "Has merge conflicts."
         case .closed: return nil
         }
@@ -876,6 +980,8 @@ final class GitHubModel: ObservableObject {
     /// Applies each repository's alert level, groups bursts, then hands the
     /// rest to the shared notification policy.
     private func deliver(_ notices: [GitHubNotice]) {
+        // A pass cut short because GitHub was turned off announces nothing.
+        guard preferences.enabled, !notices.isEmpty else { return }
         let allowed = notices.filter { notice in
             if notice.kind == .githubMerged, mergedHere.contains(where: { notice.key.hasSuffix(":\($0)") }) {
                 return false
