@@ -923,7 +923,8 @@ enum WhatsNewRenderCheck {
             }
             if case let .image(image) = visual {
                 if let assets, let picture = WhatsNewImageStore.bundledPicture(image, in: assets) {
-                    _ = picture
+                    // So the page drawn below shows it, not a picture still loading.
+                    WhatsNewImageStore.shared.remember(picture, for: image)
                 } else {
                     problems.append("card \"\(card.id)\": the picture \"\(image.file)\" is missing or does not match its SHA-256.")
                 }

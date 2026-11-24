@@ -324,6 +324,14 @@ final class WhatsNewImageStore: ObservableObject {
         return picture
     }
 
+    /// Keeps a picture the render check has already verified. A page drawn
+    /// straight to a file has no time to load one, so without this it would
+    /// show the picture still loading and nobody could look at it.
+    func remember(_ picture: NSImage, for image: ReleaseImage) {
+        guard let hash = image.sha256 else { return }
+        images[hash] = picture
+    }
+
     /// The same check without the network, for the release's render check.
     static func bundledPicture(_ image: ReleaseImage, in folder: URL) -> NSImage? {
         guard ReleaseImageCheck.isSafeFileName(image.file),
