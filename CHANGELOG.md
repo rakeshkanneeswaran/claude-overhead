@@ -9,6 +9,34 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-24
+
+The glow that marks a finished turn is now yours to choose: ten glows, each
+moving in its own way, and a switch that turns the glow off without touching
+sound.
+
+- **The completion glow has its own switch.** Settings → Appearance →
+  Completion glow turns the glow off completely: no glow is started, drawn or
+  timed when a turn finishes. Sound is a separate choice and is not changed by
+  it. A session whose bell is on still sounds with the glow off, and the glow
+  still shows for a session whose bell is off.
+- **Ten glows to choose from.** RGB Spectrum is the wave the app has always
+  had. The others are drawn differently, not only coloured differently:
+  Golden Glow (gold with a slow shimmer), Electric Blue (rings pulsing out
+  from the camera), Neon Purple (edges that breathe), Crimson Red (heat rising
+  from the lower edge), Emerald Green (a beam sweeping across and back),
+  Cyberpunk (pink and cyan bands crossing), Aurora (slow green and violet
+  curtains), Monochrome (a still white outline) and Sunset (orange through
+  pink to purple). Each is shown as a small notch in Settings, choosing one
+  plays it on the real notch, and Preview plays it again.
+- The glow's brightness slider no longer goes to zero, because off is now the
+  switch. If you had turned the glow off with the old slider, it stays off
+  after the update.
+- Turning the glow off keeps your glow and brightness for when you turn it
+  back on. With macOS Reduce Motion, the Minimal animation setting, the Focus
+  layout, or Focus mode reducing animations, every glow holds still, as the
+  wave already did.
+
 ## [1.1.1] - 2026-11-24
 
 Fixes an old settings window that opened by itself when Claude Overhead was
@@ -515,6 +543,7 @@ controls in the MacBook notch.
   controls. Agent activity remains available without it.
 
 [Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.1.1...HEAD
+[1.2.0]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.2.0
 [1.1.1]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.1.1
 [1.1.0]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.1.0
 [1.0.8]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.8

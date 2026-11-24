@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "version": "1.2.0",
+  "date": "2026-11-24",
+  "introduction": "The glow that marks a finished turn is now yours to choose: ten glows, each moving in its own way, and a switch that turns the glow off without touching sound.",
+  "cards": [
+    {
+      "id": "glows",
+      "category": "feature",
+      "title": "Ten glows for a finished turn",
+      "summary": "When Claude finishes a turn, the closed notch can light up in one of ten glows. Each is drawn in its own way, from a slow gold shimmer to a still white outline.",
+      "details": [
+        "RGB Spectrum is the wave you already have, unchanged.",
+        "Choose one in Settings, under Appearance, in Completion glow. Choosing a glow plays it on the notch, and Preview plays it again.",
+        "With Reduce Motion, every glow holds still."
+      ],
+      "visual": {
+        "kind": "image",
+        "image": {
+          "file": "glows.png",
+          "alt": "The ten glows as Settings draws them, from RGB Spectrum and Golden Glow to Monochrome and Sunset, each on a small closed notch."
+        }
+      }
+    },
+    {
+      "id": "glow-switch",
+      "category": "feature",
+      "title": "Turn the glow off and keep the sound",
+      "summary": "The glow has its own switch. Off, nothing lights up when a turn finishes, and a session whose bell is on still chimes. Glow and sound are two separate choices.",
+      "details": [
+        "Glow without sound works too: the glow shows for a session whose bell is off.",
+        "Turning the glow off keeps your glow and its brightness for when you turn it back on."
+      ]
+    },
+    {
+      "id": "glow-brightness",
+      "category": "improvement",
+      "title": "Brightness no longer doubles as off",
+      "summary": "The glow's brightness slider now stops at its dimmest setting, because off is the switch. If you had turned the glow off with the old slider, it stays off after this update."
+    }
+  ]
+}
