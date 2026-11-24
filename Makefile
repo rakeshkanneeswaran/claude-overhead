@@ -1,4 +1,4 @@
-.PHONY: app build check clean dmg public-dmg public-release release release-app release-notes release-publish release-signing-freeze release-signing-identity release-signing-restore signing-check signing-identity test update-test update-test-auto whats-new
+.PHONY: app build check clean dmg public-dmg public-release release release-app release-notes release-publish release-signing-freeze release-signing-identity release-signing-restore settings-preview signing-check signing-identity test update-test update-test-auto whats-new
 
 build:
 	./Scripts/swift.sh build
@@ -37,6 +37,12 @@ whats-new:
 
 app:
 	CHIMLO_PACKAGE_VARIANT=development ./Scripts/package-app.sh
+
+# Draws every Settings pane to dist/settings-preview/ to look at, with a
+# development build and throwaway settings. The app is not started: no
+# listener, no hooks, no sessions (see SettingsRenderCheck).
+settings-preview: app
+	"dist/Claude Overhead Dev.app/Contents/MacOS/Overhead" --render-settings dist/settings-preview
 
 release-app:
 	CHIMLO_PACKAGE_VARIANT=release ./Scripts/package-app.sh

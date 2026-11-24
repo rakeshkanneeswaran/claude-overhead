@@ -141,7 +141,7 @@ focus.
   GitHub is set up the page shows `GitHubSetupState`'s explanation and a
   Connect GitHub button that opens that pane, and the notch's "set up" links
   open it too. Both edit `settings.github`, which `GitHubModel` and GitHub
-  Mode read. Settings is seven tabs (`SettingsPaneID`), one place per choice.
+  Mode read. Settings is seven panes (`SettingsPaneID`), one place per choice, listed in the window's sidebar while Settings is open; search reads `SettingsCatalog`.
 - `CompanionWindowCoordinator` hosts the companion window: Overview, Sessions,
   Projects, Agents, History, Usage, GitHub and Settings, styled by the active
   theme palette.

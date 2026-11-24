@@ -59,6 +59,10 @@ views. `ChimloCore` does no networking itself: inject a transport, as
 4. **Run `make test`** with a matching Swift and macOS SDK.
 5. **Exercise every changed control** with keyboard and pointer input.
 6. **Check Reduce Motion, Increase Contrast,** and a display without a notch.
+7. **Look at Settings after changing it.** `make settings-preview` draws every
+   Settings pane to `dist/settings-preview/` with throwaway settings and
+   without starting the app. A new control also needs an entry in
+   `SettingsCatalog` (Core), or search cannot find it.
 
 ## Releases and What's New
 

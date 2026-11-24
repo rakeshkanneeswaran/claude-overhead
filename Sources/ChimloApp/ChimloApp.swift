@@ -10,6 +10,8 @@ struct ChimloApplication: App {
         // The release check: draw a release's What's New and exit, without
         // starting the app (see WhatsNewRenderCheck).
         WhatsNewRenderCheck.runIfRequested()
+        // The same for Settings: draw every pane and exit (see SettingsRenderCheck).
+        SettingsRenderCheck.runIfRequested()
     }
 
     var body: some Scene {

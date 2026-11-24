@@ -1288,6 +1288,25 @@ final class ApplicationModel: ObservableObject {
         closeCharacterPicker()
     }
 
+    /// Settings' character gallery: the same choice the notch's picker
+    /// makes, written to the same assignments and saved the same way, for a
+    /// session the owner named in the gallery. `nil` is the Claude logo.
+    /// The picker's own guard is about a click landing in a panel that just
+    /// opened; the gallery's button names the session, so none is needed.
+    func setCharacterFromSettings(_ character: SessionCharacter?, for sessionID: String) {
+        guard sessions.contains(where: { $0.id == sessionID }) else { return }
+        if let character {
+            characterAssignments.choose(character.id, for: sessionID, now: .now)
+            saveCharacterAssignments()
+        } else if characterAssignments.useClaudeLogo(
+            for: sessionID,
+            automatic: assignsCharactersAutomatically,
+            now: .now
+        ) {
+            saveCharacterAssignments()
+        }
+    }
+
     /// The owner switched one session back to the Claude logo. Where the
     /// logo is already showing and nothing of the owner's is stored, this
     /// only closes the picker.

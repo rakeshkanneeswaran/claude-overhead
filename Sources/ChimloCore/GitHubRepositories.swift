@@ -247,3 +247,43 @@ public enum GitHubRepoSearch {
         }
     }
 }
+
+/// One owner (a person or an organization) in the repository picker, with
+/// its repositories and how many of them are selected. Grouping is by the
+/// owner GitHub reports, never by repository name, so two repositories with
+/// the same name under different owners are two rows in two groups.
+public struct GitHubOwnerGroup: Identifiable, Equatable, Sendable {
+    public let owner: String
+    public let repositories: [GitHubRepoRef]
+    public let selectedCount: Int
+
+    public var id: String { owner }
+    public var isFullySelected: Bool { !repositories.isEmpty && selectedCount == repositories.count }
+}
+
+extension GitHubRepoSearch {
+    /// The picker's groups for a list of repositories and a selection: the
+    /// viewer's own first, then owners by name, each with its selected count.
+    public static func ownerGroups(
+        _ repositories: [GitHubRepoRef],
+        selection: GitHubRepositorySelection,
+        viewer: String?
+    ) -> [GitHubOwnerGroup] {
+        groupedByOwner(repositories, viewer: viewer).map { group in
+            GitHubOwnerGroup(
+                owner: group.owner,
+                repositories: group.repositories,
+                selectedCount: group.repositories.filter { selection.contains($0.id) }.count
+            )
+        }
+    }
+
+    /// Which groups start open: the ones holding a selected repository, and
+    /// the viewer's own. With nothing selected and no viewer, the first.
+    public static func initiallyExpandedOwners(_ groups: [GitHubOwnerGroup], viewer: String?) -> Set<String> {
+        let viewerKey = viewer?.lowercased()
+        var owners = Set(groups.filter { $0.selectedCount > 0 || $0.owner.lowercased() == viewerKey }.map(\.owner))
+        if owners.isEmpty, let first = groups.first { owners.insert(first.owner) }
+        return owners
+    }
+}

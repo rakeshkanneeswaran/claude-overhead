@@ -947,68 +947,6 @@ private struct CacheRow: View {
 
 // MARK: - GitHub
 
-struct GitHubConnectionCard: View {
-    @EnvironmentObject private var github: GitHubModel
-    @EnvironmentObject private var settings: SettingsModel
-    @Environment(\.overheadPalette) private var palette
-    @State private var token = ""
-    @State private var tokenNote: String?
-
-    var body: some View {
-        Card("Connection") {
-            Toggle("Use GitHub", isOn: settings.binding(\.github.enabled))
-            switch github.connection {
-            case .off:
-                Text("Off. When on, Overhead calls api.github.com for the repositories Claude works in. Nothing else is sent.")
-                    .font(.system(size: 12)).foregroundStyle(palette.textSecondary)
-            case .checking:
-                Text("Checking sign-in…").font(.system(size: 12)).foregroundStyle(palette.textSecondary)
-            case let .connected(login, source):
-                Label("Signed in as \(login) via \(source == .githubCLI ? "GitHub CLI" : "personal access token")",
-                      systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 12)).foregroundStyle(palette.success)
-            case let .signedOut(cli):
-                Text(signedOutText(cli)).font(.system(size: 12)).foregroundStyle(palette.textSecondary)
-            case let .failed(message):
-                Label(message, systemImage: "exclamationmark.triangle").font(.system(size: 12)).foregroundStyle(palette.warning)
-            }
-            if settings.settings.github.enabled {
-                HStack {
-                    SecureField("Personal access token (optional)", text: $token)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 320)
-                    Button("Save to Keychain") {
-                        do {
-                            try github.savePersonalAccessToken(token)
-                            token = ""
-                            tokenNote = "Saved to your Keychain."
-                        } catch {
-                            tokenNote = "Could not save: \(error.localizedDescription)"
-                        }
-                    }
-                    .disabled(token.trimmingCharacters(in: .whitespaces).isEmpty)
-                    if github.hasStoredToken {
-                        Button("Remove token") {
-                            try? github.removePersonalAccessToken()
-                            tokenNote = "Token removed from your Keychain."
-                        }
-                    }
-                }
-                Text(tokenNote ?? "A fine-grained token with read access to pull requests, Actions and checks is enough to watch. Merging also needs Pull requests and Contents write access. It is stored only in the Keychain.")
-                    .font(.system(size: 11)).foregroundStyle(palette.textTertiary)
-            }
-        }
-    }
-
-    private func signedOutText(_ cli: GitHubCLIStatus) -> String {
-        switch cli {
-        case .notInstalled: "Not signed in. Install the GitHub CLI and run `gh auth login`, or save a personal access token below."
-        case .signedOut: "The GitHub CLI is installed but signed out. Run `gh auth login` in Terminal, or save a token below."
-        case .signedIn: "The GitHub CLI is signed in but did not share a token. Run `gh auth status` to check."
-        }
-    }
-}
-
 struct PullRequestLine: View {
     let pr: GitHubPullRequest
     @Environment(\.overheadPalette) private var palette

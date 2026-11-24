@@ -63,14 +63,15 @@ Overhead, and move it to the Trash.
   and the linked pull request, wherever that data really exists.
 - **Characters, if you want them.** Every session shows the Claude logo by
   default. Click the logo on a session in the notch to give that session one
-  of 46 original pixel characters, so sessions are easy to tell apart. Turn
-  on **Give each new session a character automatically** in **Settings →
-  Appearance** to have each new session draw a random one, and give a project
-  its own collection on the Projects page.
+  of 46 original pixel characters, so sessions are easy to tell apart, or
+  browse all of them by world in **Settings → Appearance → Characters &
+  Mascots** and give one to a session from there; both set the same thing.
+  Turn on **Give sessions a character automatically** there to have each new
+  session draw a random one, and give a project its own collection.
 - **Sound only where you want it.** Every session starts silent. Click a
   session's bell in the notch to hear it when it finishes, fails or needs
   you; other sessions stay quiet. Pick the sound, preview it and set its
-  volume in **Settings → Notifications**.
+  volume in **Settings → Notifications & Sound**.
 - **Lock Mode.** The lock in the open notch keeps the notch closed until you
   click it. Sessions are still watched and the sounds you turned on still
   play; a permission request or question waits in the notch, never approved
@@ -137,11 +138,15 @@ shortcut (⌃⌥ and comma), or by opening the app again.
   data with GitHub Mode in the notch. Until GitHub is connected it explains
   what it offers and has a **Connect GitHub** button; nothing else in Claude
   Overhead depends on it.
-- **Settings:** seven tabs, one place for each choice. **General** (Claude
-  Code, Lock Mode, unattended runs, login, display, updates), **Appearance** (notch layout,
-  session characters, themes, motion), **Notifications** (sound and volume, every event including
-  GitHub's, quiet hours, Focus), **Usage**, **Shortcuts**, **GitHub** (the
-  integration: sign-in, repositories, what it watches) and **Privacy**.
+- **Settings:** opening Settings turns the window's sidebar into the
+  Settings sidebar, with **Back** at its top, and a search field finds any
+  setting by name. Seven panes, one place for each choice: **General**
+  (login, display, Lock Mode, unattended runs, Claude Code, updates),
+  **Appearance** (notch layouts drawn as they look, the character gallery,
+  the completion glow, colour themes, accessibility), **Notifications &
+  Sound** (sound and volume, every event including GitHub's, quiet hours,
+  Focus), **Usage**, **Shortcuts**, **GitHub** (the integration: sign-in,
+  repositories grouped by owner, what it watches) and **Privacy**.
 
 ### Notifications that respect you
 
