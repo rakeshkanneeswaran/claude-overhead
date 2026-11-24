@@ -13,9 +13,21 @@ struct ChimloApplication: App {
     }
 
     var body: some Scene {
-        Settings {
-            ChimloSettingsView(model: appDelegate.model)
-                .frame(minWidth: 640, minHeight: 440)
+        // Every window of this app (the notch, Settings, setup, What's New) is
+        // an AppKit window the delegate opens. SwiftUI needs a scene all the
+        // same, and it presents an app's only scene when the app is started,
+        // if that scene has a window: the Settings scene that used to stand
+        // here opened an old settings window by itself at launch. A menu bar
+        // extra that is never inserted is a scene with nothing to present.
+        MenuBarExtra("Claude Overhead", isInserted: .constant(false)) {
+            EmptyView()
+        }
+        .commands {
+            // ⌘, opens the real Settings, in the companion window.
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { appDelegate.showSettings() }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
         }
     }
 }
@@ -103,6 +115,16 @@ final class ChimloAppDelegate: NSObject, NSApplicationDelegate {
     private func setupFinished(revealNotch: Bool) {
         islandCoordinator?.show()
         if revealNotch { model.revealNotchAfterSetup() }
+    }
+
+    /// ⌘,: the Settings page of the companion window. The update test has no
+    /// companion window and uses its own small settings window.
+    func showSettings() {
+        if let companionCoordinator {
+            companionCoordinator.show(.settings)
+        } else {
+            settingsCoordinator?.show()
+        }
     }
 
     /// Opening the app again while it runs (Finder, Spotlight, `open`) shows
