@@ -43,8 +43,12 @@ Overhead, and move it to the Trash.
   same as Claude Code's own "Other".
 - **Approve tool requests.** Deny, Allow Once, or Allow All for the current
   session. Bypass mode is never offered, and nothing is ever approved silently.
-- **A completion wave.** When Claude finishes a turn, a colour wave fills the
-  closed notch for a moment. The notch does not pop open.
+- **A completion glow, if you want one.** When Claude finishes a turn, the
+  closed notch lights up for a moment and does not pop open. Pick one of ten
+  glows in **Settings → Appearance** (the RGB wave, gold, electric blue, neon
+  purple, crimson, emerald, cyberpunk, aurora, a still white outline, or
+  sunset), or turn the glow off. Sound is a separate choice: a session's bell
+  decides what you hear, with the glow on or off.
 - **Five notch layouts.** Minimal, Classic, Expanded (activity, context ring
   and agent dots), Focus (still, opens only on click) and Agent View.
 - **Live activity.** The closed notch shows what Claude is doing right now in

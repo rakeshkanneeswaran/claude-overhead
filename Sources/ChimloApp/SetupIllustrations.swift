@@ -65,7 +65,11 @@ struct MiniNotch: View {
             } else {
                 CompactNotchIslandShape(lowerCut: 6).fill(Color.black)
                 if state == .done {
-                    SpectrumWaveFill(shape: CompactNotchIslandShape(lowerCut: 6), flows: !reduceMotion)
+                    CompletionGlowFill(
+                        shape: CompactNotchIslandShape(lowerCut: 6),
+                        theme: .spectrum,
+                        flows: !reduceMotion
+                    )
                         .transition(.opacity)
                 }
             }

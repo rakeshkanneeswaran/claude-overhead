@@ -376,7 +376,14 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
     public var accent: AccentChoice
     public var appearance: AppearancePreference
     public var animationIntensity: AnimationIntensity
-    /// 0...1.
+    /// Whether a finished turn lights the closed notch at all. Its own
+    /// switch: it reads no sound setting and no sound setting reads it.
+    public var completionGlowEnabled: Bool
+    /// Which glow shows. Kept while the glow is off, so turning it back on
+    /// brings the same one back.
+    public var completionGlowTheme: GlowTheme
+    /// The glow's brightness, 0...1 (`CompletionGlow` draws it no fainter
+    /// than its minimum). Before the switch existed, zero turned the glow off.
     public var glowIntensity: Double
     public var layout: NotchLayout
     public var density: RowDensity
@@ -440,7 +447,9 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         accent = .claude
         appearance = .system
         animationIntensity = .full
-        glowIntensity = 0.8
+        completionGlowEnabled = true
+        completionGlowTheme = .spectrum
+        glowIntensity = CompletionGlow.defaultBrightness
         layout = .classic
         density = .comfortable
         sessionSort = .attentionFirst
@@ -552,6 +561,7 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         case version
         case launchAtLogin, preferredDisplay
         case theme, accent, appearance, animationIntensity, glowIntensity, layout, density
+        case completionGlowEnabled, completionGlowTheme
         case sessionSort, groupByProject, historyRetentionDays, storeConversationPreviews
         case notifications
         case showAgents, showClosedNotchActivity, notchLocked, askAboutUnattendedRuns
@@ -576,6 +586,10 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         appearance = c.lenient(AppearancePreference.self, .appearance) ?? d.appearance
         animationIntensity = c.lenient(AnimationIntensity.self, .animationIntensity) ?? d.animationIntensity
         glowIntensity = c.lenient(Double.self, .glowIntensity) ?? d.glowIntensity
+        // A file from before the switch existed: a slider left at zero was
+        // how the glow was turned off, and it stays off.
+        completionGlowEnabled = c.lenient(Bool.self, .completionGlowEnabled) ?? (glowIntensity > 0)
+        completionGlowTheme = c.lenient(GlowTheme.self, .completionGlowTheme) ?? d.completionGlowTheme
         layout = c.lenient(NotchLayout.self, .layout) ?? d.layout
         density = c.lenient(RowDensity.self, .density) ?? d.density
         sessionSort = c.lenient(SessionSort.self, .sessionSort) ?? d.sessionSort
@@ -617,6 +631,8 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         try c.encode(appearance, forKey: .appearance)
         try c.encode(animationIntensity, forKey: .animationIntensity)
         try c.encode(glowIntensity, forKey: .glowIntensity)
+        try c.encode(completionGlowEnabled, forKey: .completionGlowEnabled)
+        try c.encode(completionGlowTheme, forKey: .completionGlowTheme)
         try c.encode(layout, forKey: .layout)
         try c.encode(density, forKey: .density)
         try c.encode(sessionSort, forKey: .sessionSort)

@@ -127,14 +127,15 @@ struct IslandRootView: View {
         }
     }
 
-    /// A finished turn floods the compact notch with the colour wave for a
-    /// moment. The open panel already shows the reply, so only the compact
-    /// shape carries it.
+    /// A finished turn lights the compact notch with the owner's glow theme
+    /// for a moment. The open panel already shows the reply, so only the
+    /// compact shape carries it. With the glow switched off there is no glow
+    /// to show, and no view or timeline is made for one.
     private func completionGlow<S: Shape>(in shape: S) -> some View {
         Group {
-            if model.animatesCompletionGlow {
-                SpectrumWaveFill(shape: shape, flows: !model.reducesMotion)
-                    .opacity(model.showsCompletionGlow ? max(0.25, model.glowIntensity) : 0)
+            if model.animatesCompletionGlow, let glow = model.completionGlow {
+                CompletionGlowFill(shape: shape, theme: glow.theme, flows: !model.reducesMotion)
+                    .opacity(model.showsCompletionGlow ? glow.brightness : 0)
                     .animation(
                         .easeInOut(duration: model.showsCompletionGlow
                             ? 0.35
@@ -145,44 +146,6 @@ struct IslandRootView: View {
             }
         }
         .animation(.easeOut(duration: 0.35), value: model.animatesCompletionGlow)
-    }
-}
-
-/// The colour spectrum flowing across the whole compact notch, like Razer
-/// Chroma's "wave": every colour spread evenly across the width and sliding
-/// sideways. It fills the notch's own shape, so it follows every corner.
-enum SpectrumWaveStyle {
-    static let secondsPerCycle: Double = 3
-    // Two cycles back to back: the notch shows one and slides across them, so
-    // the wave loops without a seam. Slightly below full brightness keeps the
-    // avatar and labels on top readable.
-    static let colors: [Color] = (0...24).map {
-        Color(hue: Double($0 % 12) / 12, saturation: 0.75, brightness: 0.88)
-    }
-}
-
-struct SpectrumWaveFill<S: Shape>: View {
-    let shape: S
-    let flows: Bool
-
-    var body: some View {
-        // 60 fps is plenty for a slow wave and halves the redraw cost on ProMotion.
-        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !flows)) { context in
-            let seconds = SpectrumWaveStyle.secondsPerCycle
-            let phase = flows
-                ? context.date.timeIntervalSinceReferenceDate
-                    .truncatingRemainder(dividingBy: seconds) / seconds
-                : 0
-            // A horizontal wave spreads every colour evenly across a wide,
-            // flat notch; a rotating angular gradient bunches them up.
-            shape.fill(LinearGradient(
-                colors: SpectrumWaveStyle.colors,
-                startPoint: UnitPoint(x: phase - 1, y: 0.5),
-                endPoint: UnitPoint(x: phase + 1, y: 0.5)
-            ))
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 }
 

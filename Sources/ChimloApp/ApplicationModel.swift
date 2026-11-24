@@ -291,9 +291,10 @@ final class ApplicationModel: ObservableObject {
     var presentWhatsNew: ((WhatsNewSubject) -> Void)?
     /// The notes this copy was built with, for "What's new in this version".
     let installedReleaseNotes = InstalledReleaseNotes.load()
-    /// The spectrum glow that says "Claude replied" after a finished turn.
-    /// `showsCompletionGlow` drives its opacity; `animatesCompletionGlow` stays
-    /// on through the fade-out so the colours keep flowing until it is gone.
+    /// The glow that says "Claude replied" after a finished turn, in the
+    /// owner's theme (`completionGlow`). `showsCompletionGlow` drives its
+    /// opacity; `animatesCompletionGlow` stays on through the fade-out so the
+    /// colours keep moving until it is gone.
     @Published private(set) var showsCompletionGlow = false
     @Published private(set) var animatesCompletionGlow = false
     @Published private(set) var sessionInsights: [String: TranscriptInsights] = [:]
@@ -313,8 +314,10 @@ final class ApplicationModel: ObservableObject {
     @Published private(set) var isFocusModeActive = false
     @Published private(set) var contextAttentionThreshold = 0.7
     @Published private(set) var contextCriticalThreshold = 0.9
-    /// How strongly the completion wave shows, 0...1; 0 turns it off.
-    @Published private(set) var glowIntensity = 1.0
+    /// The completion glow as the owner set it up: its theme and brightness,
+    /// or nil when the glow is switched off. Sound is decided elsewhere
+    /// (`announce`) and never reads this.
+    @Published private(set) var completionGlow: CompletionGlow? = OverheadSettings().completionGlow
     /// Which display the notch lives on (`OverheadSettings.preferredDisplay`).
     /// The window coordinator turns it into a screen.
     @Published private(set) var preferredDisplay: DisplayPreference = .notchedDisplay
@@ -1137,7 +1140,11 @@ final class ApplicationModel: ObservableObject {
             contextCriticalThreshold = settings.contextCriticalThreshold
         }
         usageWarningThreshold = settings.usageWarningThreshold
-        if glowIntensity != settings.glowIntensity { glowIntensity = settings.glowIntensity }
+        if completionGlow != settings.completionGlow {
+            completionGlow = settings.completionGlow
+            // Switched off: a glow that is showing goes now, with its timer.
+            if completionGlow == nil { clearCompletionGlow() }
+        }
     }
 
     private func rebuildIslandLayout() {
@@ -1784,7 +1791,7 @@ final class ApplicationModel: ObservableObject {
     /// One glow at a time: a completion while it shows (or fades) restarts the
     /// same glow instead of stacking a second one.
     private func flashCompletionGlow() {
-        guard glowIntensity > 0 else { return }
+        guard completionGlow != nil else { return }
         completionGlowTask?.cancel()
         animatesCompletionGlow = true
         showsCompletionGlow = true
@@ -1796,6 +1803,13 @@ final class ApplicationModel: ObservableObject {
             guard !Task.isCancelled else { return }
             animatesCompletionGlow = false
         }
+    }
+
+    /// Settings' theme picker and Preview button: the glow on the real
+    /// notch, exactly as a finished turn shows it. Nothing else happens: no
+    /// sound, no banner, and no session is touched.
+    func previewCompletionGlow() {
+        flashCompletionGlow()
     }
 
     private func clearCompletionGlow() {
@@ -1854,8 +1868,10 @@ final class ApplicationModel: ObservableObject {
         }
     }
 
-    /// Plays the success sound once per new reply. The panel stays closed: the
-    /// orange notch glow says "Claude replied", and the owner opens it on hover.
+    /// Plays the success sound once per new reply, if that session's bell is
+    /// on. The panel stays closed, and the owner opens it on hover. The glow
+    /// is separate (`flashCompletionGlow`): each happens whether or not the
+    /// other does.
     private func announceCompletionIfNeeded(sessionID: String, receivedAt: Date) {
         guard sessions.contains(where: { $0.id == sessionID }),
               receivedAt >= Date.now.addingTimeInterval(

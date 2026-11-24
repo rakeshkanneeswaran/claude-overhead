@@ -189,6 +189,9 @@ struct SettingsUpgradeTests {
         let settings = try JSONDecoder().decode(OverheadSettings.self, from: Self.saved)
         #expect(!settings.assignCharactersAutomatically)
         #expect(settings.projectCharacterPools.isEmpty)
+        // The glow they had is the glow they keep: on, the RGB wave, at
+        // the brightness they set.
+        #expect(settings.completionGlow == CompletionGlow(theme: .spectrum, brightness: 0.4))
     }
 
     @Test("Saving it again keeps every key and value 1.0.8 wrote, so going back to 1.0.8 loses nothing")
@@ -200,6 +203,8 @@ struct SettingsUpgradeTests {
         // And what this version adds is only added.
         #expect(resaved["assignCharactersAutomatically"] as? Bool == false)
         #expect((resaved["projectCharacterPools"] as? [String: Any])?.isEmpty == true)
+        #expect(resaved["completionGlowEnabled"] as? Bool == true)
+        #expect(resaved["completionGlowTheme"] as? String == "spectrum")
     }
 
     @Test("A customer's own choices for the new settings survive a save and load")
@@ -207,6 +212,8 @@ struct SettingsUpgradeTests {
         var settings = try JSONDecoder().decode(OverheadSettings.self, from: Self.saved)
         settings.assignCharactersAutomatically = true
         settings.projectCharacterPools = ["/work/app": ["fantasy.slime"]]
+        settings.completionGlowTheme = .golden
+        settings.setCompletionGlowEnabled(false)
         let loaded = try JSONDecoder().decode(OverheadSettings.self, from: JSONEncoder().encode(settings))
         #expect(loaded == settings)
         // Nothing else moved.

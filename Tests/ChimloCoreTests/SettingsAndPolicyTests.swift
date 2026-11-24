@@ -92,6 +92,8 @@ struct OverheadSettingsTests {
         #expect(settings.appearance == .system)
         #expect(settings.animationIntensity == .full)
         #expect(settings.glowIntensity == 0.8)
+        #expect(settings.completionGlowEnabled)
+        #expect(settings.completionGlowTheme == .spectrum)
         #expect(settings.layout == .classic)
         #expect(settings.density == .comfortable)
         #expect(settings.sessionSort == .attentionFirst)
@@ -161,6 +163,8 @@ struct OverheadSettingsTests {
         settings.appearance = .dark
         settings.animationIntensity = .reduced
         settings.glowIntensity = 0.3
+        settings.completionGlowEnabled = false
+        settings.completionGlowTheme = .aurora
         settings.layout = .agentView
         settings.density = .compact
         settings.sessionSort = .project

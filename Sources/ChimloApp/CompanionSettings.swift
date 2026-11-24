@@ -223,6 +223,7 @@ private struct AppearancePane: View {
                     Text("Compact").tag(RowDensity.compact)
                 }
             }
+            CompletionGlowSection()
             Section {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 10)], spacing: 10) {
                     ForEach(ThemeID.allCases) { theme in
@@ -268,16 +269,82 @@ private struct AppearancePane: View {
                     Text("Reduced").tag(AnimationIntensity.reduced)
                     Text("Minimal").tag(AnimationIntensity.minimal)
                 }
-                LabeledContent("Completion glow") {
-                    Slider(value: settings.binding(\.glowIntensity), in: 0...1)
-                        .frame(width: 200)
-                }
             } header: {
                 Text("Motion")
             } footer: {
                 Text("macOS Reduce Motion always wins over these settings.")
             }
         }
+    }
+}
+
+/// Settings › Appearance: the completion glow's own switch, its themes and
+/// its brightness. Nothing here reads or changes a sound setting.
+private struct CompletionGlowSection: View {
+    @EnvironmentObject private var settings: SettingsModel
+    @EnvironmentObject private var model: ApplicationModel
+    @State private var hovered: GlowTheme?
+
+    private var isOn: Bool { settings.settings.completionGlowEnabled }
+    private var chosen: GlowTheme { settings.settings.completionGlowTheme }
+
+    var body: some View {
+        Section {
+            Toggle("Glow when Claude finishes a turn", isOn: Binding(
+                get: { isOn },
+                set: { settings.settings.setCompletionGlowEnabled($0) }
+            ))
+            if isOn {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 124), spacing: 8)], spacing: 8) {
+                    ForEach(GlowTheme.allCases) { theme in
+                        Button { choose(theme) } label: {
+                            GlowThemeSwatch(
+                                theme: theme,
+                                selected: theme == chosen,
+                                flows: (theme == chosen || theme == hovered) && !model.reducesMotion
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { inside in
+                            if inside { hovered = theme } else if hovered == theme { hovered = nil }
+                        }
+                        .help(theme.summary)
+                        .accessibilityLabel("\(theme.displayName) glow")
+                        .accessibilityHint(theme.summary)
+                        .accessibilityAddTraits(theme == chosen ? .isSelected : [])
+                    }
+                }
+                .padding(.vertical, 4)
+                LabeledContent("Brightness") {
+                    HStack(spacing: 10) {
+                        Slider(
+                            value: Binding(
+                                get: { max(settings.settings.glowIntensity, CompletionGlow.brightnessRange.lowerBound) },
+                                set: { settings.settings.glowIntensity = $0 }
+                            ),
+                            in: CompletionGlow.brightnessRange,
+                            onEditingChanged: { editing in if !editing { model.previewCompletionGlow() } }
+                        )
+                        .frame(width: 200)
+                        .accessibilityLabel("Glow brightness")
+                        Button("Preview") { model.previewCompletionGlow() }
+                            .accessibilityHint("Shows the chosen glow on the notch.")
+                    }
+                }
+            }
+        } header: {
+            Text("Completion glow")
+        } footer: {
+            Text(isOn
+                ? "\(chosen.displayName): \(chosen.summary.prefix(1).lowercased() + chosen.summary.dropFirst()). Choosing a glow shows it on the notch. Sound is a separate choice: a session's bell in the notch decides what you hear, whether the glow is on or off."
+                : "No glow shows when a turn finishes. Sessions whose bell is on still sound. \(chosen.displayName) is kept for when you turn the glow back on.")
+        }
+    }
+
+    /// Choosing a theme saves it and plays it once on the real notch.
+    private func choose(_ theme: GlowTheme) {
+        settings.settings.completionGlowTheme = theme
+        model.previewCompletionGlow()
     }
 }
 
