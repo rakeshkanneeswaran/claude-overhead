@@ -367,6 +367,11 @@ public struct GitHubPreferences: Codable, Equatable, Sendable {
 public struct OverheadSettings: Codable, Equatable, Sendable {
     public static let currentVersion = 1
 
+    /// The theme every installation started with before 1.3.0, when the
+    /// default became Obsidian. An installation from before then that never
+    /// saved a setting keeps it (`SettingsStore`).
+    public static let themeBeforeObsidianWasDefault: ThemeID = .midnight
+
     public var version: Int
 
     public var launchAtLogin: Bool
@@ -443,7 +448,7 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         version = Self.currentVersion
         launchAtLogin = false
         preferredDisplay = .notchedDisplay
-        theme = .midnight
+        theme = .obsidian
         accent = .claude
         appearance = .system
         animationIntensity = .full
@@ -703,6 +708,20 @@ public final class SettingsStore: @unchecked Sendable {
     public static let corruptBackupKey = "overhead.settings.v1.corrupt"
     /// The sound switch from before settings were unified.
     public static let legacySoundsEnabledKey = "overhead.sound.enabled"
+    /// What an installation that has run before leaves in its preferences,
+    /// whether or not it ever saved a setting: the version it last launched
+    /// (written when the app starts, after settings are read), that setup
+    /// was finished, and the things only a used copy stores.
+    public static let existingInstallationKeys = [
+        "overhead.update.lastLaunchedVersion",
+        "overhead.onboarding.completed",
+        legacySoundsEnabledKey,
+        "overhead.sound.sessions",
+        "overhead.sessions.archived",
+        "overhead.characters.assignments.v1",
+        "overhead.integration.claude.lastReceipt",
+        "overhead.folderAccess.confirmedRoots",
+    ]
 
     private let defaults: UserDefaults
     private let lock = NSLock()
@@ -711,10 +730,17 @@ public final class SettingsStore: @unchecked Sendable {
         self.defaults = defaults
     }
 
-    /// The stored settings, or defaults. On first run, values from legacy keys
-    /// are carried over and saved once; the legacy keys are left in place so an
-    /// older build still finds them. A blob that cannot be read yields defaults
-    /// and is copied to `corruptBackupKey` before anything can overwrite it.
+    /// The stored settings. When nothing is stored yet they are worked out
+    /// once and saved at once, so every later launch reads the same answer:
+    ///
+    /// - A new installation gets the defaults.
+    /// - An installation that ran before but never saved a setting keeps what
+    ///   it was showing: the defaults of its day (Midnight, where the default
+    ///   is now Obsidian) and the sound switch from its legacy key. The
+    ///   legacy keys are left in place so an older build still finds them.
+    ///
+    /// A blob that cannot be read yields defaults and is copied to
+    /// `corruptBackupKey` before anything can overwrite it.
     public func load() -> OverheadSettings {
         lock.withLock { loadLocked() }
     }
@@ -751,12 +777,18 @@ public final class SettingsStore: @unchecked Sendable {
 
     private func migrateLegacyLocked() -> OverheadSettings {
         var settings = OverheadSettings()
-        guard let soundsEnabled = defaults.object(forKey: Self.legacySoundsEnabledKey) as? Bool else {
-            return settings
+        if Self.existingInstallationKeys.contains(where: { defaults.object(forKey: $0) != nil }) {
+            // This copy was in use before it had anything to save. A default
+            // that changed since must not change what its owner sees.
+            settings.theme = OverheadSettings.themeBeforeObsidianWasDefault
         }
-        settings.notifications.soundsEnabled = soundsEnabled
-        // Saving now is what makes the migration run once: the next load finds
-        // the blob and never reads the legacy key again.
+        if let soundsEnabled = defaults.object(forKey: Self.legacySoundsEnabledKey) as? Bool {
+            settings.notifications.soundsEnabled = soundsEnabled
+        }
+        // Saving now is what makes this run once: the next load finds the
+        // blob and never asks again. Without it, a new installation would
+        // look like an old one on its second launch, once setup has left its
+        // own marks, and lose the theme it started with.
         saveLocked(settings)
         return settings
     }

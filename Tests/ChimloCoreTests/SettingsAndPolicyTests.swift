@@ -87,7 +87,7 @@ struct OverheadSettingsTests {
     func defaults() {
         let settings = OverheadSettings()
         #expect(settings.version == OverheadSettings.currentVersion)
-        #expect(settings.theme == .midnight)
+        #expect(settings.theme == .obsidian)
         #expect(settings.accent == .claude)
         #expect(settings.appearance == .system)
         #expect(settings.animationIntensity == .full)
@@ -249,7 +249,8 @@ struct OverheadSettingsTests {
         """#
         let decoded = try JSONDecoder().decode(OverheadSettings.self, from: Data(json.utf8))
         #expect(decoded.version == 7)
-        #expect(decoded.theme == .midnight)
+        // A theme this version does not know falls back to the default.
+        #expect(decoded.theme == .obsidian)
         #expect(decoded.accent == .violet)
         #expect(decoded.layout == .classic)
         #expect(decoded.glowIntensity == 0.8)
@@ -324,6 +325,8 @@ struct SettingsStoreTests {
             let store = SettingsStore(defaults: defaults)
             let loaded = store.load()
             #expect(!loaded.notifications.soundsEnabled)
+            // A copy that old was showing Midnight, and keeps it.
+            #expect(loaded.theme == .midnight)
             #expect(defaults.object(forKey: SettingsStore.legacySoundsEnabledKey) as? Bool == false)
             #expect(defaults.data(forKey: SettingsStore.storageKey) != nil)
 
@@ -334,12 +337,13 @@ struct SettingsStoreTests {
         }
     }
 
-    @Test("First run without legacy keys returns defaults and writes nothing")
+    @Test("A new installation gets the defaults, saved at once so the answer is given once")
     func freshInstall() throws {
         try withIsolatedDefaults { defaults in
             let loaded = SettingsStore(defaults: defaults).load()
             #expect(loaded == OverheadSettings())
-            #expect(defaults.object(forKey: SettingsStore.storageKey) == nil)
+            #expect(defaults.data(forKey: SettingsStore.storageKey) != nil)
+            #expect(SettingsStore(defaults: defaults).load() == loaded)
         }
     }
 
