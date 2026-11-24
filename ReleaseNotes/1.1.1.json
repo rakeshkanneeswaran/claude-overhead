@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "version": "1.1.1",
+  "date": "2026-11-24",
+  "introduction": "A small fix: an old settings window no longer opens by itself when Claude Overhead starts.",
+  "cards": [
+    {
+      "id": "no-settings-window-at-launch",
+      "category": "fix",
+      "title": "No stray window when the app starts",
+      "summary": "Opening Claude Overhead from Spotlight or the Dock, or restarting your Mac, could bring up an old \"Claude Overhead Settings\" window. It no longer does.",
+      "details": [
+        "The window was left over from before the companion window existed.",
+        "Nothing in your settings changes. The real Settings are where they were: the gear in the notch."
+      ]
+    },
+    {
+      "id": "command-comma",
+      "category": "improvement",
+      "title": "⌘, opens the real Settings",
+      "summary": "Pressing ⌘, in a Claude Overhead window now opens Settings in the companion window. It used to open that old window."
+    }
+  ]
+}

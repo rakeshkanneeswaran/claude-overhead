@@ -9,6 +9,18 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-24
+
+Fixes an old settings window that opened by itself when Claude Overhead was
+started.
+
+- **An old "Claude Overhead Settings" window no longer opens when the app
+  starts.** Opening the app from Spotlight or the Dock, or restarting the
+  Mac, could bring up a small settings window (General, Agents, About) left
+  over from before the companion window existed. It was the only window the
+  app declared to the system, so the system presented it at launch. The app
+  now declares none, and that window is gone.
+- **⌘, opens the real Settings.** It used to open that old window.
 - **Releases are now built, tested and published from the maintainer's Mac
   with one command.** GitHub hosts the code and the downloads and no longer
   builds or tests anything. Nothing changes for installing or updating: the
@@ -502,7 +514,8 @@ controls in the MacBook notch.
 - Accessibility permission is needed for Chimlo's volume and brightness
   controls. Agent activity remains available without it.
 
-[Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.1.1
 [1.1.0]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.1.0
 [1.0.8]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.8
 [1.0.7]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.0.7
