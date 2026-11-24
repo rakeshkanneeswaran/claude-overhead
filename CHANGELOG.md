@@ -9,6 +9,58 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-25
+
+Settings has been redesigned from the sidebar in: every pane is built the
+same way, a search field finds any setting, and the characters, the notch
+layouts and the glow are shown, not described. Every setting you had keeps
+the value you gave it.
+
+- **Settings has been redesigned.** Opening Settings turns the window's
+  sidebar into the Settings sidebar, with Back to the page you came from at
+  its top, in place of the row of tabs across the window. Every pane is
+  built from the same parts: a heading, a group of rows with the system's own
+  switches, menus and sliders, and the longer explanation behind a small
+  information button instead of a paragraph under each group. Every setting
+  that existed is still there and keeps the value you gave it; nothing about
+  how settings are stored changed.
+- **Search in Settings.** A search field at the top finds a setting by name
+  or by a word for it (glow, volume, repository, quiet hours, shortcut,
+  characters) and takes you to it. ⌘F puts the cursor there.
+- **Characters & Mascots, in Settings → Appearance.** All 46 characters are
+  shown from their own artwork, by world, with a larger preview of the one
+  you click. Choose the session to dress and give it a character, or the
+  Claude logo back, from there. It sets exactly what clicking a session's
+  logo in the notch sets, and the notch's picker works as before. Automatic
+  characters (still off until you turn them on) and each project's own
+  collection are in the same place.
+- **Appearance shows instead of describing.** Each notch layout is drawn as
+  the closed notch looks in it, and the completion glow, colour themes and
+  the accessibility settings Claude Overhead follows each have their own
+  group, reachable from links at the top of the page.
+- **Notifications & Sound** is one pane: the sound, then one table of events
+  with a column each for showing, sound and banner, GitHub's events
+  included.
+- **Settings → GitHub lists repositories under their owner.** Each owner
+  opens and closes, says how many of its repositories are selected, and has
+  its own All and None. Repositories with the same name under different
+  owners stay separate, and the selection is still stored by GitHub's own
+  ids, with Apply and Revert as before. Whether a GitHub event notifies you
+  is now set in one place, Notifications & Sound.
+- **Privacy starts with the short answer**, "Your data stays on this Mac",
+  and keeps what is sent where (GitHub when it is on, update checks, Claude
+  Code's own usage check) one click away.
+- **New installations start on the Obsidian theme**, with the completion
+  glow on as RGB Spectrum. This update does not change your theme: a theme
+  you chose stays, and a copy that was showing Midnight because it had never
+  changed a setting keeps Midnight.
+- Coming back to Settings opens a pane at its top again, not at the group a
+  search last landed on.
+- The repository picker no longer regroups every repository once per owner
+  while it draws, which matters with hundreds of repositories.
+- `make settings-preview` draws every Settings pane to pictures, without
+  starting the app, for looking at Settings after changing it.
+
 ## [1.2.0] - 2026-11-24
 
 The glow that marks a finished turn is now yours to choose: ten glows, each
@@ -543,6 +595,7 @@ controls in the MacBook notch.
   controls. Agent activity remains available without it.
 
 [Unreleased]: https://github.com/rakeshkanneeswaran/claude-overhead/compare/v1.1.1...HEAD
+[1.3.0]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.3.0
 [1.2.0]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.2.0
 [1.1.1]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.1.1
 [1.1.0]: https://github.com/rakeshkanneeswaran/claude-overhead/releases/tag/v1.1.0

@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "version": "1.3.0",
+  "date": "2026-11-25",
+  "introduction": "Settings has been redesigned: one sidebar, a search field, and panes that show the characters, the notch layouts and the glow. Every setting you had keeps the value you gave it.",
+  "cards": [
+    {
+      "id": "settings-redesign",
+      "category": "feature",
+      "title": "Settings, redesigned",
+      "summary": "Opening Settings turns the window's sidebar into the Settings sidebar, with Back at its top. Every pane is built the same way, with longer explanations behind a small information button.",
+      "details": [
+        "Seven panes: General, Appearance, Notifications & Sound, Usage, Shortcuts, GitHub and Privacy.",
+        "Every setting that existed is still there, with the value you gave it."
+      ],
+      "visual": {
+        "kind": "image",
+        "image": {
+          "file": "settings.png",
+          "alt": "Settings open on Appearance: the Settings sidebar with Back at its top, a search field, and the five notch layouts drawn as they look."
+        }
+      }
+    },
+    {
+      "id": "settings-search",
+      "category": "feature",
+      "title": "Search in Settings",
+      "summary": "A search field at the top of Settings finds a setting by its name or by a word for it, such as glow, volume, repository or shortcut, and takes you straight to it.",
+      "details": [
+        "Command-F puts the cursor in the field; the arrow keys and Return choose a result."
+      ]
+    },
+    {
+      "id": "character-gallery",
+      "category": "feature",
+      "title": "Characters & Mascots, in Settings",
+      "summary": "All 46 characters are now shown in Settings, under Appearance, by world. Click one to see it larger, choose the session to dress, and give it that character or the Claude logo back.",
+      "details": [
+        "It sets exactly what clicking a session's logo in the notch sets, and the notch's picker works as before.",
+        "Automatic characters, still off until you turn them on, and each project's own collection are in the same place."
+      ],
+      "visual": {
+        "kind": "image",
+        "image": {
+          "file": "characters.png",
+          "alt": "The character gallery: a large preview, three sessions to dress, the four worlds, and a tile for each character."
+        }
+      }
+    },
+    {
+      "id": "repositories-by-owner",
+      "category": "improvement",
+      "title": "Repositories grouped by owner",
+      "summary": "In Settings, under GitHub, repositories are listed under their owner. Each owner opens and closes, says how many of its repositories are selected, and has its own All and None.",
+      "details": [
+        "Repositories with the same name under different owners stay separate.",
+        "Your selection is unchanged, and Apply and Revert work as before."
+      ],
+      "visual": {
+        "kind": "image",
+        "image": {
+          "file": "repositories.png",
+          "alt": "The repository picker: three owners, two of them open, each with its selected count and its repositories."
+        }
+      }
+    },
+    {
+      "id": "appearance-shown",
+      "category": "improvement",
+      "title": "Appearance shows instead of describing",
+      "summary": "Each notch layout is drawn as the closed notch looks in it, and the completion glow, the colour themes and the accessibility settings each have their own group, one click from the top of the page."
+    },
+    {
+      "id": "notifications-and-sound",
+      "category": "improvement",
+      "title": "Notifications & Sound in one pane",
+      "summary": "The sound comes first, then one table of events with a column each for showing, sound and banner. GitHub's events are in the same table, and that is now the one place they are set."
+    },
+    {
+      "id": "obsidian-default",
+      "category": "improvement",
+      "title": "New installations start on Obsidian",
+      "summary": "A new installation now starts on the Obsidian theme, with the completion glow on as RGB Spectrum. This update does not change your theme or any other setting."
+    }
+  ]
+}
