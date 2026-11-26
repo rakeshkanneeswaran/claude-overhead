@@ -23,7 +23,7 @@ public enum SettingsAnchor: String, CaseIterable, Identifiable, Sendable {
     // Appearance
     case layout, characters, glow, theme, notchContent, lists, accessibility
     // Notifications & Sound
-    case sound, claudeEvents, githubEvents, delivery, quietHours, focus
+    case sound, completionSound, claudeEvents, githubEvents, delivery, quietHours, focus
     // Usage
     case context, limits, cache
     // Shortcuts
@@ -39,7 +39,7 @@ public enum SettingsAnchor: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .startup, .display, .behaviour, .claudeCode, .updates, .about, .reset: .general
         case .layout, .characters, .glow, .theme, .notchContent, .lists, .accessibility: .appearance
-        case .sound, .claudeEvents, .githubEvents, .delivery, .quietHours, .focus: .notifications
+        case .sound, .completionSound, .claudeEvents, .githubEvents, .delivery, .quietHours, .focus: .notifications
         case .context, .limits, .cache: .usage
         case .shortcuts: .shortcuts
         case .githubConnection, .repositories, .monitoring, .githubMode, .githubPrivacy: .github
@@ -147,10 +147,14 @@ public enum SettingsCatalog {
     private static let notifications: [SettingsEntry] = [
         SettingsEntry("playSounds", .sound, "Play sounds", "The master switch for every sound.",
                       ["sound", "sounds", "mute", "audio", "silent"]),
-        SettingsEntry("soundChoice", .sound, "Sound", "Pixel chime, Tink, Pop, Glass or Purr.",
+        SettingsEntry("soundChoice", .sound, "Alert sound", "For requests, questions and failures: Pixel chime, Tink, Pop, Glass or Purr.",
                       ["sound", "chime", "tink", "pop", "glass", "purr", "preview"]),
         SettingsEntry("soundVolume", .sound, "Volume", "How loud the sound plays.",
                       ["volume", "loud", "quiet"]),
+        SettingsEntry("completionSound", .completionSound, "Completion sound",
+                      "What a finished turn plays: \(CompletionSoundLibrary.all.count) sounds in five groups, each with a preview.",
+                      ["completion", "finished", "done", "complete", "fanfare", "victory", "achievement", "level up", "coin",
+                       "power up", "8-bit", "retro", "game", "gaming", "chime", "futuristic", "playful", "sound effect"]),
         SettingsEntry("sessionSound", .sound, "Per-session sound", "Each session's bell in the notch turns its sound on.",
                       ["bell", "session", "sound"]),
         SettingsEntry("claudeEvents", .claudeEvents, "Claude notifications",

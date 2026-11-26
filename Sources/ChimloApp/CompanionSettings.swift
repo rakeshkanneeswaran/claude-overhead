@@ -757,7 +757,7 @@ private struct NotificationsPane: View {
     var body: some View {
         SettingsPage {
             SettingsJumpBar(anchors: [
-                (.sound, "Sound"), (.claudeEvents, "Claude"), (.githubEvents, "GitHub"), (.delivery, "Banners"),
+                (.sound, "Sound"), (.completionSound, "Completion"), (.claudeEvents, "Claude"), (.githubEvents, "GitHub"), (.delivery, "Banners"),
                 (.quietHours, "Quiet hours"), (.focus, "Focus mode"),
             ])
             SettingsSection(
@@ -767,9 +767,9 @@ private struct NotificationsPane: View {
             ) {
                 SettingsGroup {
                     Toggle("Play sounds", isOn: settings.binding(\.notifications.soundsEnabled))
-                    SettingsRow("Sound") {
+                    SettingsRow("Alert sound", detail: "Permission requests, questions and failures.") {
                         HStack(spacing: 8) {
-                            Picker("Sound", selection: settings.binding(\.notifications.soundChoice)) {
+                            Picker("Alert sound", selection: settings.binding(\.notifications.soundChoice)) {
                                 ForEach(NotificationSoundChoice.allCases) { choice in
                                     Text(choice.displayName).tag(choice)
                                 }
@@ -795,6 +795,22 @@ private struct NotificationsPane: View {
                     }
                 }
                 SettingsNote("Sessions start silent. A session's bell in the notch turns its sound on.")
+            }
+
+            SettingsSection(
+                .completionSound,
+                "Completion sound",
+                info: "What a finished turn plays, for a session whose bell is on. Until you choose one, it is the alert sound, as before. Press a sound's play button to hear it; click the sound to choose it. The volume above applies to every sound, and the completion glow is set on its own in Appearance."
+            ) {
+                CompletionSoundPicker(
+                    selected: settings.settings.notifications.completionSound,
+                    alertName: settings.settings.notifications.soundChoice.displayName,
+                    choose: { id in
+                        settings.settings.notifications.completionSound = id
+                        previewCompletion(id)
+                    },
+                    preview: previewCompletion
+                )
             }
 
             SettingsSection(
@@ -906,6 +922,14 @@ private struct NotificationsPane: View {
                 EventPreferenceRow(kind: kind)
             }
         }
+    }
+
+    private func previewCompletion(_ id: String) {
+        services.model.previewCompletionSound(
+            id,
+            alert: settings.settings.notifications.soundChoice,
+            volume: settings.settings.notifications.soundVolume
+        )
     }
 
     private func preview() {

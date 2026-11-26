@@ -407,6 +407,9 @@ final class ApplicationModel: ObservableObject {
     /// Previews closed with ×, by reply (presentation only).
     private var previewDismissals = ConversationPreviewDismissals()
     private var soundChoice: NotificationSoundChoice = .chime
+    /// What a finished turn plays, when the owner chose one; nil plays the
+    /// alert sound, as before.
+    private var completionSound: CompletionSound?
     private var soundVolume = NotificationSoundVolume.defaultValue
 
     private let defaults: UserDefaults
@@ -1164,6 +1167,7 @@ final class ApplicationModel: ObservableObject {
         }
         if preferredDisplay != settings.preferredDisplay { preferredDisplay = settings.preferredDisplay }
         soundChoice = settings.notifications.soundChoice
+        completionSound = settings.notifications.completionSoundOverride
         soundVolume = settings.notifications.soundVolume
         if contextAttentionThreshold != settings.contextAttentionThreshold {
             contextAttentionThreshold = settings.contextAttentionThreshold
@@ -1481,7 +1485,24 @@ final class ApplicationModel: ObservableObject {
     /// Every notification sound goes through here: the chosen sound, at the
     /// chosen volume, under the Mac's own volume and mute.
     private func playSound(_ cue: ChiptuneCue) {
+        // A finished turn, and a bell turned on to hear it, play the
+        // completion sound when one is chosen. Everything else is the alert.
+        if cue == .success, let completionSound {
+            chiptunePlayer.playCompletion(completionSound, volume: soundVolume)
+            return
+        }
         chiptunePlayer.play(cue, choice: soundChoice, volume: soundVolume)
+    }
+
+    /// Settings' completion sound previews: `id` from the library, or
+    /// `CompletionSoundLibrary.sameAsAlert` for the alert sound. Plays even
+    /// while muted, since it was asked for.
+    func previewCompletionSound(_ id: String, alert: NotificationSoundChoice, volume: Double) {
+        if let sound = CompletionSoundLibrary.sound(id: id) {
+            chiptunePlayer.playCompletion(sound, volume: volume)
+        } else {
+            chiptunePlayer.play(.success, choice: alert, volume: volume)
+        }
     }
 
     /// Settings' Preview button: plays even while muted, since it was asked for.

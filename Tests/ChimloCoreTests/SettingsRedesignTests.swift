@@ -324,6 +324,7 @@ struct SettingsRedesignWiringTests {
         // The ones set through something other than a plain binding.
         for written in [
             "settings.settings.layout = candidate",
+            "settings.settings.notifications.completionSound = id",
             #"threshold("Warn at", \.contextAttentionThreshold)"#,
             #"threshold("Critical at", \.contextCriticalThreshold)"#,
             #"threshold("Warn at", \.usageWarningThreshold)"#,

@@ -190,8 +190,13 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
     /// Tag completions with one group key so a burst of finished sessions
     /// collapses into a single notice.
     public var groupCompletions: Bool
-    /// The sound every notification uses.
+    /// The alert sound: permission requests, questions, failures, and a
+    /// finished turn too unless `completionSound` names one of its own.
     public var soundChoice: NotificationSoundChoice
+    /// The id of the sound a finished turn plays (`CompletionSoundLibrary`),
+    /// or `CompletionSoundLibrary.sameAsAlert` (empty) for the alert sound.
+    /// Kept as text, so an id from a newer version survives a round trip.
+    public var completionSound: String
     /// 0.05...1, applied under the Mac's own volume.
     public var soundVolume: Double
 
@@ -202,9 +207,11 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
         quietHoursEnabled: Bool = false,
         groupCompletions: Bool = true,
         soundChoice: NotificationSoundChoice = .chime,
+        completionSound: String = CompletionSoundLibrary.sameAsAlert,
         soundVolume: Double = NotificationSoundVolume.defaultValue
     ) {
         self.soundChoice = soundChoice
+        self.completionSound = completionSound
         self.soundVolume = NotificationSoundVolume.clamped(soundVolume)
         self.soundsEnabled = soundsEnabled
         self.perEvent = perEvent
@@ -224,7 +231,7 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case soundsEnabled, perEvent, quietHours, quietHoursEnabled, groupCompletions
-        case soundChoice, soundVolume
+        case soundChoice, completionSound, soundVolume
     }
 
     public init(from decoder: any Decoder) throws {
@@ -235,6 +242,7 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
         quietHoursEnabled = container.lenient(Bool.self, .quietHoursEnabled) ?? fallback.quietHoursEnabled
         groupCompletions = container.lenient(Bool.self, .groupCompletions) ?? fallback.groupCompletions
         soundChoice = container.lenient(NotificationSoundChoice.self, .soundChoice) ?? fallback.soundChoice
+        completionSound = container.lenient(String.self, .completionSound) ?? fallback.completionSound
         soundVolume = NotificationSoundVolume.clamped(container.lenient(Double.self, .soundVolume) ?? fallback.soundVolume)
         // Keyed by raw value so an event kind from a newer version, or one
         // malformed entry, is skipped instead of failing the whole map.
@@ -254,6 +262,7 @@ public struct NotificationPreferences: Codable, Equatable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(soundsEnabled, forKey: .soundsEnabled)
         try container.encode(soundChoice, forKey: .soundChoice)
+        try container.encode(completionSound, forKey: .completionSound)
         try container.encode(soundVolume, forKey: .soundVolume)
         try container.encodeIfPresent(quietHours, forKey: .quietHours)
         try container.encode(quietHoursEnabled, forKey: .quietHoursEnabled)

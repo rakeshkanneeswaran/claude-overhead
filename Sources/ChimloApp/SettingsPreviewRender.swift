@@ -70,7 +70,7 @@ enum SettingsRenderCheck {
         // The window as it opens: the workspace, then Settings in the same sidebar.
         snapshot("00-workspace", height: 700) { navigation.section = .overview }
         let heights: [SettingsPane: CGFloat] = [
-            .general: 1180, .appearance: 2700, .notifications: 2150, .usage: 760,
+            .general: 1180, .appearance: 2700, .notifications: 3150, .usage: 760,
             .shortcuts: 820, .github: 760, .privacy: 1000,
         ]
         for (index, pane) in SettingsPane.allCases.enumerated() {

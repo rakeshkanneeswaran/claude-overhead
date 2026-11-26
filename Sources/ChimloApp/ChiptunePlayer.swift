@@ -50,6 +50,30 @@ final class ChiptunePlayer {
         sound.play()
     }
 
+    /// Completion sounds made by `SoundSynth`, rendered once each.
+    private var synthesized: [String: Data] = [:]
+
+    /// A finished turn's own sound (`CompletionSoundLibrary`). An alert sound
+    /// in the collection plays exactly as the alert plays it.
+    func playCompletion(_ sound: CompletionSound, volume: Double) {
+        guard case .synth = sound.source else {
+            if case let .alert(choice) = sound.source { play(.success, choice: choice, volume: volume) }
+            return
+        }
+        let data: Data
+        if let cached = synthesized[sound.id] {
+            data = cached
+        } else {
+            data = SoundSynth.wav(sound.samples() ?? [])
+            synthesized[sound.id] = data
+        }
+        guard let player = NSSound(data: data) else { return }
+        player.volume = Float(NotificationSoundVolume.clamped(volume))
+        activeSound?.stop()
+        activeSound = player
+        player.play()
+    }
+
     private static func waveData(for cue: ChiptuneCue) -> Data {
         let sampleRate = 22_050
         var samples: [Int16] = []
