@@ -9,6 +9,27 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-27
+
+A finished turn can now play a sound of its own, from 33 sounds in five
+groups, each with a preview.
+
+- **33 completion sounds.** Settings, Notifications & Sound, has a new
+  Completion sound section: Victory & Achievement (a fanfare, Mission
+  Complete, Level Up, Achievement Unlocked and more), Retro & Gaming (Coin,
+  Power-Up, Extra Life, Stage Clear), Minimal & Professional, Futuristic &
+  Cinematic, and Fun & Playful. Every sound has a play button, so you can
+  hear it before you choose it; clicking a sound chooses it. The new sounds
+  are original, made by Claude Overhead itself, short, and matched in
+  loudness, so the volume setting means the same for all of them.
+- **Your sounds are kept.** Until you choose a completion sound, a finished
+  turn plays the alert sound, exactly as before. The five existing sounds
+  are all in the collection, the alert sound for requests, questions and
+  failures is unchanged (now labelled Alert sound), and the volume, the
+  per-session bells and the completion glow work as they did. Turning on a
+  session's bell plays your completion sound, so you hear what that session
+  will play.
+
 ## [1.4.0] - 2026-11-27
 
 Claude Overhead can now hide outside the notch, for fullscreen video and

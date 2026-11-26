@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "version": "1.5.0",
+  "date": "2026-11-27",
+  "introduction": "A finished turn can now play a sound of its own, from 33 sounds in five groups, each with a preview.",
+  "cards": [
+    {
+      "id": "completion-sounds",
+      "category": "feature",
+      "title": "33 completion sounds",
+      "summary": "Choose what a finished turn plays, in Settings, Notifications & Sound: fanfares, Level Up, Coin and Power-Up, quiet chimes, futuristic tones and playful ones, in five groups.",
+      "details": [
+        "Every sound has a play button, so you can hear it before you choose it. Clicking a sound chooses it.",
+        "The new sounds are original, made by Claude Overhead itself, short, and matched in loudness."
+      ],
+      "visual": {
+        "kind": "image",
+        "image": {
+          "file": "sounds.png",
+          "alt": "The Completion sound section: Same as the alert sound, then Victory & Achievement and Retro & Gaming, each sound with a play button."
+        }
+      }
+    },
+    {
+      "id": "sounds-kept",
+      "category": "improvement",
+      "title": "Your sounds stay as they were",
+      "summary": "Until you choose a completion sound, a finished turn plays the alert sound, exactly as before. Requests, questions and failures keep the alert sound.",
+      "details": [
+        "The five existing sounds are all in the new collection.",
+        "The volume, the per-session bells and the completion glow work as before. Turning on a session's bell plays your completion sound."
+      ]
+    }
+  ]
+}
