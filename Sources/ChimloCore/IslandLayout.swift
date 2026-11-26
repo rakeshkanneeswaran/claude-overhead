@@ -7,6 +7,8 @@ public struct IslandDisplayMetrics: Equatable, Sendable {
     public let safeTopInset: CGFloat
     public let cameraHousingLeftEdge: CGFloat?
     public let cameraHousingRightEdge: CGFloat?
+    /// The menu bar's height on this display (0 while it is hidden).
+    public let menuBarHeight: CGFloat
 
     public init(
         screenWidth: CGFloat,
@@ -14,7 +16,8 @@ public struct IslandDisplayMetrics: Equatable, Sendable {
         visibleTop: CGFloat,
         safeTopInset: CGFloat,
         cameraHousingLeftEdge: CGFloat?,
-        cameraHousingRightEdge: CGFloat?
+        cameraHousingRightEdge: CGFloat?,
+        menuBarHeight: CGFloat = 24
     ) {
         self.screenWidth = screenWidth
         self.screenHeight = screenHeight
@@ -22,6 +25,7 @@ public struct IslandDisplayMetrics: Equatable, Sendable {
         self.safeTopInset = safeTopInset
         self.cameraHousingLeftEdge = cameraHousingLeftEdge
         self.cameraHousingRightEdge = cameraHousingRightEdge
+        self.menuBarHeight = menuBarHeight
     }
 
     public var cameraHousingWidth: CGFloat {
@@ -43,6 +47,11 @@ public struct IslandLayout: Equatable, Sendable {
     public let cameraHousingWidth: CGFloat
     public let activityWingWidth: CGFloat
     public let hasCameraHousing: Bool
+    /// The hidden notch (`NotchVisibilityPolicy`): exactly the camera
+    /// housing. A display without one gets an invisible target of the same
+    /// width at the top of the screen, where a notch would be.
+    public let concealedWidth: CGFloat
+    public let concealedHeight: CGFloat
 
     /// `wingWidthScale` widens the compact activity wings for layouts that
     /// show more than the avatar and a signal (1 = the classic 32-point wings).
@@ -64,7 +73,9 @@ public struct IslandLayout: Equatable, Sendable {
                 expandedNeckWidth: 198,
                 cameraHousingWidth: 0,
                 activityWingWidth: 0,
-                hasCameraHousing: false
+                hasCameraHousing: false,
+                concealedWidth: 198,
+                concealedHeight: max(22, display.menuBarHeight)
             )
         }
 
@@ -81,7 +92,9 @@ public struct IslandLayout: Equatable, Sendable {
             expandedNeckWidth: neckWidth,
             cameraHousingWidth: display.cameraHousingWidth,
             activityWingWidth: activityWingWidth,
-            hasCameraHousing: true
+            hasCameraHousing: true,
+            concealedWidth: display.cameraHousingWidth,
+            concealedHeight: display.safeTopInset
         )
     }
 }

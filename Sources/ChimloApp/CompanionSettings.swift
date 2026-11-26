@@ -159,13 +159,18 @@ private struct GeneralPane: View {
             SettingsSection(
                 .behaviour,
                 "Behaviour",
-                info: "Lock Mode: while locked, the notch never opens by itself. Every session is still watched, the sounds you turned on still play, and a permission request or question waits in the notch, never approved or dropped, until you click the notch to answer it.\n\nUnattended runs: a run started by a script (claude -p) has nobody at a Claude Code prompt, so Claude Code decides by itself and the run carries on. Off, Claude Overhead stays out of those runs. On, their permission requests and questions wait in the notch, and the run stops until you answer or the request expires."
+                info: "Hide outside the notch: for fullscreen video and the like. The closed notch draws nothing beside the camera, no character, activity or glow, and opens only when you click the notch. The eye button in the open notch does the same. Sessions are still watched, and a permission request or question still shows, because Claude is waiting for it.\n\nLock Mode: while locked, the notch never opens by itself. Every session is still watched, the sounds you turned on still play, and a permission request or question waits in the notch, never approved or dropped, until you click the notch to answer it.\n\nUnattended runs: a run started by a script (claude -p) has nobody at a Claude Code prompt, so Claude Code decides by itself and the run carries on. Off, Claude Overhead stays out of those runs. On, their permission requests and questions wait in the notch, and the run stops until you answer or the request expires."
             ) {
                 SettingsGroup {
                     SettingsToggle(
                         "Lock Mode",
                         detail: "The notch opens only when you click it. Requests wait, never approved or dropped.",
                         isOn: settings.binding(\.notchLocked)
+                    )
+                    SettingsToggle(
+                        "Hide outside the notch",
+                        detail: "Nothing shows beside the camera until you click the notch. Requests still show.",
+                        isOn: settings.binding(\.notchHidden)
                     )
                     SettingsToggle(
                         "Ask me about unattended runs",

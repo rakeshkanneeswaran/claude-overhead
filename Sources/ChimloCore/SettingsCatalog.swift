@@ -83,6 +83,8 @@ public enum SettingsCatalog {
                       ["display", "screen", "monitor", "external", "pointer"]),
         SettingsEntry("notchLocked", .behaviour, "Lock Mode", "The notch opens only when you open it.",
                       ["lock", "locked", "notch", "open"]),
+        SettingsEntry("notchHidden", .behaviour, "Hide outside the notch", "Nothing shows beside the camera until you click the notch.",
+                      ["hide", "hidden", "visible", "visibility", "eye", "fullscreen", "full screen", "video", "movie", "youtube", "distraction"]),
         SettingsEntry("unattendedRuns", .behaviour, "Unattended runs", "Whether requests from scripted runs wait in the notch.",
                       ["unattended", "script", "headless", "print", "sdk", "claude -p"]),
         SettingsEntry("claudeCode", .claudeCode, "Claude Code connection", "Connect, repair or disconnect Claude Code.",

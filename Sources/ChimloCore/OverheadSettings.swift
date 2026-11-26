@@ -407,6 +407,9 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
     public var showClosedNotchActivity: Bool
     /// Lock Mode: the notch opens only when the owner opens it.
     public var notchLocked: Bool
+    /// Hidden: the closed notch draws nothing outside the camera housing,
+    /// for fullscreen video and the like. Separate from the layouts.
+    public var notchHidden: Bool
     /// Whether requests from runs nobody is watching (`claude -p`, an SDK
     /// run with no host that answers) wait in the notch. Off, Claude Code
     /// decides them as it does without Claude Overhead.
@@ -465,6 +468,7 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         showAgents = true
         showClosedNotchActivity = true
         notchLocked = false
+        notchHidden = false
         askAboutUnattendedRuns = false
         contextAttentionThreshold = 0.7
         contextCriticalThreshold = 0.9
@@ -569,7 +573,7 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         case completionGlowEnabled, completionGlowTheme
         case sessionSort, groupByProject, historyRetentionDays, storeConversationPreviews
         case notifications
-        case showAgents, showClosedNotchActivity, notchLocked, askAboutUnattendedRuns
+        case showAgents, showClosedNotchActivity, notchLocked, notchHidden, askAboutUnattendedRuns
         case contextAttentionThreshold, contextCriticalThreshold, usageWarningThreshold
         case showResetCountdowns, showCacheMetrics
         case github, focus
@@ -610,6 +614,7 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         showAgents = c.lenient(Bool.self, .showAgents) ?? d.showAgents
         showClosedNotchActivity = c.lenient(Bool.self, .showClosedNotchActivity) ?? d.showClosedNotchActivity
         notchLocked = c.lenient(Bool.self, .notchLocked) ?? d.notchLocked
+        notchHidden = c.lenient(Bool.self, .notchHidden) ?? d.notchHidden
         askAboutUnattendedRuns = c.lenient(Bool.self, .askAboutUnattendedRuns) ?? d.askAboutUnattendedRuns
         contextAttentionThreshold = c.lenient(Double.self, .contextAttentionThreshold) ?? d.contextAttentionThreshold
         contextCriticalThreshold = c.lenient(Double.self, .contextCriticalThreshold) ?? d.contextCriticalThreshold
@@ -652,6 +657,7 @@ public struct OverheadSettings: Codable, Equatable, Sendable {
         try c.encode(showAgents, forKey: .showAgents)
         try c.encode(showClosedNotchActivity, forKey: .showClosedNotchActivity)
         try c.encode(notchLocked, forKey: .notchLocked)
+        try c.encode(notchHidden, forKey: .notchHidden)
         try c.encode(askAboutUnattendedRuns, forKey: .askAboutUnattendedRuns)
         try c.encode(contextAttentionThreshold, forKey: .contextAttentionThreshold)
         try c.encode(contextCriticalThreshold, forKey: .contextCriticalThreshold)

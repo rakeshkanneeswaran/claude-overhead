@@ -157,11 +157,20 @@ public enum NotchLockPolicy {
         case ownerAction
     }
 
-    public static func opens(_ trigger: Trigger, isLocked: Bool, layoutExpandsOnHover: Bool = true) -> Bool {
+    /// `isHidden` is the eye button (`NotchVisibilityPolicy`): hidden, the
+    /// notch opens only on the owner's click, except for a request Claude is
+    /// blocked on, which follows Lock Mode exactly as it does when shown.
+    public static func opens(
+        _ trigger: Trigger,
+        isLocked: Bool,
+        isHidden: Bool = false,
+        layoutExpandsOnHover: Bool = true
+    ) -> Bool {
         switch trigger {
         case .ownerAction: true
-        case .hover: layoutExpandsOnHover && !isLocked
-        case .ownerRequest, .sessionFailure, .updateNotice: !isLocked
+        case .ownerRequest: !isLocked
+        case .hover: layoutExpandsOnHover && !isLocked && !isHidden
+        case .sessionFailure, .updateNotice: !isLocked && !isHidden
         }
     }
 

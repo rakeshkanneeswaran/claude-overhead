@@ -75,6 +75,9 @@ struct IslandRootView: View {
             .frame(width: model.panelSize.width, height: model.panelSize.height)
             .animation(islandResizeAnimation, value: model.panelSize)
             .contextMenu {
+                Button(model.isNotchHidden ? "Show Outside the Notch" : "Hide Outside the Notch") {
+                    model.isNotchHidden.toggle()
+                }
                 Button("Settings…", action: openSettings)
                 Divider()
                 Button("Quit Claude Overhead") { NSApp.terminate(nil) }
@@ -109,9 +112,13 @@ struct IslandRootView: View {
     private var islandSurface: some View {
         let surface = ChimloTheme.surface(increasedContrast: model.accessibility.increaseContrast)
         if model.islandLayout.hasCameraHousing, model.panelMode == .compact {
+            // Hidden, the shape shrinks into the camera housing as it fades,
+            // so nothing is left beside the hardware.
             CompactNotchIslandShape()
                 .fill(surface)
                 .overlay { completionGlow(in: CompactNotchIslandShape()) }
+                .opacity(model.isNotchConcealed ? 0 : 1)
+                .animation(concealAnimation, value: model.isNotchConcealed)
         } else if model.islandLayout.hasCameraHousing {
             NotchExpandedIslandShape()
                 .fill(surface)
@@ -124,7 +131,13 @@ struct IslandRootView: View {
             shape
                 .fill(surface)
                 .overlay { if compact { completionGlow(in: shape) } }
+                .opacity(model.isNotchConcealed ? 0 : 1)
+                .animation(concealAnimation, value: model.isNotchConcealed)
         }
+    }
+
+    private var concealAnimation: Animation? {
+        model.accessibility.reduceMotion ? nil : .easeOut(duration: 0.22)
     }
 
     /// A finished turn lights the compact notch with the owner's glow theme
@@ -371,7 +384,7 @@ private struct ExpandedStatusBand: View {
                 let wingWidth = max(0, (geometry.size.width - cameraWidth) / 2)
 
                 HStack(spacing: 0) {
-                    Group {
+                    HStack(spacing: 2) {
                         // Usage always sits top left in the open notch, in
                         // every layout, so the limits are a glance away.
                         if model.notchContent == .github {
@@ -379,6 +392,7 @@ private struct ExpandedStatusBand: View {
                         } else {
                             InlineCapacityView(model: model)
                         }
+                        NotchVisibilityButton(model: model)
                     }
                         .padding(.leading, expandedHorizontalGutter)
                         .frame(width: wingWidth, height: geometry.size.height, alignment: .leading)
@@ -454,6 +468,30 @@ private struct ExpandedStatusBand: View {
     }
 }
 
+/// The eye: hide Claude Overhead outside the notch, or show it again.
+private struct NotchVisibilityButton: View {
+    @ObservedObject var model: ApplicationModel
+
+    var body: some View {
+        Button {
+            model.isNotchHidden.toggle()
+        } label: {
+            Image(systemName: model.isNotchHidden ? "eye.slash.fill" : "eye")
+                .font(.system(size: 11, weight: .semibold))
+        }
+        .buttonStyle(
+            ExpandedControlButtonStyle(
+                color: model.isNotchHidden ? ChimloTheme.providerOrange : ChimloTheme.quietPaper
+            )
+        )
+        .help(model.isNotchHidden
+              ? "Hidden: nothing shows outside the notch until you click it. Click to show Claude Overhead again."
+              : "Hide outside the notch, for fullscreen video. Click the notch to open it; sessions are still watched.")
+        .accessibilityLabel(model.isNotchHidden ? "Show Claude Overhead outside the notch" : "Hide Claude Overhead outside the notch")
+        .accessibilityValue(model.isNotchHidden ? "Hidden" : "Shown")
+    }
+}
+
 private struct ExpandedControlButtonStyle: ButtonStyle {
     let color: Color
 
@@ -479,18 +517,28 @@ private struct CompactIslandView: View {
         .accessibilityLabel(compactAccessibilityLabel)
     }
 
+    /// Hidden, the content fades out but the button stays: a click inside
+    /// the camera housing still opens the notch.
     private func openPanelButton<Content: View>(
         @ViewBuilder content: () -> Content
     ) -> some View {
         Button(action: model.openPanel) {
             content()
+                .opacity(model.isNotchConcealed ? 0 : 1)
+                .animation(
+                    model.accessibility.reduceMotion ? nil : .easeOut(duration: 0.18),
+                    value: model.isNotchConcealed
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
     private var compactAccessibilityLabel: String {
-        "Open Claude Overhead. \(summary). \(model.compactLabel.lowercased())."
+        if model.isNotchConcealed {
+            return "Open Claude Overhead. Hidden outside the notch. \(summary)."
+        }
+        return "Open Claude Overhead. \(summary). \(model.compactLabel.lowercased())."
     }
 
     private var standardContent: some View {

@@ -302,7 +302,7 @@ struct SettingsRedesignWiringTests {
     func everySettingHasAControl() throws {
         let sources = try Self.settingsSources()
         let bound = [
-            "launchAtLogin", "preferredDisplay", "notchLocked", "askAboutUnattendedRuns",
+            "launchAtLogin", "preferredDisplay", "notchLocked", "notchHidden", "askAboutUnattendedRuns",
             "accent", "animationIntensity", "density", "sessionSort", "groupByProject", "dailyRecapEnabled",
             "showAgents", "showClosedNotchActivity", "assignCharactersAutomatically",
             "storeConversationPreviews", "historyRetentionDays",

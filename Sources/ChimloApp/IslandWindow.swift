@@ -246,12 +246,32 @@ final class IslandWindowCoordinator {
         let intendedFrame = IslandGeometry.frame(
             for: model.panelSize,
             on: screen,
-            hasCameraHousing: model.islandLayout.hasCameraHousing
+            hasCameraHousing: model.islandLayout.hasCameraHousing,
+            atScreenTop: anchorsAtScreenTop
         )
         return intendedFrame.includingTopEdge.contains(NSEvent.mouseLocation)
     }
 
+    /// A hidden notch on a display without a camera housing is an invisible
+    /// target where a notch would be: the top of the screen, not under the
+    /// menu bar where the pill normally sits.
+    private var anchorsAtScreenTop: Bool {
+        !model.islandLayout.hasCameraHousing && model.isNotchConcealed
+    }
+
     private func observeChanges() {
+        // Hiding or showing the notch (the eye button, or a request that
+        // shows a hidden notch for a moment) changes where it may be clicked.
+        model.objectWillChange
+            .receive(on: RunLoop.main)
+            .compactMap { [weak self] in self?.model.isNotchConcealed }
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.updateHostFrame()
+                self?.refreshPointerPresence()
+            }
+            .store(in: &cancellables)
+
         model.$islandLayout
             .removeDuplicates()
             .receive(on: RunLoop.main)
@@ -341,7 +361,8 @@ final class IslandWindowCoordinator {
         refreshLayout()
         let target = IslandGeometry.hostFrame(
             on: screen,
-            hasCameraHousing: model.islandLayout.hasCameraHousing
+            hasCameraHousing: model.islandLayout.hasCameraHousing,
+            atScreenTop: anchorsAtScreenTop
         )
         guard panel.frame != target else { return }
         panel.setFrame(target, display: true)
@@ -377,7 +398,8 @@ final class IslandWindowCoordinator {
                 visibleTop: screen.visibleFrame.maxY,
                 safeTopInset: safeTopInset,
                 cameraHousingLeftEdge: leftArea?.maxX,
-                cameraHousingRightEdge: rightArea?.minX
+                cameraHousingRightEdge: rightArea?.minX,
+                menuBarHeight: max(0, screen.frame.maxY - screen.visibleFrame.maxY)
             )
         )
     }
@@ -386,16 +408,17 @@ final class IslandWindowCoordinator {
 private enum IslandGeometry {
     private static let hostHeight: CGFloat = 750
 
-    static func hostFrame(on screen: NSScreen, hasCameraHousing: Bool) -> CGRect {
+    static func hostFrame(on screen: NSScreen, hasCameraHousing: Bool, atScreenTop: Bool) -> CGRect {
         frame(
             for: CGSize(width: screen.frame.width, height: min(hostHeight, screen.frame.height)),
             on: screen,
-            hasCameraHousing: hasCameraHousing
+            hasCameraHousing: hasCameraHousing,
+            atScreenTop: atScreenTop
         )
     }
 
-    static func frame(for size: CGSize, on screen: NSScreen, hasCameraHousing: Bool) -> CGRect {
-        let top = hasCameraHousing ? screen.frame.maxY : screen.visibleFrame.maxY - 6
+    static func frame(for size: CGSize, on screen: NSScreen, hasCameraHousing: Bool, atScreenTop: Bool) -> CGRect {
+        let top = hasCameraHousing || atScreenTop ? screen.frame.maxY : screen.visibleFrame.maxY - 6
         let cameraCenter: CGFloat?
         if let leftArea = screen.auxiliaryTopLeftArea,
            let rightArea = screen.auxiliaryTopRightArea {

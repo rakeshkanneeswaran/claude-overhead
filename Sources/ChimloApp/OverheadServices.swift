@@ -94,6 +94,14 @@ final class OverheadServices: ObservableObject {
                 settings.settings.notchLocked = locked
             }
             .store(in: &cancellables)
+        // The notch's eye button writes the model too.
+        model.$isNotchHidden
+            .removeDuplicates()
+            .sink { [weak self] hidden in
+                guard let self, settings.settings.notchHidden != hidden else { return }
+                settings.settings.notchHidden = hidden
+            }
+            .store(in: &cancellables)
 
 
         history.start()

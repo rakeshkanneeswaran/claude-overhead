@@ -353,6 +353,26 @@ final class ApplicationModel: ObservableObject {
             }
         }
     }
+    /// The eye button: hidden, the closed notch draws nothing outside the
+    /// camera housing and opens only on a click (`NotchVisibilityPolicy`).
+    /// Sessions are still watched; requests are never hidden.
+    @Published var isNotchHidden = false {
+        didSet {
+            guard isNotchHidden != oldValue else { return }
+            if isNotchHidden {
+                clearCompletionGlow()
+                // Hiding from the open notch closes it at once, unless a
+                // request is showing there: that stays until it is answered.
+                if panelMode == .update || (panelMode == .sessions && !hasActiveOwnerInteraction) {
+                    cancelCollapse()
+                    showsUsageDetails = false
+                    panelMode = .compact
+                }
+            } else {
+                syncUpdatePanel()
+            }
+        }
+    }
     /// Which sessions may make sounds: none until the owner turns a
     /// session's bell on in the notch. Kept for the session's lifetime.
     @Published private(set) var soundPreferences = SessionSoundPreferences()
@@ -445,8 +465,19 @@ final class ApplicationModel: ObservableObject {
     private var contextWarnings = ThresholdCrossingTracker()
     private var usageWarnedWindows: Set<String> = []
 
+    /// The closed notch is hidden: it is the camera housing and nothing else.
+    var isNotchConcealed: Bool {
+        NotchVisibilityPolicy.conceals(
+            isHidden: isNotchHidden,
+            isClosed: panelMode == .compact,
+            hasPendingOwnerRequest: hasActiveOwnerInteraction
+        )
+    }
+
     var panelSize: CGSize {
         switch panelMode {
+        case .compact where isNotchConcealed:
+            return CGSize(width: islandLayout.concealedWidth, height: islandLayout.concealedHeight)
         case .compact:
             guard compactActivity != nil else {
                 return CGSize(width: islandLayout.compactWidth, height: islandLayout.compactHeight)
@@ -812,7 +843,7 @@ final class ApplicationModel: ObservableObject {
             clearCompletionGlow()
             cancelCollapse()
             guard panelMode == .compact,
-                  NotchLockPolicy.opens(.hover, isLocked: isNotchLocked, layoutExpandsOnHover: layoutSpec.expandsOnHover)
+                  NotchLockPolicy.opens(.hover, isLocked: isNotchLocked, isHidden: isNotchHidden, layoutExpandsOnHover: layoutSpec.expandsOnHover)
             else { return }
             panelMode = .sessions
         } else {
@@ -960,7 +991,7 @@ final class ApplicationModel: ObservableObject {
     }
 
     private var preferredIdlePanelMode: PanelMode {
-        guard NotchLockPolicy.opens(.updateNotice, isLocked: isNotchLocked) else { return .compact }
+        guard NotchLockPolicy.opens(.updateNotice, isLocked: isNotchLocked, isHidden: isNotchHidden) else { return .compact }
         return AppUpdatePresentationPolicy.shouldTakeIdlePanel(
             notice: updateNotice,
             now: .now,
@@ -986,7 +1017,7 @@ final class ApplicationModel: ObservableObject {
         )
         if takesPanel {
             guard panelMode == .compact,
-                  NotchLockPolicy.opens(.updateNotice, isLocked: isNotchLocked) else { return }
+                  NotchLockPolicy.opens(.updateNotice, isLocked: isNotchLocked, isHidden: isNotchHidden) else { return }
             cancelCollapse()
             showsUsageDetails = false
             panelMode = .update
@@ -1116,6 +1147,7 @@ final class ApplicationModel: ObservableObject {
             soundsEnabled = settings.notifications.soundsEnabled
         }
         if isNotchLocked != settings.notchLocked { isNotchLocked = settings.notchLocked }
+        if isNotchHidden != settings.notchHidden { isNotchHidden = settings.notchHidden }
         asksAboutUnattendedRuns = settings.askAboutUnattendedRuns
         let poolsChanged = projectCharacterPools != settings.projectCharacterPools
         if poolsChanged { projectCharacterPools = settings.projectCharacterPools }
@@ -1797,7 +1829,7 @@ final class ApplicationModel: ObservableObject {
         if let session = reducer.sessions[event.sessionID],
            sessions.contains(where: { $0.id == event.sessionID }),
            (session.pendingRequest != nil || (session.phase == .failed && failureMayOpenNotch)),
-           NotchLockPolicy.opens(session.phase == .failed ? .sessionFailure : .ownerRequest, isLocked: isNotchLocked) {
+           NotchLockPolicy.opens(session.phase == .failed ? .sessionFailure : .ownerRequest, isLocked: isNotchLocked, isHidden: isNotchHidden) {
             cancelCollapse()
             showsUsageDetails = false
             panelMode = .sessions
@@ -1811,6 +1843,8 @@ final class ApplicationModel: ObservableObject {
     /// same glow instead of stacking a second one.
     private func flashCompletionGlow() {
         guard completionGlow != nil else { return }
+        // Hidden, nothing lights up outside the notch.
+        guard !isNotchConcealed else { return }
         completionGlowTask?.cancel()
         animatesCompletionGlow = true
         showsCompletionGlow = true
@@ -2565,7 +2599,7 @@ final class ApplicationModel: ObservableObject {
                 pendingDecision = request
                 decisionContinuation = continuation
                 clickGuard.presented(request.id, at: Self.uptime)
-                if NotchLockPolicy.opens(.ownerRequest, isLocked: isNotchLocked) {
+                if NotchLockPolicy.opens(.ownerRequest, isLocked: isNotchLocked, isHidden: isNotchHidden) {
                     showsUsageDetails = false
                     panelMode = .sessions
                 }
@@ -2637,7 +2671,7 @@ final class ApplicationModel: ObservableObject {
                 clickGuard.presented(request.id, at: Self.uptime)
                 sessionPermissions[request.sessionID] = SessionPermissionPresentation(request: request)
                 presentPermissionEvent(for: request)
-                if NotchLockPolicy.opens(.ownerRequest, isLocked: isNotchLocked) {
+                if NotchLockPolicy.opens(.ownerRequest, isLocked: isNotchLocked, isHidden: isNotchHidden) {
                     showsUsageDetails = false
                     panelMode = .sessions
                 }
@@ -2779,7 +2813,7 @@ final class ApplicationModel: ObservableObject {
                 clickGuard.presented(request.id, step: flow.questionIndex, at: Self.uptime)
                 publishQuestion(flow)
                 presentQuestionEvent(for: flow)
-                if NotchLockPolicy.opens(.ownerRequest, isLocked: isNotchLocked) {
+                if NotchLockPolicy.opens(.ownerRequest, isLocked: isNotchLocked, isHidden: isNotchHidden) {
                     showsUsageDetails = false
                     panelMode = .sessions
                 }
