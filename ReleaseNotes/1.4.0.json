@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "version": "1.4.0",
+  "date": "2026-11-27",
+  "introduction": "Claude Overhead can now hide outside the notch, for fullscreen video and anything else where it would distract, and come back with one click.",
+  "cards": [
+    {
+      "id": "hide-outside-notch",
+      "category": "feature",
+      "title": "Hide outside the notch",
+      "summary": "A new eye button beside the usage readout in the open notch hides everything beside the camera: no character, activity line, signals or glow, in every layout and in fullscreen apps.",
+      "details": [
+        "Hidden, the notch does not open on hover, a failure or an update notice. Click inside the notch to open it, and click the eye again to show Claude Overhead as before.",
+        "Sessions are still watched, and the sounds you turned on still play.",
+        "A permission request or question is never hidden, because Claude is waiting for it. Lock Mode still decides whether the notch opens on one.",
+        "Hidden is separate from the layouts and from Lock Mode, and is kept across restarts. It is also in Settings, under General, and in the notch's right-click menu."
+      ],
+      "visual": {
+        "kind": "image",
+        "image": {
+          "file": "hidden.png",
+          "alt": "The top of the screen in a fullscreen video. Above, shown: its mark and icons beside the notch. Below, hidden: nothing beside the notch."
+        }
+      }
+    }
+  ]
+}

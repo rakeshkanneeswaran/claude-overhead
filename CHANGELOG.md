@@ -9,6 +9,25 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-27
+
+Claude Overhead can now hide outside the notch, for fullscreen video and
+anything else where it would distract, and come back with one click.
+
+- **Hide Claude Overhead outside the notch.** A new eye button beside the
+  usage readout in the open notch hides everything beside the camera, for
+  fullscreen video, films and anything else where it would distract. Hidden,
+  the closed notch draws nothing outside the physical notch: no character,
+  no activity line, no signals, no completion glow, in any layout and in
+  fullscreen apps. It does not open on hover, a failure or an update notice;
+  click inside the notch to open it, and click the eye again to show Claude
+  Overhead as before. Sessions are still watched and sounds you turned on
+  still play. A permission request or question is never hidden: Claude is
+  waiting for it, so it shows as it does today, and Lock Mode still decides
+  whether the notch opens on it. Hidden is separate from the layouts and from
+  Lock Mode, is kept across restarts, and is also in Settings, General,
+  Behaviour, and in the notch's right-click menu.
+
 ## [1.3.0] - 2026-11-25
 
 Settings has been redesigned from the sidebar in: every pane is built the
